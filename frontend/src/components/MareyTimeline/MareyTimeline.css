@@ -1,0 +1,181 @@
+/* ==========================================================================
+   MareyTimeline — ORBIT Schedule Visualization Styles
+   ========================================================================== */
+
+.marey-container {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  border: 1px solid #f1f5f9;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Header */
+.marey-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.marey-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px 0;
+}
+
+.marey-subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* Legend */
+.marey-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.marey-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.marey-legend-dot {
+  width: 18px;
+  height: 3px;
+  border-radius: 99px;
+}
+
+.marey-legend-dot.solid     { background: #8B5CF6; }
+.marey-legend-dot.ghost     { background: #8B5CF6; opacity: 0.6; border-top: 2px dashed #8B5CF6; height: 0; }
+.marey-legend-dot.projected { background: #cbd5e1; }
+.marey-legend-dot.maintenance {
+  background: repeating-linear-gradient(
+    45deg, #EAB308, #EAB308 3px, #1e293b 3px, #1e293b 6px
+  );
+  border-radius: 2px;
+}
+
+/* Canvas */
+.marey-canvas-wrapper {
+  position: relative;
+  height: 260px;
+  background: #fafafa;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #f1f5f9;
+  margin-bottom: 20px;
+}
+
+.marey-grid-bg {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.marey-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Conflict ripple */
+.marey-conflict-dot { pointer-events: none; }
+
+@keyframes marey-ping {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.1; transform: scale(2.5); }
+}
+
+.marey-ping {
+  transform-origin: 342px 110px;
+  animation: marey-ping 2s ease-in-out infinite;
+}
+
+/* Ghost label */
+.marey-ghost-label {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.marey-ghost-badge {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #8B5CF6;
+  background: #ede9fe;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.marey-ghost-action {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+  background: rgba(255,255,255,0.85);
+  padding: 2px 8px;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+
+.marey-ghost-train {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8B5CF6;
+  font-family: monospace;
+}
+
+/* Summary chips */
+.marey-chips {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.marey-chip {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+}
+
+.marey-chip-purple { background: #faf5ff; border-left-color: #8B5CF6; }
+.marey-chip-green  { background: #f0fdf4; border-left-color: #16a34a; }
+.marey-chip-slate  { background: #f8fafc; border-left-color: #94a3b8; }
+
+.marey-chip-label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  margin: 0 0 3px 0;
+}
+
+.marey-chip-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}

@@ -1,0 +1,148 @@
+/* ==========================================================================
+   SimulationSandbox — ORBIT What-If Maintenance Panel
+   ========================================================================== */
+
+.sandbox-mms-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 22px 24px;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+}
+
+.sandbox-mms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.sandbox-mms-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.sandbox-mms-count {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.sandbox-mms-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1.5px solid #fde68a;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sandbox-mms-add-btn:hover {
+  background: #fde68a;
+}
+
+/* Block list */
+.sandbox-block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sandbox-block-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #f1f5f9;
+  background: #fafafa;
+}
+
+.sandbox-block-card.whatif {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.sandbox-block-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sandbox-block-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  font-family: monospace;
+}
+
+.sandbox-block-meta {
+  font-size: 10px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sandbox-block-severity {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+}
+
+.severity-total  { background: #fee2e2; color: #b91c1c; }
+.severity-speed  { background: #fef3c7; color: #92400e; }
+
+.sandbox-block-toggle-btn {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sandbox-block-toggle-btn:hover {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+/* Empty state */
+.sandbox-mms-empty {
+  text-align: center;
+  padding: 28px 16px;
+  color: #94a3b8;
+}
+
+.sandbox-mms-empty-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.sandbox-mms-empty-text {
+  font-size: 12px;
+  font-weight: 500;
+}

@@ -1,0 +1,152 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800;900&family=Inter:wght@400;500;600;700&display=swap');
+
+/* ================================================================
+   STITCH DESIGN SYSTEM: Clinical Vanguard / Aero-Rail Light
+   Project: AI-Train_Precedence UI  |  Theme: LIGHT
+   ================================================================ */
+
+@theme {
+  /* Surface Hierarchy */
+  --color-background:               #f8fafc;
+  --color-surface:                  #f9f9f9;
+  --color-surface-dim:              #e2e8f0;
+  --color-surface-bright:           #ffffff;
+  --color-surface-container:        #f1f5f9;
+  --color-surface-container-low:    #f3f3f4;
+  --color-surface-container-high:   #e8e8e8;
+  --color-surface-container-highest:#e2e2e2;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-variant:          #e2e2e2;
+
+  /* Primary — Electric Violet */
+  --color-primary:                  #8B5CF6;
+  --color-primary-container:        #ede9fe;
+  --color-on-primary:               #ffffff;
+  --color-on-primary-container:     #4c1d95;
+  --color-primary-fixed:            #ddd6fe;
+  --color-primary-fixed-dim:        #c4b5fd;
+  --color-inverse-primary:          #f5f3ff;
+
+  /* Secondary — Cool Grey / Slate */
+  --color-secondary:                #64748b;
+  --color-secondary-container:      #f1f5f9;
+  --color-on-secondary:             #ffffff;
+  --color-on-secondary-container:   #1e293b;
+  --color-secondary-fixed:          #f1f5f9;
+  --color-secondary-fixed-dim:      #94a3b8;
+
+  /* Tertiary */
+  --color-tertiary:                 #8b5cf6;
+  --color-tertiary-container:       #ddd6fe;
+
+  /* Error */
+  --color-error:                    #b31b25;
+  --color-error-container:          #ffefee;
+
+  /* On-Colors */
+  --color-on-surface:               #0f172a;
+  --color-on-surface-variant:       #64748b;
+  --color-on-background:            #0f172a;
+
+  /* Outline */
+  --color-outline:                  #e2e8f0;
+  --color-outline-variant:          #f1f5f9;
+
+  /* Typography */
+  --font-display:  'Plus Jakarta Sans', sans-serif;
+  --font-headline: 'Plus Jakarta Sans', sans-serif;
+  --font-body:     'Inter', sans-serif;
+  --font-label:    'Inter', sans-serif;
+  --font-mono:     'Inter', monospace;
+}
+
+/* ── Raw CSS custom properties for use in component CSS ── */
+:root {
+  --c-bg:          #f8fafc;
+  --c-surface:     #ffffff;
+  --c-surface-low: #f1f5f9;
+  --c-surface-high:#e2e8f0;
+  --c-surface-top: #ffffff;
+  --c-void:        #ffffff;  /* Replaced dark void with clean white for layout panels */
+  --c-bright:      #f4f4f5;
+
+  --c-primary:     #8B5CF6;
+  --c-primary-ctr: #ede9fe;
+  --c-on-primary:  #ffffff;
+
+  --c-secondary:   #64748b;
+  --c-orange:      #8B5CF6; /* Swapped safety orange for Brand Violet to maintain compatibility without renaming variables everywhere */
+
+  --c-on-surface:  #0f172a;
+  --c-muted:       #334155;
+  --c-dim:         #64748b;
+  --c-outline:     #e2e8f0;
+
+  /* Ambient Occlusion Elevation Shadows (Light Theme) */
+  --shadow-raised:
+    0px 20px 40px rgba(44, 47, 49, 0.06),
+    0px 1px 3px rgba(44, 47, 49, 0.03);
+  --shadow-raised-sm:
+    0px 4px 10px rgba(44, 47, 49, 0.04),
+    0px 1px 2px rgba(44, 47, 49, 0.02);
+  --shadow-pressed:
+    inset  2px  2px 5px rgba(0, 0, 0, 0.05),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.7);
+  --shadow-recessed:
+    inset  1px  1px 4px rgba(0, 0, 0, 0.03),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.6);
+
+  /* Spacing */
+  --space-1: 4px;   --space-2: 8px;   --space-3: 12px;
+  --space-4: 16px;  --space-5: 20px;  --space-6: 24px;
+  --space-8: 32px;  --space-10: 40px; --space-12: 48px;
+  --space-16: 64px; --space-20: 80px; --space-24: 96px;
+
+  /* Radius — Smooth Clinical Edges */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 16px;
+
+  /* Transitions */
+  --t-fast: all 0.15s ease;
+  --t-base: all 0.3s ease-in-out;
+  --t-slow: all 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Base Reset & Global Styles ── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-size: 16px;
+    background-color: var(--color-background);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-on-surface);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* Precision scrollbar */
+  ::-webkit-scrollbar         { width: 4px; background: var(--c-surface-low); }
+  ::-webkit-scrollbar-thumb   { background: var(--c-outline); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--c-dim); }
+
+  a   { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+
+  ::selection {
+    background: rgba(139, 92, 246, 0.2);
+    color: var(--c-primary);
+  }
+}

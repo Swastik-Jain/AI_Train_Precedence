@@ -1,0 +1,249 @@
+/* ================================================================
+   AERO-RAIL OPS DASHBOARD  —  Sidebar & Layout Shell
+   ================================================================ */
+
+.dash {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--c-bg); /* #f8fafc */
+  font-family: 'Inter', sans-serif;
+  color: var(--color-on-surface);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   SIDEBAR — "Control Center"
+   ────────────────────────────────────────────────────────────── */
+.dash__sidebar {
+  width: 12%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  border-right: 1px solid var(--c-outline);
+}
+
+.dash__sidebar-header {
+  padding: 32px 24px 24px;
+  border-bottom: 1px solid var(--c-surface-high);
+}
+
+.dash__sidebar-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--c-on-surface);
+  margin: 0 0 4px;
+}
+
+.dash__sidebar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+}
+
+.dash__sidebar-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.4);
+  animation: lamp-pulse 2.2s ease-in-out infinite;
+}
+
+/* Nav list */
+.dash__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 12px;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dash__nav::-webkit-scrollbar { width: 0; }
+
+.dash__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--c-dim);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--r-md);
+}
+
+.dash__nav-item:hover {
+  color: var(--c-primary);
+  background-color: var(--c-surface-low);
+}
+
+/* Active Nav Item */
+.dash__nav-item--active {
+  color: var(--c-primary);
+  background-color: var(--c-primary-ctr);
+}
+
+.dash__nav-item--active:hover {
+  color: var(--c-primary);
+  background-color: var(--c-primary-ctr);
+}
+
+.dash__nav-item__icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.dash__nav-item--active .dash__nav-item__icon {
+  opacity: 1;
+}
+
+/* Separator before Log Out */
+.dash__nav-separator {
+  height: 1px;
+  margin: 16px 12px;
+  background: var(--c-outline);
+}
+
+.dash__nav-item--logout {
+  color: var(--c-dim);
+}
+
+.dash__nav-item--logout:hover {
+  color: var(--color-error);
+  background-color: var(--color-error-container);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   MAIN CONTENT
+   ────────────────────────────────────────────────────────────── */
+.dash__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto; /* Let the entire main area scroll rather than nesting */
+  background-color: var(--c-bg);
+}
+
+/* Top bar (Removed the top bar styling from main DashboardLayout conceptually just overriding to flat style) */
+.dash__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--c-outline);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.dash__topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dash__topbar-breadcrumb {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--c-primary);
+}
+
+.dash__topbar-breadcrumb span {
+  color: var(--c-outline);
+  margin: 0 8px;
+}
+
+.dash__topbar-breadcrumb strong {
+  color: var(--c-on-surface);
+}
+
+.dash__topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.dash__topbar-clock {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--c-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash__topbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #10b981;
+  background: #ecfdf5;
+  padding: 4px 12px;
+  border-radius: 9999px;
+}
+
+.dash__topbar-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: lamp-on-pulse 2s ease-in-out infinite;
+}
+
+.dash__content {
+  flex: 1;
+  /* padding provided by individual pages */
+}
+
+/* ──────────────────────────────────────────────────────────────
+   STATIC AERO-RAIL UTILITIES
+   ────────────────────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.marey-line {
+  stroke-dasharray: 4 2;
+}
+
+@keyframes lamp-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(139, 92, 246, 0.6); }
+  50%       { box-shadow: 0 0 2px rgba(139, 92, 246, 0.2); }
+}
+
+@keyframes lamp-on-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}

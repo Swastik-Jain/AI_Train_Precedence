@@ -1,0 +1,375 @@
+/* ==========================================================================
+   ORBIT Maintenance Drawer Styles
+   ========================================================================== */
+
+/* Backdrop */
+.mms-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 900;
+}
+
+/* Drawer Panel */
+.mms-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100vw;
+  background: #fff;
+  box-shadow: -12px 0 60px rgba(0, 0, 0, 0.12);
+  z-index: 901;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* Header */
+.mms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.mms-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mms-icon-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #92400e;
+  flex-shrink: 0;
+}
+
+.mms-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.mms-element-id {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #8B5CF6;
+  margin: 0;
+}
+
+.mms-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mms-close-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+/* What-If Row */
+.mms-whatif-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.mms-whatif-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mms-whatif-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+.mms-whatif-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 24px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #d97706;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+}
+
+/* Toggle */
+.mms-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.mms-toggle.on  { background: #8B5CF6; }
+.mms-toggle.off { background: #e2e8f0; }
+
+.mms-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  transition: left 0.2s;
+}
+
+.mms-toggle.on  .mms-toggle-thumb { left: 19px; }
+.mms-toggle.off .mms-toggle-thumb { left: 3px; }
+
+/* Fields */
+.mms-field {
+  padding: 16px 24px 0;
+}
+
+.mms-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+}
+
+/* Radio group */
+.mms-radio-group {
+  display: flex;
+  gap: 8px;
+}
+
+.mms-radio-btn {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mms-radio-btn.active {
+  border-color: #8B5CF6;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+/* Severity group */
+.mms-severity-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mms-severity-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mms-severity-btn.total {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.mms-severity-btn.total.active {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.mms-severity-btn.speed {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.mms-severity-btn.speed.active {
+  background: #EAB308;
+  color: #fff;
+  border-color: #EAB308;
+}
+
+.mms-severity-hint {
+  font-size: 10px;
+  color: #94a3b8;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+/* Time row */
+.mms-time-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mms-time-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mms-time-sublabel {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.mms-time-sep {
+  font-size: 14px;
+  color: #cbd5e1;
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+
+.mms-input {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #e2e8f0;
+  font-size: 12px;
+  color: #1e293b;
+  background: #f8fafc;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+
+.mms-input:focus {
+  outline: none;
+  border-color: #8B5CF6;
+  background: #fdf4ff;
+}
+
+.mms-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #e2e8f0;
+  font-size: 12px;
+  color: #1e293b;
+  background: #f8fafc;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.mms-textarea:focus {
+  outline: none;
+  border-color: #8B5CF6;
+  background: #fdf4ff;
+}
+
+/* Actions */
+.mms-actions {
+  display: flex;
+  gap: 10px;
+  padding: 20px 24px 28px;
+  margin-top: auto;
+  border-top: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+
+.mms-cancel-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mms-cancel-btn:hover { background: #f8fafc; }
+.mms-cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.mms-confirm-btn {
+  flex: 2;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: opacity 0.15s;
+}
+
+.mms-confirm-btn.danger  { background: #dc2626; }
+.mms-confirm-btn.warning { background: #EAB308; }
+.mms-confirm-btn:hover { opacity: 0.9; }
+.mms-confirm-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.mms-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: mms-spin 0.6s linear infinite;
+}
+
+@keyframes mms-spin {
+  to { transform: rotate(360deg); }
+}

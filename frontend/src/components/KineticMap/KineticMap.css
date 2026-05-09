@@ -1,0 +1,361 @@
+.kinetic-map-container {
+  width: 100%;
+  height: 100%;
+  background: var(--c-surface-low, #f1f5f9);
+  border-radius: var(--r-md, 8px);
+  overflow: auto;
+  position: relative;
+  font-family: 'Inter', sans-serif;
+  border: 1px solid var(--c-outline, #e2e8f0);
+}
+
+.kinetic-map-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Map Elements */
+.map-node {
+  fill: var(--c-outline, #e2e8f0);
+  stroke: var(--c-surface-low, #f1f5f9);
+  stroke-width: 2;
+  transition: fill 0.3s ease;
+}
+
+.map-node.station {
+  fill: var(--c-primary, #8B5CF6);
+  r: 6;
+}
+
+.map-node:hover {
+  fill: var(--c-primary, #8B5CF6);
+  cursor: pointer;
+}
+
+.map-node-label {
+  fill: var(--c-muted, #334155); /* Darker text */
+  font-size: 14px; /* Doubled relative size */
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.map-node.hub {
+  fill: #fff;
+  stroke: #8B5CF6;
+  stroke-width: 4; /* Heavier border */
+}
+
+.map-node.platform {
+  fill: #8B5CF6;
+}
+
+.node-psr-pulse {
+  fill: rgba(249, 115, 22, 0.15);
+  stroke: #F97316;
+  stroke-width: 2.5;
+  stroke-dasharray: 4 2;
+  animation: warning-pulse 1.5s ease-out infinite;
+}
+
+@keyframes warning-pulse {
+  0% { r: 10; opacity: 1; stroke-width: 4; }
+  100% { r: 35; opacity: 0; stroke-width: 1; }
+}
+
+.map-edge {
+  stroke: #94a3b8; /* Darker track color (slate-400) */
+  stroke-width: 8; /* Doubled track thickness */
+  stroke-linecap: round;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.map-edge:hover {
+  stroke: var(--c-dim, #64748b);
+}
+
+/* Interlocking States */
+.map-edge.reserved {
+  stroke: var(--c-primary, #8B5CF6);
+  stroke-width: 10;
+}
+
+.map-edge.conflict {
+  stroke: var(--c-error, #b31b25);
+  stroke-width: 10;
+  animation: pulse-edge 1.5s infinite;
+}
+
+/* Train Overlay */
+.train-node {
+  fill: var(--c-surface-low, #ffffff);
+  transition: cx 0.5s linear, cy 0.5s linear;
+  cursor: pointer;
+}
+
+.train-core {
+  fill: var(--c-primary, #8B5CF6);
+}
+
+.train-node.halted .train-core {
+  fill: #eab308; /* Yellow for halted */
+  animation: pulse-halt 2s infinite;
+}
+
+.train-label {
+  fill: var(--c-on-surface, #0f172a);
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Projected Path (Hover) */
+.projected-path {
+  stroke: var(--c-primary, #8B5CF6);
+  opacity: 0.4;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+  animation: dash 1s linear infinite;
+  pointer-events: none;
+}
+
+/* Conflict Aura */
+.conflict-aura {
+  fill: rgba(179, 27, 37, 0.1);
+  animation: pulse-aura 1s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Animations */
+@keyframes pulse-edge {
+  0% { filter: drop-shadow(0 0 2px rgba(179, 27, 37, 0.4)); }
+  50% { filter: drop-shadow(0 0 10px rgba(179, 27, 37, 0.8)); }
+  100% { filter: drop-shadow(0 0 2px rgba(179, 27, 37, 0.4)); }
+}
+
+@keyframes pulse-halt {
+  0% { fill: #eab308; transform: scale(1); }
+  50% { fill: #facc15; transform: scale(1.3); }
+  100% { fill: #eab308; transform: scale(1); }
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -8;
+  }
+}
+
+@keyframes pulse-aura {
+  0% { r: 5; opacity: 1; }
+  100% { r: 35; opacity: 0; }
+}
+
+/* Modals / Overlays */
+.track-health-modal {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--c-outline, #e2e8f0);
+  border-radius: var(--r-md, 8px);
+  padding: 16px;
+  color: var(--c-on-surface, #0f172a);
+  min-width: 200px;
+  z-index: 10;
+  box-shadow: var(--shadow-raised);
+  animation: fade-in 0.3s ease-out;
+}
+
+.modal-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--c-dim, #64748b);
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.modal-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-family: 'Inter', sans-serif;
+  color: var(--c-muted, #334155);
+}
+
+.modal-row strong {
+  color: var(--c-on-surface, #0f172a);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===========================================================================
+   AI Co-pilot Ghost Projection — Purple Pulse on Affected Edges
+   =========================================================================== */
+.map-edge.ai-pulse {
+  stroke: #8B5CF6;
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.45;
+  animation: ai-edge-pulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes ai-edge-pulse {
+  0%   { opacity: 0.15; stroke-width: 4; }
+  50%  { opacity: 0.55; stroke-width: 8; }
+  100% { opacity: 0.15; stroke-width: 4; }
+}
+
+/* ===========================================================================
+   AI Co-pilot Committed Decision — Green Flash on Approved Edges
+   =========================================================================== */
+.map-edge.committed-flash {
+  stroke: #22c55e;        /* green-500 */
+  stroke-opacity: 0.9;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.7));
+  animation: committed-pulse 0.65s ease-in-out 6;
+  pointer-events: none;
+}
+
+@keyframes committed-pulse {
+  0%, 100% { stroke-opacity: 0.9;  stroke-width: 7px; filter: drop-shadow(0 0 8px rgba(34,197,94,0.8)); }
+  50%       { stroke-opacity: 0.18; stroke-width: 3px; filter: drop-shadow(0 0 2px rgba(34,197,94,0.2)); }
+}
+
+/* ===========================================================================
+   MMS — Maintenance Block Edge Styles
+   =========================================================================== */
+.map-edge--blocked {
+  stroke: #EAB308;
+  stroke-width: 5;
+  stroke-linecap: round;
+  animation: mms-blocked-pulse 2s ease-in-out infinite;
+}
+
+.map-edge--restricted {
+  stroke: #F97316;
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+@keyframes mms-blocked-pulse {
+  0%, 100% { stroke: #EAB308; stroke-width: 5; }
+  50%  { stroke: #ca8a04; stroke-width: 7; }
+}
+
+.mms-edge-overlay {
+  cursor: pointer;
+  pointer-events: painted;
+}
+
+.mms-warning-icon {
+  cursor: pointer;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+  transition: transform 0.15s;
+}
+
+.mms-warning-icon:hover {
+  transform: scale(1.25);
+}
+
+/* ===========================================================================
+   Committed-Train Highlight — Ring + Badge + Corner Banner
+   Renders for 6 s whenever a controller commits an AI suggestion.
+   =========================================================================== */
+
+/* Pulsing outer ring drawn in SVG around the committed train dot */
+.committed-train-ring {
+  fill: none;
+  stroke: #22c55e;          /* green-500 */
+  stroke-width: 2.5;
+  animation: committed-ring-pulse 0.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes committed-ring-pulse {
+  0%, 100% {
+    r: 14;
+    stroke-opacity: 0.9;
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.85));
+  }
+  50% {
+    r: 20;
+    stroke-opacity: 0.25;
+    stroke-width: 1;
+    filter: drop-shadow(0 0 16px rgba(34, 197, 94, 0.4));
+  }
+}
+
+/* Action badge text inside the green rect above the train */
+.committed-action-label {
+  fill: #fff;
+  font-size: 7px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
+/* ── Corner banner ────────────────────────────────────────────────────────── */
+.committed-train-banner {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(15, 23, 42, 0.88);   /* dark glass */
+  backdrop-filter: blur(12px);
+  border: 1.5px solid #22c55e;
+  border-radius: 10px;
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.35), 0 4px 16px rgba(0,0,0,0.4);
+  animation: banner-slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 20;
+  pointer-events: none;
+  min-width: 180px;
+}
+
+@keyframes banner-slide-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.committed-train-banner__icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.committed-train-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.committed-train-banner__action {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #22c55e;          /* green accent */
+}
+
+.committed-train-banner__train {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f5f9;          /* near-white */
+  font-family: 'Inter', monospace;
+}
