@@ -1,0 +1,504 @@
+"""
+map_generator.py — CSMT → Manmad Corridor
+Real topology based on Central Railway Bhusawal-Kalyan section.
+
+Corridor: CSMT(0km) → Dadar(9km) → Kalyan(54km) → Kasara(121km)
+          → [GHAT TOKEN BLOCK 15km, gradient 1:37] →
+          Igatpuri(136km) → Devlali(182km) → Nashik Road(187km) → Manmad(261km)
+
+Node ID scheme:
+  Main line blocks : 1–999   (sequential, ordered by km from CSMT)
+  Platform nodes   : 1000+   (grouped by station, inherit station km)
+  Token block      : tagged with 'token_block': True on Kasara→Igatpuri blocks
+
+Track type per segment:
+  CSMT  → Kalyan  : QUADRUPLE (capacity 4, speed 110–130)
+  Kalyan→ Kasara  : DOUBLE    (capacity 2, speed 100)
+  Kasara→ Igatpuri: GHAT      (capacity 1 mid-line token, speed 50 uphill / 60 downhill)
+  Igatpuri→ Manmad: DOUBLE    (capacity 2, speed 110–130)
+"""
+
+from collections import Counter
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION LENGTH — used for observation normalization
+# ─────────────────────────────────────────────────────────────────────────────
+SECTION_LENGTH_KM = 261  # CSMT → Manmad
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STATION DEFINITIONS — real km, platforms, loops
+# ─────────────────────────────────────────────────────────────────────────────
+STATIONS = {
+    'CSMT': {
+        'km': 0,
+        'code': 'CSMT',
+        'platforms': 16,
+        'loops': 4,
+        'type': 'TERMINUS',
+        'speed_limit': 30,
+        'is_banker_point': False,
+    },
+    'DADAR': {
+        'km': 9,
+        'code': 'DR',
+        'platforms': 8,
+        'loops': 2,
+        'type': 'MAJOR_JUNCTION',
+        'speed_limit': 50,
+        'is_banker_point': False,
+    },
+    'KALYAN': {
+        'km': 54,
+        'code': 'KYN',
+        'platforms': 7,
+        'loops': 3,
+        'type': 'MAJOR_JUNCTION',
+        'speed_limit': 50,
+        'is_banker_point': False,
+        # Suburban ends here. All trains beyond Kalyan stop at every station.
+        'suburban_terminus': True,
+    },
+    'KASARA': {
+        'km': 121,
+        'code': 'KSRA',
+        'platforms': 4,
+        'loops': 3,
+        'type': 'STATION',
+        'speed_limit': 30,
+        'is_banker_point': True,   # ← banker locos attach here (UP trains)
+        'ghat_start': True,
+    },
+    'IGATPURI': {
+        'km': 136,
+        'code': 'IGP',
+        'platforms': 6,
+        'loops': 4,
+        'type': 'MAJOR_STATION',
+        'speed_limit': 30,
+        'is_banker_point': True,   # ← banker locos detach here (UP trains), attach (DOWN trains)
+        'ghat_end': True,
+    },
+    'DEVLALI': {
+        'km': 182,
+        'code': 'DVL',
+        'platforms': 3,
+        'loops': 2,
+        'type': 'STATION',
+        'speed_limit': 75,
+        'is_banker_point': False,
+    },
+    'NASHIK': {
+        'km': 187,
+        'code': 'NK',
+        'platforms': 6,
+        'loops': 3,
+        'type': 'MAJOR_JUNCTION',
+        'speed_limit': 50,
+        'is_banker_point': False,
+    },
+    'MANMAD': {
+        'km': 261,
+        'code': 'MMR',
+        'platforms': 4,
+        'loops': 2,
+        'type': 'TERMINUS',
+        'speed_limit': 30,
+        'is_banker_point': False,
+    },
+}
+
+# Station order — fixed, CSMT→Manmad (DOWN direction)
+STATION_ORDER = ['CSMT', 'DADAR', 'KALYAN', 'KASARA', 'IGATPURI', 'DEVLALI', 'NASHIK', 'MANMAD']
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTER-STATION BLOCK SPECS
+# ─────────────────────────────────────────────────────────────────────────────
+# Each entry defines the blocks BETWEEN two adjacent stations.
+# 'blocks'      : number of inter-station blocks (approx 5km each)
+# 'capacity'    : trains per block (4=quad, 2=double, 1=ghat single)
+# 'speed'       : max speed on these blocks (km/h)
+# 'token_block' : True only for Kasara-Igatpuri ghat mid-line
+# 'gradient'    : True for ghat section (affects speed profile)
+
+INTER_STATION_SPECS = {
+    ('CSMT', 'DADAR'): {
+        'blocks': 2,
+        'capacity': 4,       # quadruple track
+        'speed': 110,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('DADAR', 'KALYAN'): {
+        'blocks': 9,
+        'capacity': 4,       # quadruple track
+        'speed': 130,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('KALYAN', 'KASARA'): {
+        'blocks': 13,
+        'capacity': 2,       # double track, rising terrain
+        'speed': 100,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('KASARA', 'IGATPURI'): {
+        'blocks': 3,
+        'capacity': 1,       # ← THE BOTTLENECK: mid-line token block
+        'speed': 50,         # speed restricted, 1:37 gradient
+        'token_block': True, # bidirectional token working
+        'gradient': True,
+    },
+    ('IGATPURI', 'DEVLALI'): {
+        'blocks': 9,
+        'capacity': 2,       # double track beyond ghat
+        'speed': 110,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('DEVLALI', 'NASHIK'): {
+        'blocks': 1,
+        'capacity': 2,
+        'speed': 75,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('NASHIK', 'MANMAD'): {
+        'blocks': 15,
+        'capacity': 2,
+        'speed': 130,
+        'token_block': False,
+        'gradient': False,
+    },
+}
+
+
+def generate_realistic_section():
+    """
+    Build the CSMT–Manmad corridor graph.
+
+    Returns
+    -------
+    track_map   : dict[node_id → node_data]
+    loop_sections : list[node_id]  — all platform/loop nodes
+    end_node    : int              — destination node ID (999)
+    station_nodes : dict[station_name → dict]  — anchor node IDs per station
+    token_blocks  : list[node_id]  — Kasara-Igatpuri ghat block node IDs
+    """
+
+    track_map = {}
+    loop_sections = []
+    token_blocks = []
+
+    # station_nodes maps station name → {
+    #   'switch_in': node_id,   ← main line node just before platforms
+    #   'platforms': [node_ids],
+    #   'loops': [node_ids],
+    #   'switch_out': node_id,  ← main line node just after platforms
+    #   'km': float
+    # }
+    station_nodes = {}
+
+    current_node = 0
+    platform_node_base = 1000   # platform/loop nodes start at 1000
+
+    # ── Node 0: Origin / spawn point ──────────────────────────────────────
+    track_map[0] = {
+        'type': 'ORIGIN',
+        'speed': 0,
+        'capacity': 99,
+        'next': [1],
+        'km': 0.0,
+        'station': None,
+        'token_block': False,
+        'gradient': False,
+    }
+    current_node = 1
+
+    for s_idx, station_name in enumerate(STATION_ORDER):
+        st = STATIONS[station_name]
+        st_km = st['km']
+        n_platforms = st['platforms']
+        n_loops = st['loops']
+
+        # ── SWITCH IN — first main-line node of this station ──────────────
+        switch_in = current_node
+        track_map[switch_in] = {
+            'type': 'SWITCH',
+            'speed': st['speed_limit'],
+            'capacity': 4 if st_km < 55 else 2,  # inherit from segment
+            'next': [],   # filled after platform nodes are known
+            'km': st_km,
+            'station': station_name,
+            'token_block': False,
+            'gradient': False,
+            'is_banker_point': st.get('is_banker_point', False),
+        }
+        current_node += 1
+
+        # ── PLATFORM NODES ─────────────────────────────────────────────────
+        platform_ids = []
+        for p in range(n_platforms):
+            pid = platform_node_base
+            platform_node_base += 1
+            track_map[pid] = {
+                'type': 'PLATFORM',
+                'speed': st['speed_limit'],
+                'capacity': 1,
+                'next': [],   # filled below (→ switch_out)
+                'km': st_km,
+                'station': station_name,
+                'platform_index': p,
+                'token_block': False,
+                'gradient': False,
+            }
+            platform_ids.append(pid)
+            loop_sections.append(pid)
+
+        # ── LOOP NODES ─────────────────────────────────────────────────────
+        loop_ids = []
+        for l in range(n_loops):
+            lid = platform_node_base
+            platform_node_base += 1
+            track_map[lid] = {
+                'type': 'LOOP',
+                'speed': 30,
+                'capacity': 1,
+                'next': [],   # filled below
+                'km': st_km,
+                'station': station_name,
+                'loop_index': l,
+                'token_block': False,
+                'gradient': False,
+            }
+            loop_ids.append(lid)
+            loop_sections.append(lid)
+
+        # ── SWITCH OUT — last main-line node of this station ───────────────
+        switch_out = current_node
+        is_last_station = (s_idx == len(STATION_ORDER) - 1)
+        switch_out_next = [999] if is_last_station else [current_node + 1]
+
+        track_map[switch_out] = {
+            'type': 'SWITCH',
+            'speed': st['speed_limit'],
+            'capacity': 4 if st_km < 55 else 2,
+            'next': switch_out_next,
+            'km': st_km,
+            'station': station_name,
+            'token_block': False,
+            'gradient': False,
+        }
+        current_node += 1
+
+        # ── Wire platform/loop → switch_out ───────────────────────────────
+        for pid in platform_ids + loop_ids:
+            track_map[pid]['next'] = [switch_out]
+
+        # ── Wire switch_in → [switch_out (main), platforms, loops] ────────
+        # Main path is switch_out directly (trains that don't stop),
+        # then platforms (scheduled stops), then loops (diversions/holds)
+        track_map[switch_in]['next'] = [switch_out] + platform_ids + loop_ids
+
+        # ── Store station anchor data ──────────────────────────────────────
+        station_nodes[station_name] = {
+            'switch_in': switch_in,
+            'switch_out': switch_out,
+            'platforms': platform_ids,
+            'loops': loop_ids,
+            'km': st_km,
+            'is_banker_point': st.get('is_banker_point', False),
+            'ghat_start': st.get('ghat_start', False),
+            'ghat_end': st.get('ghat_end', False),
+        }
+
+        # ── INTER-STATION BLOCKS to next station ──────────────────────────
+        if not is_last_station:
+            next_station = STATION_ORDER[s_idx + 1]
+            seg = INTER_STATION_SPECS[(station_name, next_station)]
+            n_blocks = seg['blocks']
+            seg_speed = seg['speed']
+            seg_cap = seg['capacity']
+            is_token = seg['token_block']
+            is_grad = seg['gradient']
+
+            # km per block in this segment
+            km_start = st_km
+            km_end = STATIONS[next_station]['km']
+            km_per_block = (km_end - km_start) / n_blocks
+
+            for b in range(n_blocks):
+                block_km = km_start + (b + 1) * km_per_block
+                block_id = current_node
+                is_last_block = (b == n_blocks - 1)
+                next_ids = [current_node + 1] if not is_last_block else [
+                    station_nodes[next_station]['switch_in']
+                    if next_station in station_nodes
+                    else current_node + 1
+                ]
+
+                track_map[block_id] = {
+                    'type': 'GHAT_BLOCK' if is_token else 'MAIN_BLOCK',
+                    'speed': seg_speed,
+                    'capacity': seg_cap,
+                    'next': next_ids,
+                    'km': round(block_km, 1),
+                    'station': None,
+                    'token_block': is_token,
+                    'gradient': is_grad,
+                }
+
+                if is_token:
+                    token_blocks.append(block_id)
+
+                current_node += 1
+
+            # Fix: last inter-station block must point to next station's switch_in
+            # (switch_in doesn't exist yet when we write inter-station blocks
+            #  for the first stations — fix forward reference here)
+            if next_station in station_nodes:
+                last_block_id = current_node - 1
+                track_map[last_block_id]['next'] = [station_nodes[next_station]['switch_in']]
+
+    # ── Destination node ──────────────────────────────────────────────────
+    track_map[999] = {
+        'type': 'DESTINATION',
+        'speed': 0,
+        'capacity': 99,
+        'next': [],
+        'km': SECTION_LENGTH_KM,
+        'station': 'MANMAD',
+        'token_block': False,
+        'gradient': False,
+    }
+
+    return track_map, loop_sections, 999, station_nodes, token_blocks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOKEN BLOCK STATE — Kasara-Igatpuri mid-line
+# ─────────────────────────────────────────────────────────────────────────────
+
+class GhatTokenSystem:
+    """
+    Manages bidirectional token working on the Kasara-Igatpuri ghat section.
+
+    Real operation:
+    - UP trains (CSMT→Manmad): hold token while in ghat, release at Igatpuri
+    - DOWN trains (Manmad→CSMT): hold token while in ghat, release at Kasara
+    - Only one direction may hold the token at any time
+    - Banker locos count as token holders
+
+    Usage:
+        token = GhatTokenSystem(token_block_ids)
+        token.reset()
+        can_enter = token.can_enter(train_id, direction)   # before action mask
+        token.train_entered(train_id, direction)           # when train moves in
+        token.train_exited(train_id)                       # when train clears
+    """
+
+    def __init__(self, token_block_ids: list):
+        self.token_block_ids = set(token_block_ids)
+        self.reset()
+
+    def reset(self):
+        # Current direction holding the token: 'UP', 'DOWN', or None
+        self.token_direction = None
+        # Set of train IDs currently inside the token block
+        self.trains_in_block = set()
+
+    def can_enter(self, train_id: str, direction: str) -> bool:
+        """
+        Returns True if train can enter the ghat token block.
+        - If block is free: always yes
+        - If block held by same direction: yes (convoy allowed)
+        - If block held by opposing direction: NO
+        """
+        if not self.trains_in_block:
+            return True
+        if self.token_direction == direction:
+            return True  # same direction convoy
+        return False     # opposing direction blocked
+
+    def train_entered(self, train_id: str, direction: str):
+        """Call when a train successfully moves into a token block node."""
+        self.trains_in_block.add(train_id)
+        self.token_direction = direction
+
+    def train_exited(self, train_id: str):
+        """Call when a train moves out of the last token block node."""
+        self.trains_in_block.discard(train_id)
+        if not self.trains_in_block:
+            self.token_direction = None   # block free, direction released
+
+    def is_occupied(self) -> bool:
+        return len(self.trains_in_block) > 0
+
+    def status(self) -> dict:
+        return {
+            'direction': self.token_direction,
+            'trains_in_block': list(self.trains_in_block),
+            'is_free': not self.trains_in_block,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUICK VALIDATION — run directly to inspect generated map
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == '__main__':
+    track_map, loop_sections, end_node, station_nodes, token_blocks = generate_realistic_section()
+
+    print(f"\n{'='*60}")
+    print(f"CSMT–Manmad Corridor Map — Validation Report")
+    print(f"{'='*60}")
+    print(f"Total nodes      : {len(track_map)}")
+    print(f"Loop/platform    : {len(loop_sections)}")
+    print(f"Token block nodes: {len(token_blocks)} → IDs {token_blocks}")
+    print(f"End node         : {end_node}")
+
+    print(f"\n{'─'*60}")
+    print(f"Station Anchors:")
+    for name, data in station_nodes.items():
+        km = data['km']
+        n_pf = len(data['platforms'])
+        n_lp = len(data['loops'])
+        sw_in = data['switch_in']
+        sw_out = data['switch_out']
+        banker = '🔧 BANKER' if data['is_banker_point'] else ''
+        ghat = '⛰️  GHAT START' if data.get('ghat_start') else ('🏁 GHAT END' if data.get('ghat_end') else '')
+        print(f"  {name:<10} {km:>4}km  switch_in={sw_in:<4} switch_out={sw_out:<4}  "
+              f"platforms={n_pf}  loops={n_lp}  {banker} {ghat}")
+
+    print(f"\n{'─'*60}")
+    print(f"Ghat Token Blocks (Kasara→Igatpuri):")
+    for tid in token_blocks:
+        node = track_map[tid]
+        print(f"  node {tid:>4} | km={node['km']:>6.1f} | cap={node['capacity']} | "
+              f"speed={node['speed']}kmph | next={node['next']}")
+
+    print(f"\n{'─'*60}")
+    print(f"Capacity Distribution:")
+    cap_counts = Counter(v['capacity'] for v in track_map.values() if v['type'] not in ['ORIGIN', 'DESTINATION'])
+    for cap, count in sorted(cap_counts.items()):
+        label = {1: 'Single/Ghat', 2: 'Double line', 4: 'Quadruple line'}.get(cap, f'cap={cap}')
+        print(f"  {label:<20}: {count} nodes")
+
+    # Connectivity check — every non-destination node must have at least one next
+    broken = [nid for nid, nd in track_map.items()
+              if nd['type'] not in ['DESTINATION'] and not nd.get('next')]
+    if broken:
+        print(f"\n⚠️  BROKEN CONNECTIVITY: nodes with empty next → {broken}")
+    else:
+        print(f"\n✅ Connectivity OK — all nodes have outgoing edges")
+
+    # Token system smoke test
+    token_sys = GhatTokenSystem(token_blocks)
+    assert token_sys.can_enter('T1', 'UP') == True
+    token_sys.train_entered('T1', 'UP')
+    assert token_sys.can_enter('T2', 'UP') == True    # convoy allowed
+    assert token_sys.can_enter('T3', 'DOWN') == False  # opposing blocked
+    token_sys.train_exited('T1')
+    assert token_sys.token_direction is None            # block free
+    print(f"✅ GhatTokenSystem smoke test passed")
+    print(f"{'='*60}\n")

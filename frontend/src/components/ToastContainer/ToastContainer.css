@@ -1,0 +1,83 @@
+/* ==========================================================================
+   ORBIT Toast Notifications
+   ========================================================================== */
+
+.orbit-toast-container {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.orbit-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  min-width: 280px;
+  max-width: 420px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
+  pointer-events: all;
+  position: relative;
+  border-left: 4px solid transparent;
+  backdrop-filter: blur(8px);
+}
+
+.orbit-toast-success {
+  background: #fff;
+  border-left-color: #16a34a;
+  color: #166534;
+}
+
+.orbit-toast-error {
+  background: #fff;
+  border-left-color: #dc2626;
+  color: #991b1b;
+}
+
+.orbit-toast-warning {
+  background: #fff;
+  border-left-color: #d97706;
+  color: #92400e;
+}
+
+.orbit-toast-info {
+  background: #fff;
+  border-left-color: #8B5CF6;
+  color: #4c1d95;
+}
+
+.orbit-toast-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.orbit-toast-msg {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  flex: 1;
+}
+
+.orbit-toast-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.orbit-toast-close:hover {
+  opacity: 1;
+}

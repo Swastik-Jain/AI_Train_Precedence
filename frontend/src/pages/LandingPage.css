@@ -1,0 +1,813 @@
+/* ================================================================
+   ORBIT LANDING PAGE  —  Aero-Tactile Engineering Design System
+   All boundaries via tonal depth (NO 1px borders for sectioning)
+   Elevation via Dual-Tone Specular highlights (NOT drop shadows)
+   ================================================================ */
+
+/* ──────────────────────────────────────────────────────────────
+   PAGE WRAPPER
+   ────────────────────────────────────────────────────────────── */
+.orbit-page {
+  background-color: var(--c-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   NAV — Glassmorphic HUD overlay (surface_container_low @ 70% + blur)
+   ────────────────────────────────────────────────────────────── */
+.orbit-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 64px;
+  height: 68px;
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--c-outline);
+}
+
+.orbit-nav__logo {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.25rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-primary);
+  user-select: none;
+}
+
+.orbit-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 44px;
+  list-style: none;
+}
+
+.orbit-nav__link {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+  transition: color 0.2s ease;
+  position: relative;
+}
+
+.orbit-nav__link::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--c-primary-ctr);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+
+.orbit-nav__link:hover {
+  color: var(--c-primary);
+}
+
+.orbit-nav__link:hover::after {
+  transform: scaleX(1);
+}
+
+/* Primary CTA in nav — Raised extrusion */
+.orbit-nav__cta {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-on-primary);
+  background: linear-gradient(145deg, #0052ca, #0047ab);
+  border: none;
+  padding: 10px 22px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-raised-sm);
+  transition: var(--t-fast);
+  text-shadow: 0 0 14px rgba(177, 197, 255, 0.35);
+}
+
+.orbit-nav__cta:hover {
+  background: linear-gradient(145deg, #005ce0, #0052ca);
+  box-shadow: -2px -2px 4px rgba(55, 57, 61, 0.4), 2px 2px 4px rgba(12, 14, 18, 0.75);
+}
+
+.orbit-nav__cta:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-pressed);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   HERO SECTION
+   ────────────────────────────────────────────────────────────── */
+.orbit-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 80px 100px;
+  overflow: hidden;
+  background-color: var(--c-bg);
+}
+
+/* Animated CTC track-grid background */
+.orbit-hero__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(67, 70, 83, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(67, 70, 83, 0.12) 1px, transparent 1px);
+  background-size: 72px 72px;
+  background-position: -1px -1px;
+  animation: grid-drift 25s linear infinite;
+  z-index: 0;
+}
+
+@keyframes grid-drift {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(72px); }
+}
+
+/* Intersection node dots on the grid */
+.orbit-hero__grid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(67, 70, 83, 0.35) 1.5px, transparent 1.5px);
+  background-size: 72px 72px;
+  background-position: -1px -1px;
+}
+
+/* Radial glow: Primary (top-left) */
+.orbit-hero__glow-primary {
+  position: absolute;
+  top: -15vh;
+  left: -10vw;
+  width: 65vw;
+  height: 65vw;
+  max-width: 900px;
+  max-height: 900px;
+  background: radial-gradient(circle at center, rgba(0, 71, 171, 0.18) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Radial glow: Secondary Orange (bottom-right) */
+.orbit-hero__glow-secondary {
+  position: absolute;
+  bottom: -15vh;
+  right: -10vw;
+  width: 50vw;
+  height: 50vw;
+  max-width: 700px;
+  max-height: 700px;
+  background: radial-gradient(circle at center, rgba(250, 92, 28, 0.10) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.orbit-hero__content {
+  position: relative;
+  z-index: 2;
+  max-width: 1100px;
+}
+
+/* "Technological Framework — Active" pill */
+.orbit-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--c-orange);
+  margin-bottom: 36px;
+}
+
+.orbit-hero__badge-lamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff9060 0%, #fa5c1c 60%, #832700 100%);
+  box-shadow: 0 0 10px rgba(250, 92, 28, 0.8), 0 0 20px rgba(250, 92, 28, 0.3);
+  animation: lamp-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes lamp-pulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(250, 92, 28, 0.9), 0 0 20px rgba(250, 92, 28, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 5px rgba(250, 92, 28, 0.5), 0 0 10px rgba(250, 92, 28, 0.15);
+  }
+}
+
+/* ORBIT — Main display title */
+.orbit-hero__title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(6rem, 14vw, 13rem);
+  font-weight: 700;
+  line-height: 0.88;
+  letter-spacing: -0.03em;
+  color: var(--c-on-surface);
+  margin: 0 0 28px;
+  /* Subtle shimmer on the text */
+  background: linear-gradient(135deg, #e2e2e7 0%, #b1c5ff 40%, #e2e2e7 70%, #c3c6d5 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: title-shimmer 8s ease-in-out infinite;
+}
+
+@keyframes title-shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Subtitle: "Operational Rail Backbone & Intelligence Tool" */
+.orbit-hero__subtitle {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(0.9375rem, 2vw, 1.25rem);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  color: var(--c-muted);
+  margin: 0 0 24px;
+}
+
+/* Description paragraph */
+.orbit-hero__description {
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(0.875rem, 1.4vw, 1rem);
+  font-weight: 400;
+  line-height: 1.8;
+  color: var(--c-dim);
+  max-width: 560px;
+  margin: 0 0 52px;
+}
+
+/* Action button row */
+.orbit-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   BUTTONS — Aero-Tactile Tactile Switches
+   ────────────────────────────────────────────────────────────── */
+
+/* Primary: Raised + backlit label */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-on-primary);
+  background: linear-gradient(145deg, #0055d4, #0047ab);
+  border: none;
+  padding: 15px 32px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  text-shadow: 0 0 16px rgba(177, 197, 255, 0.5);
+  box-shadow: var(--shadow-raised);
+  transition: var(--t-fast);
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(145deg, #0062f0, #0055d4);
+  box-shadow: -3px -3px 6px rgba(55, 57, 61, 0.45), 3px 3px 6px rgba(12, 14, 18, 0.80);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-pressed);
+  text-shadow: 0 0 8px rgba(177, 197, 255, 0.3);
+}
+
+/* Secondary Tactile: Same bg color + extrusion (compresses on hover) */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  background: var(--c-bg);
+  border: none;
+  padding: 15px 32px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-raised);
+  transition: var(--t-fast);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover {
+  color: var(--c-on-surface);
+  box-shadow: -2px -2px 4px rgba(55, 57, 61, 0.35), 2px 2px 4px rgba(12, 14, 18, 0.70);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+  color: var(--c-orange);
+  box-shadow: var(--shadow-pressed);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   SECTION BASE
+   ────────────────────────────────────────────────────────────── */
+.orbit-section {
+  padding: 120px 80px;
+  position: relative;
+}
+
+.orbit-section--surface {
+  background-color: var(--c-bg);
+}
+
+.orbit-section--recessed {
+  background-color: var(--c-surface-low);
+}
+
+/* Section header */
+.orbit-section__eyebrow {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+  margin: 0 0 18px;
+}
+
+.orbit-section__title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: var(--c-on-surface);
+  margin: 0 0 20px;
+}
+
+.orbit-section__subtitle {
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--c-dim);
+  max-width: 520px;
+  margin: 0 0 72px;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   INTELLIGENCE LAYER — 3-COLUMN TECH STACK CARDS
+   ────────────────────────────────────────────────────────────── */
+.orbit-tech-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  align-items: stretch;
+}
+
+/* "Machined surface" card — Raised extrusion */
+.orbit-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--c-surface);
+  border-radius: var(--r-md);
+  padding: 36px 32px;
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Top-edge "leading edge" highlight using surface_bright */
+.orbit-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 5%, var(--c-bright) 40%, var(--c-bright) 60%, transparent 95%);
+  opacity: 0.35;
+  transition: opacity 0.3s ease;
+}
+
+/* Active indicator line — Deep Sea Blue */
+.orbit-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 0%;
+  background: linear-gradient(180deg, var(--c-primary-ctr), transparent);
+  transition: height 0.5s ease;
+}
+
+.orbit-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    -5px -5px 12px rgba(55, 57, 61, 0.6),
+     5px  5px 12px rgba(12, 14, 18, 0.95);
+}
+
+.orbit-card:hover::before {
+  opacity: 0.65;
+}
+
+.orbit-card:hover::after {
+  height: 60%;
+}
+
+/* Serial number / category label — "etched into panel" */
+.orbit-card__serial {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+  margin: 0 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.orbit-card__serial::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 1px;
+  background-color: var(--c-outline);
+}
+
+/* Card title — Space Grotesk, "Gauge Label" style */
+.orbit-card__title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-primary);
+  margin: 0 0 20px;
+}
+
+/* Description body — Inter for density */
+.orbit-card__body {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.72;
+  color: var(--c-dim);
+  margin: 0 0 32px;
+}
+
+/* Separator — Tonal (no 1px high-contrast border) */
+.orbit-card__separator {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(67, 70, 83, 0.6), transparent);
+  margin: 0 0 28px;
+}
+
+/* Stats container */
+.orbit-card__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.orbit-card__stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.orbit-card__stat-key {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+}
+
+.orbit-card__stat-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stat value colour variants */
+.orbit-card__stat-val--optimized {
+  color: #4ade80;
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.45);
+}
+
+.orbit-card__stat-val--warning {
+  color: var(--c-orange);
+  text-shadow: 0 0 8px rgba(250, 92, 28, 0.45);
+}
+
+.orbit-card__stat-val--error {
+  color: var(--c-error);
+}
+
+.orbit-card__stat-val--neutral {
+  color: var(--c-muted);
+}
+
+/* Signal Indicator Lamp — ON state */
+.orbit-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.orbit-lamp__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.orbit-lamp__dot--on {
+  background: radial-gradient(circle at 35% 35%, #7bff9e, #4ade80 60%, #166534 100%);
+  box-shadow:
+    0 0 0 2px rgba(12, 14, 18, 0.8),
+    0 0 8px rgba(74, 222, 128, 0.9),
+    0 0 16px rgba(74, 222, 128, 0.4);
+  animation: lamp-on-pulse 2s ease-in-out infinite;
+}
+
+.orbit-lamp__dot--standby {
+  background: radial-gradient(circle at 35% 35%, #ff9060, #fa5c1c 60%, #7c2700 100%);
+  box-shadow:
+    0 0 0 2px rgba(12, 14, 18, 0.8),
+    0 0 8px rgba(250, 92, 28, 0.8),
+    0 0 16px rgba(250, 92, 28, 0.3);
+  animation: lamp-on-pulse 3s ease-in-out infinite;
+}
+
+.orbit-lamp__dot--off {
+  background: var(--c-surface-high);
+  box-shadow:
+    inset 2px 2px 4px rgba(12, 14, 18, 0.8),
+    inset -1px -1px 2px rgba(55, 57, 61, 0.3);
+}
+
+@keyframes lamp-on-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+.orbit-lamp__label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   DEVELOPER / ARCHITECT SECTION
+   ────────────────────────────────────────────────────────────── */
+.orbit-developer {
+  padding: 140px 80px;
+  background-color: var(--c-surface-low);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orbit-developer__inner {
+  max-width: 720px;
+  width: 100%;
+  text-align: center;
+}
+
+/* Large quote */
+.orbit-developer__quote {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(1.375rem, 3.5vw, 2.25rem);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--c-on-surface);
+  margin: 0 0 56px;
+  padding: 0 56px;
+  position: relative;
+}
+
+/* Opening quote mark — top-left */
+.orbit-developer__quote::before {
+  content: '\201C';
+  position: absolute;
+  top: -0.15em;
+  left: 0;
+  font-size: 4em;
+  line-height: 1;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  color: var(--c-primary-ctr);
+  opacity: 0.30;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Closing quote mark — bottom-right */
+.orbit-developer__quote::after {
+  content: '\201D';
+  position: absolute;
+  bottom: -0.45em;
+  right: 0;
+  font-size: 4em;
+  line-height: 1;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  color: var(--c-primary-ctr);
+  opacity: 0.30;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Developer name */
+.orbit-developer__name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--c-primary);
+  margin: 0 0 10px;
+}
+
+/* Affiliation */
+.orbit-developer__affiliation {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+  margin: 0 0 56px;
+}
+
+/* Link row */
+.orbit-developer__links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Tactile secondary link buttons */
+.orbit-dev-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  background: var(--c-surface);
+  border: none;
+  padding: 11px 18px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-raised-sm);
+  text-decoration: none;
+  transition: var(--t-fast);
+}
+
+.orbit-dev-link:hover {
+  color: var(--c-primary);
+  box-shadow: -1px -1px 3px rgba(55, 57, 61, 0.35), 1px 1px 3px rgba(12, 14, 18, 0.65);
+}
+
+.orbit-dev-link:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-pressed);
+  color: var(--c-orange);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   FOOTER
+   ────────────────────────────────────────────────────────────── */
+.orbit-footer {
+  background-color: var(--c-void);
+  padding: 36px 80px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgba(67, 70, 83, 0.2);
+}
+
+.orbit-footer__copy {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-outline);
+}
+
+.orbit-footer__version {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--c-outline);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   SCROLL-REVEAL — triggered by IntersectionObserver
+   ────────────────────────────────────────────────────────────── */
+.sr-hidden {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sr-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.sr-delay-1 { transition-delay: 0.08s; }
+.sr-delay-2 { transition-delay: 0.16s; }
+.sr-delay-3 { transition-delay: 0.24s; }
+.sr-delay-4 { transition-delay: 0.32s; }
+.sr-delay-5 { transition-delay: 0.40s; }
+.sr-delay-6 { transition-delay: 0.48s; }
+
+/* ──────────────────────────────────────────────────────────────
+   RESPONSIVE BREAKPOINTS
+   ────────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .orbit-nav          { padding: 0 40px; }
+  .orbit-hero         { padding: 0 48px 80px; }
+  .orbit-section      { padding: 90px 48px; }
+  .orbit-developer    { padding: 100px 48px; }
+  .orbit-footer       { padding: 32px 48px; }
+  .orbit-tech-grid    { grid-template-columns: 1fr; max-width: 520px; gap: 20px; }
+}
+
+@media (max-width: 768px) {
+  .orbit-nav          { padding: 0 24px; height: 60px; }
+  .orbit-nav__links   { display: none; }
+  .orbit-hero         { padding: 80px 28px 64px; min-height: 100svh; }
+  .orbit-section      { padding: 72px 28px; }
+  .orbit-developer    { padding: 80px 28px; }
+  .orbit-developer__quote        { padding: 0 40px; font-size: 1.25rem; }
+  .orbit-developer__quote::before { display: none; }
+  .orbit-developer__quote::after  { display: none; }
+  .orbit-footer       { padding: 28px; flex-direction: column; gap: 8px; }
+}
+
+@media (max-width: 480px) {
+  .orbit-hero__actions  { flex-direction: column; align-items: flex-start; }
+  .btn-primary,
+  .btn-secondary        { width: 100%; justify-content: center; }
+}

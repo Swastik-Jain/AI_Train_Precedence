@@ -1,0 +1,24 @@
+# API and Web Server
+fastapi
+uvicorn[standard]
+websockets
+
+# AI & Constraint Programming
+ortools
+stable-baselines3[extra]  # Includes PyTorch
+gymnasium
+
+# Data Handling
+pandas
+numpy
+matplotlib
+
+# Database Connector
+psycopg2-binary
+
+# Environment Variables
+python-dotenv
+
+# Database
+sqlalchemy
+psycopg2-binary

@@ -1,0 +1,153 @@
+.routes-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.routes-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--spacing-xl);
+}
+
+@media (max-width: 1024px) {
+  .routes-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.routes-main {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--spacing-xl);
+}
+
+@media (max-width: 1024px) {
+  .routes-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Route Panel Customization ── */
+.panel-opt {
+  border-top: 2px solid var(--accent-primary);
+}
+
+.opt-details p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.opt-details p b {
+  color: var(--text-primary);
+}
+
+/* ── Extended Marey Graph ── */
+.marey-extended {
+  height: 400px;
+  background: var(--surface-low);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-lg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* We reuse dashboard marey styles inside this container for tracks */
+.marey-track-row--extended {
+  margin-bottom: var(--spacing-lg);
+}
+
+/* ── Live Timeline ── */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--spacing-md);
+  position: relative;
+}
+
+/* Line connecting timeline dots */
+.timeline-list::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  bottom: 20px;
+  width: 2px;
+  background: var(--surface-high);
+}
+
+.timeline-item {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+  position: relative;
+}
+
+.timeline-dot {
+  margin-top: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface-high);
+  border: 4px solid var(--surface-void);
+  z-index: 2;
+}
+
+.timeline-dot--warning { background: var(--accent-warning); }
+.timeline-dot--success { background: var(--accent-success); }
+.timeline-dot--primary { background: var(--accent-primary); }
+
+.timeline-content h4 {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.95rem;
+  font-family: 'Inter', sans-serif;
+}
+
+.timeline-content p {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+.timeline-content span {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+  display: block;
+}
+
+/* ── Routes Registry ── */
+.route-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: var(--spacing-md);
+}
+
+.route-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface-low);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.route-item:hover {
+  background: var(--surface-high);
+  color: var(--text-primary);
+}
+
+.route-arrow {
+  color: var(--accent-primary);
+  opacity: 0.6;
+}

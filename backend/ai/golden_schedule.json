@@ -1,0 +1,1027 @@
+{
+    "fleet_metadata": [
+        {
+            "id": "VB100",
+            "type": "Vande Bharat",
+            "max_speed": 130,
+            "priority": 10,
+            "start_offset": 0,
+            "scheduled_arrival": 60,
+            "path_length": 20
+        },
+        {
+            "id": "RJD101",
+            "type": "Rajdhani",
+            "max_speed": 130,
+            "priority": 10,
+            "start_offset": 5,
+            "scheduled_arrival": 65,
+            "path_length": 20
+        },
+        {
+            "id": "SF102",
+            "type": "Superfast",
+            "max_speed": 110,
+            "priority": 8,
+            "start_offset": 12,
+            "scheduled_arrival": 75,
+            "path_length": 20
+        },
+        {
+            "id": "SF103",
+            "type": "Superfast",
+            "max_speed": 110,
+            "priority": 8,
+            "start_offset": 18,
+            "scheduled_arrival": 85,
+            "path_length": 20
+        },
+        {
+            "id": "EXP104",
+            "type": "Express",
+            "max_speed": 90,
+            "priority": 6,
+            "start_offset": 25,
+            "scheduled_arrival": 100,
+            "path_length": 20
+        },
+        {
+            "id": "EXP105",
+            "type": "Express",
+            "max_speed": 90,
+            "priority": 6,
+            "start_offset": 32,
+            "scheduled_arrival": 110,
+            "path_length": 20
+        },
+        {
+            "id": "FRT106",
+            "type": "Freight (WAG-9)",
+            "max_speed": 60,
+            "priority": 2,
+            "start_offset": 2,
+            "scheduled_arrival": 120,
+            "path_length": 20
+        }
+    ],
+    "schedule": {
+        "VB100": {
+            "1": {
+                "arrival": 0,
+                "departure": 0
+            },
+            "2": {
+                "arrival": 1,
+                "departure": 1
+            },
+            "3": {
+                "arrival": 2,
+                "departure": 2
+            },
+            "4": {
+                "arrival": 3,
+                "departure": 3
+            },
+            "5": {
+                "arrival": 4,
+                "departure": 4
+            },
+            "6": {
+                "arrival": 5,
+                "departure": 5
+            },
+            "7": {
+                "arrival": 6,
+                "departure": 6
+            },
+            "8": {
+                "arrival": 7,
+                "departure": 7
+            },
+            "9": {
+                "arrival": 9,
+                "departure": 9
+            },
+            "10": {
+                "arrival": 11,
+                "departure": 11
+            },
+            "11": {
+                "arrival": 13,
+                "departure": 13
+            },
+            "12": {
+                "arrival": 14,
+                "departure": 14
+            },
+            "20013": {
+                "arrival": 18,
+                "departure": 20
+            },
+            "18": {
+                "arrival": 24,
+                "departure": 24
+            },
+            "19": {
+                "arrival": 25,
+                "departure": 25
+            },
+            "20": {
+                "arrival": 29,
+                "departure": 29
+            },
+            "21": {
+                "arrival": 30,
+                "departure": 30
+            },
+            "22": {
+                "arrival": 31,
+                "departure": 31
+            },
+            "23": {
+                "arrival": 32,
+                "departure": 32
+            },
+            "999": {
+                "arrival": 33,
+                "departure": 33
+            }
+        },
+        "RJD101": {
+            "1": {
+                "arrival": 5,
+                "departure": 5
+            },
+            "2": {
+                "arrival": 6,
+                "departure": 6
+            },
+            "3": {
+                "arrival": 7,
+                "departure": 7
+            },
+            "4": {
+                "arrival": 8,
+                "departure": 8
+            },
+            "5": {
+                "arrival": 9,
+                "departure": 9
+            },
+            "6": {
+                "arrival": 10,
+                "departure": 10
+            },
+            "7": {
+                "arrival": 11,
+                "departure": 11
+            },
+            "8": {
+                "arrival": 12,
+                "departure": 12
+            },
+            "9": {
+                "arrival": 14,
+                "departure": 14
+            },
+            "10": {
+                "arrival": 16,
+                "departure": 16
+            },
+            "11": {
+                "arrival": 18,
+                "departure": 18
+            },
+            "12": {
+                "arrival": 19,
+                "departure": 19
+            },
+            "20013": {
+                "arrival": 23,
+                "departure": 25
+            },
+            "18": {
+                "arrival": 29,
+                "departure": 29
+            },
+            "19": {
+                "arrival": 30,
+                "departure": 30
+            },
+            "20": {
+                "arrival": 34,
+                "departure": 34
+            },
+            "21": {
+                "arrival": 35,
+                "departure": 35
+            },
+            "22": {
+                "arrival": 36,
+                "departure": 36
+            },
+            "23": {
+                "arrival": 37,
+                "departure": 37
+            },
+            "999": {
+                "arrival": 38,
+                "departure": 38
+            }
+        },
+        "SF102": {
+            "1": {
+                "arrival": 12,
+                "departure": 12
+            },
+            "2": {
+                "arrival": 13,
+                "departure": 13
+            },
+            "3": {
+                "arrival": 14,
+                "departure": 14
+            },
+            "4": {
+                "arrival": 15,
+                "departure": 15
+            },
+            "5": {
+                "arrival": 16,
+                "departure": 16
+            },
+            "6": {
+                "arrival": 17,
+                "departure": 17
+            },
+            "7": {
+                "arrival": 18,
+                "departure": 18
+            },
+            "8": {
+                "arrival": 19,
+                "departure": 19
+            },
+            "9": {
+                "arrival": 21,
+                "departure": 21
+            },
+            "10": {
+                "arrival": 23,
+                "departure": 23
+            },
+            "11": {
+                "arrival": 25,
+                "departure": 25
+            },
+            "12": {
+                "arrival": 26,
+                "departure": 26
+            },
+            "20013": {
+                "arrival": 30,
+                "departure": 32
+            },
+            "18": {
+                "arrival": 36,
+                "departure": 36
+            },
+            "19": {
+                "arrival": 37,
+                "departure": 37
+            },
+            "20": {
+                "arrival": 41,
+                "departure": 41
+            },
+            "21": {
+                "arrival": 42,
+                "departure": 42
+            },
+            "22": {
+                "arrival": 43,
+                "departure": 43
+            },
+            "23": {
+                "arrival": 44,
+                "departure": 44
+            },
+            "999": {
+                "arrival": 45,
+                "departure": 45
+            }
+        },
+        "SF103": {
+            "1": {
+                "arrival": 18,
+                "departure": 18
+            },
+            "2": {
+                "arrival": 19,
+                "departure": 19
+            },
+            "3": {
+                "arrival": 20,
+                "departure": 20
+            },
+            "4": {
+                "arrival": 21,
+                "departure": 21
+            },
+            "5": {
+                "arrival": 22,
+                "departure": 22
+            },
+            "6": {
+                "arrival": 23,
+                "departure": 23
+            },
+            "7": {
+                "arrival": 24,
+                "departure": 24
+            },
+            "8": {
+                "arrival": 25,
+                "departure": 25
+            },
+            "9": {
+                "arrival": 27,
+                "departure": 27
+            },
+            "10": {
+                "arrival": 29,
+                "departure": 29
+            },
+            "11": {
+                "arrival": 31,
+                "departure": 31
+            },
+            "12": {
+                "arrival": 32,
+                "departure": 32
+            },
+            "20013": {
+                "arrival": 40,
+                "departure": 42
+            },
+            "18": {
+                "arrival": 46,
+                "departure": 46
+            },
+            "19": {
+                "arrival": 47,
+                "departure": 47
+            },
+            "20": {
+                "arrival": 51,
+                "departure": 51
+            },
+            "21": {
+                "arrival": 52,
+                "departure": 52
+            },
+            "22": {
+                "arrival": 53,
+                "departure": 53
+            },
+            "23": {
+                "arrival": 54,
+                "departure": 54
+            },
+            "999": {
+                "arrival": 55,
+                "departure": 55
+            }
+        },
+        "EXP104": {
+            "1": {
+                "arrival": 25,
+                "departure": 25
+            },
+            "2": {
+                "arrival": 26,
+                "departure": 26
+            },
+            "3": {
+                "arrival": 27,
+                "departure": 27
+            },
+            "4": {
+                "arrival": 28,
+                "departure": 28
+            },
+            "5": {
+                "arrival": 29,
+                "departure": 29
+            },
+            "6": {
+                "arrival": 30,
+                "departure": 30
+            },
+            "7": {
+                "arrival": 31,
+                "departure": 31
+            },
+            "8": {
+                "arrival": 32,
+                "departure": 32
+            },
+            "9": {
+                "arrival": 34,
+                "departure": 34
+            },
+            "10": {
+                "arrival": 36,
+                "departure": 36
+            },
+            "11": {
+                "arrival": 38,
+                "departure": 38
+            },
+            "12": {
+                "arrival": 39,
+                "departure": 39
+            },
+            "20013": {
+                "arrival": 45,
+                "departure": 47
+            },
+            "18": {
+                "arrival": 51,
+                "departure": 51
+            },
+            "19": {
+                "arrival": 52,
+                "departure": 52
+            },
+            "20": {
+                "arrival": 56,
+                "departure": 56
+            },
+            "21": {
+                "arrival": 57,
+                "departure": 57
+            },
+            "22": {
+                "arrival": 58,
+                "departure": 58
+            },
+            "23": {
+                "arrival": 59,
+                "departure": 59
+            },
+            "999": {
+                "arrival": 60,
+                "departure": 60
+            }
+        },
+        "EXP105": {
+            "1": {
+                "arrival": 32,
+                "departure": 32
+            },
+            "2": {
+                "arrival": 33,
+                "departure": 33
+            },
+            "3": {
+                "arrival": 34,
+                "departure": 34
+            },
+            "4": {
+                "arrival": 35,
+                "departure": 35
+            },
+            "5": {
+                "arrival": 36,
+                "departure": 36
+            },
+            "6": {
+                "arrival": 37,
+                "departure": 37
+            },
+            "7": {
+                "arrival": 38,
+                "departure": 38
+            },
+            "8": {
+                "arrival": 39,
+                "departure": 39
+            },
+            "9": {
+                "arrival": 41,
+                "departure": 41
+            },
+            "10": {
+                "arrival": 43,
+                "departure": 43
+            },
+            "11": {
+                "arrival": 45,
+                "departure": 45
+            },
+            "12": {
+                "arrival": 46,
+                "departure": 46
+            },
+            "20013": {
+                "arrival": 50,
+                "departure": 52
+            },
+            "18": {
+                "arrival": 56,
+                "departure": 56
+            },
+            "19": {
+                "arrival": 57,
+                "departure": 57
+            },
+            "20": {
+                "arrival": 61,
+                "departure": 61
+            },
+            "21": {
+                "arrival": 62,
+                "departure": 62
+            },
+            "22": {
+                "arrival": 63,
+                "departure": 63
+            },
+            "23": {
+                "arrival": 64,
+                "departure": 64
+            },
+            "999": {
+                "arrival": 65,
+                "departure": 65
+            }
+        },
+        "FRT106": {
+            "1": {
+                "arrival": 2,
+                "departure": 2
+            },
+            "2": {
+                "arrival": 4,
+                "departure": 4
+            },
+            "3": {
+                "arrival": 6,
+                "departure": 6
+            },
+            "4": {
+                "arrival": 8,
+                "departure": 8
+            },
+            "5": {
+                "arrival": 10,
+                "departure": 10
+            },
+            "6": {
+                "arrival": 12,
+                "departure": 12
+            },
+            "7": {
+                "arrival": 14,
+                "departure": 14
+            },
+            "8": {
+                "arrival": 16,
+                "departure": 16
+            },
+            "9": {
+                "arrival": 18,
+                "departure": 18
+            },
+            "10": {
+                "arrival": 20,
+                "departure": 20
+            },
+            "11": {
+                "arrival": 22,
+                "departure": 22
+            },
+            "12": {
+                "arrival": 24,
+                "departure": 24
+            },
+            "20013": {
+                "arrival": 35,
+                "departure": 37
+            },
+            "18": {
+                "arrival": 51,
+                "departure": 51
+            },
+            "19": {
+                "arrival": 53,
+                "departure": 53
+            },
+            "20": {
+                "arrival": 57,
+                "departure": 57
+            },
+            "21": {
+                "arrival": 59,
+                "departure": 59
+            },
+            "22": {
+                "arrival": 61,
+                "departure": 61
+            },
+            "23": {
+                "arrival": 63,
+                "departure": 63
+            },
+            "999": {
+                "arrival": 65,
+                "departure": 65
+            }
+        }
+    },
+    "expert_actions": {
+        "VB100": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "RJD101": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "SF102": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "SF103": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "EXP104": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "EXP105": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "FRT106": [
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ]
+    }
+}
