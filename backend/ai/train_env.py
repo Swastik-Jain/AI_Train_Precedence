@@ -422,8 +422,17 @@ class TrainDispatchEnv(gym.Env):
             current_pos = train['position']
             direction   = train['direction']
 
-            # Not yet spawned
+            # Staging node — allow PROCEED if start_time reached + entry clear
             if current_pos in (0, 998):
+                if self.sim_time >= self.schedule[train['id']]['start_time']:
+                    entry_node = (
+                        self.station_nodes['CSMT']['switch_in']
+                        if direction == 'DOWN'
+                        else self.station_nodes['MANMAD']['switch_in']
+                    )
+                    entry_cap = self.track_map.get(entry_node, {}).get('capacity', 2)
+                    if self.get_node_occupancy(entry_node) < entry_cap:
+                        mask[i, 1] = True
                 continue
 
             # Banker attach/detach in progress
@@ -727,12 +736,8 @@ class TrainDispatchEnv(gym.Env):
             if train.get('banker_wait', 0) > 0:
                 train['banker_wait'] -= 1
                 if train['banker_wait'] == 0:
-                    # Attach complete — train can now enter token block
-                    if direction == 'UP':
-                        train['banker_attached'] = True
-                    else:
-                        # Detach complete (DOWN train leaving ghat)
-                        train['banker_attached'] = False
+                    # Toggle attached status: if it wasn't attached, it now is; if it was, it's now detached
+                    train['banker_attached'] = not train.get('banker_attached', False)
                 current_positions.append(pos)
                 continue
 
@@ -879,28 +884,15 @@ class TrainDispatchEnv(gym.Env):
                 elif was_in_token and not now_in_token:
                     self.ghat_token.train_exited(train['id'])
 
-                    # Banker detach check: UP train exiting ghat at Igatpuri
-                    igatpuri_data = self.station_nodes.get('IGATPURI', {})
-                    if (direction == 'UP' and
-                            train.get('banker_required') and
-                            target_node == igatpuri_data.get('switch_in')):
+                    # Train has EXITED the ghat token block. Detach banker if attached.
+                    if train.get('banker_required') and train.get('banker_attached'):
                         train['banker_wait'] = BANKER_DETACH_TIME
 
-                    # DOWN train entering ghat needs banker detach at Kasara exit
-                    kasara_data = self.station_nodes.get('KASARA', {})
-                    if (direction == 'DOWN' and
-                            train.get('banker_required') and
-                            old_pos == kasara_data.get('switch_out')):
-                        # Banker attaches at Kasara for DOWN trains before entering ghat
+                # Banker attach check: Arriving at the station before the ghat
+                if train.get('banker_required') and not train.get('banker_attached'):
+                    attach_node = self.station_nodes.get('KASARA', {}).get('switch_in') if direction == 'DOWN' else self.station_nodes.get('IGATPURI', {}).get('switch_in')
+                    if target_node == attach_node:
                         train['banker_wait'] = BANKER_ATTACH_TIME
-
-                # Banker attach: UP train arriving at Kasara
-                kasara_sw_in = self.station_nodes.get('KASARA', {}).get('switch_in')
-                if (direction == 'UP' and
-                        train.get('banker_required') and
-                        not train.get('banker_attached') and
-                        target_node == kasara_sw_in):
-                    train['banker_wait'] = BANKER_ATTACH_TIME
 
                 # Station pass-through dwell logic
                 target_station = self.track_map.get(target_node, {}).get('station')
