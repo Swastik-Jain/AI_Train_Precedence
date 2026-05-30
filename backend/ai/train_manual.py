@@ -6,7 +6,8 @@ Curriculum:
   Level 1: 2 trains  (1 UP + 1 DOWN)  → 500k steps   — learn basic bidirectional
   Level 2: 5 trains  mixed direction   → 700k steps   — learn ghat token conflicts
   Level 3: 7 trains  mixed direction   → 700k steps   — learn overtaking + banker
-  Level 4: 10 trains mixed direction   → 500k steps   — full complexity
+  Level 4: 10 trains mixed direction   → 700k steps   — full 10-train complexity
+  Level 5: 15 trains mixed direction   → 1M  steps    — Phase 3 saturation target
 
 Usage:
   # Fresh start
@@ -16,15 +17,20 @@ Usage:
   python train_manual.py --level 2 --trains 5 --steps 700000 \
       --load models/L1_2Trains_Best/best_model.zip
 
-CRITICAL: NEVER load VecNormalize stats across levels — obs shape is fixed
-at (10, 23) throughout, but reward distributions shift. Always start fresh
-normalization at each level (default behaviour here).
+CRITICAL: NEVER load VecNormalize stats across levels — obs shape is now
+(10, 24) throughout Phase 3 (added required_speed_norm urgency feature).
+Always start fresh normalization at each level (default behaviour here).
 """
 
 import os
+import sys
 import argparse
 
 os.environ['TORCH_COMPILE_DISABLE'] = '1'
+
+# Ensure backend/ is on the path so train_env.py is always importable
+# regardless of the working directory the script is launched from.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import gymnasium as gym
@@ -45,8 +51,8 @@ from train_env import TrainDispatchEnv
 # ─────────────────────────────────────────────────────────────────────────────
 # PATHS
 # ─────────────────────────────────────────────────────────────────────────────
-MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-LOGS_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "Phase3")
+LOGS_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs",   "Phase3")
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR,   exist_ok=True)
@@ -55,14 +61,14 @@ os.makedirs(LOGS_DIR,   exist_ok=True)
 # HYPERPARAMETERS
 # These worked well on the toy map. Keep stable — don't tune until Phase 3.
 # ─────────────────────────────────────────────────────────────────────────────
-FIXED_LR        = 3e-5
+FIXED_LR        = 5e-5
 CLIP_RANGE      = 0.3
 GAMMA           = 0.995
 GAE_LAMBDA      = 0.95
-N_STEPS         = 2048
-BATCH_SIZE      = 256
+N_STEPS         = 8192
+BATCH_SIZE      = 512
 N_EPOCHS        = 10
-ENT_COEF        = 0.01
+ENT_COEF        = 0.02
 VF_COEF         = 0.5
 MAX_GRAD_NORM   = 0.5
 
@@ -78,7 +84,8 @@ REWARD_THRESHOLDS = {
     1: 5.0,    # 2 trains: basic movement reward
     2: 15.0,   # 5 trains: ghat conflicts resolved
     3: 25.0,   # 7 trains: overtaking working
-    4: 35.0,   # 10 trains: full curriculum
+    4: 35.0,   # 10 trains: high-density routing
+    5: 50.0,   # 15 trains: Phase 3 saturation target
 }
 
 
@@ -163,7 +170,7 @@ def make_env_fn(num_trains: int):
     """Returns a callable that creates one masked env with the right difficulty."""
     def _make():
         env = TrainDispatchEnv()
-        env.set_difficulty(num_trains)
+        env.set_mixed_mode(num_trains)
         return ActionMasker(env, mask_fn)
     return _make
 
@@ -181,10 +188,12 @@ def train_manual(
     no_early_stop:  bool  = False,
     ent_coef:       float = ENT_COEF,
     chaos:          bool  = False,
+    hardcore:       bool  = False,
+    incident:       bool  = False,
 ):
     print(f"\n{'='*60}")
     print(f"🚂 TRAINING: Level {level} | {num_trains} Trains | {total_steps} Steps")
-    print(f"   LR={learning_rate}  ent_coef={ent_coef}  chaos={chaos}")
+    print(f"   LR={learning_rate}  ent_coef={ent_coef}  chaos={chaos}  hardcore={hardcore}  incident={incident}")
     print(f"{'='*60}\n")
 
     # ── Create vectorised environments ────────────────────────────────────
@@ -206,8 +215,8 @@ def train_manual(
 
     # ── VecNormalize ──────────────────────────────────────────────────────
     # CRITICAL: Never load VecNormalize stats from a previous level.
-    # Obs shape is stable at (10, 23) across all levels, but reward
-    # distributions shift significantly. Always start fresh normalization.
+    # Obs shape is now (10, 24) in Phase 3 (added required_speed_norm).
+    # Reward distributions also shift per level. Always start fresh.
     #
     # stats_path is saved at end of training but NOT loaded on resume —
     # loading across levels causes reward normalizer drift.
@@ -271,9 +280,13 @@ def train_manual(
         )
 
     # ── Enable chaos mode if requested ───────────────────────────────────
-    if chaos:
+    if chaos or hardcore:
         print("🐒 Chaos mode enabled on training envs")
-        train_env.env_method('set_chaos_mode', True)
+        train_env.env_method('set_chaos_mode', True, hardcore)
+
+    if incident:
+        print("🚨 Incident mode enabled on training envs")
+        train_env.env_method('set_incident_mode', True)
 
     # ── Callbacks ─────────────────────────────────────────────────────────
     threshold = REWARD_THRESHOLDS.get(int(level) if str(level).isdigit() else 1, 10.0)
@@ -325,7 +338,7 @@ def train_manual(
     print(f"\n   To continue to next level:")
 
     next_level  = int(level) + 1 if str(level).isdigit() else 2
-    next_trains = {1: 5, 2: 7, 3: 10, 4: 10}.get(int(level), num_trains + 2)
+    next_trains = {1: 5, 2: 7, 3: 10, 4: 15, 5: 15}.get(int(level), num_trains + 2)
     best_path   = os.path.join(
         MODELS_DIR, f"L{level}_{num_trains}Trains_Best", "best_model.zip"
     )
@@ -370,6 +383,10 @@ if __name__ == '__main__':
                         help=f'Entropy coefficient (default: {ENT_COEF})')
     parser.add_argument('--chaos',         action='store_true',
                         help='Enable chaos monkey (delayed starts, speed snags)')
+    parser.add_argument('--hardcore',      action='store_true',
+                        help='Enable hardcore chaos (60% delay, up to 30m)')
+    parser.add_argument('--incident',      action='store_true',
+                        help='Enable incident mode (broken tracks)')
 
     args = parser.parse_args()
 
@@ -382,4 +399,6 @@ if __name__ == '__main__':
         no_early_stop=args.no_early_stop,
         ent_coef=args.ent_coef,
         chaos=args.chaos,
+        hardcore=args.hardcore,
+        incident=args.incident,
     )

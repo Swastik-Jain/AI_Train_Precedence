@@ -2,7 +2,7 @@ import json
 from ai.map_generator import generate_realistic_section
 
 def get_network_topology():
-    track_map, loop_sections, destination_id = generate_realistic_section()
+    track_map, loop_sections, destination_id, station_nodes, token_blocks = generate_realistic_section()
     
     nodes = []
     edges = []
@@ -34,10 +34,10 @@ def get_network_topology():
             queue.append((next_nodes[0], x + 150, y))
         elif len(next_nodes) > 1:
             # multiple branches, spread them out in Y
-            y_offset = -60 * ((len(next_nodes) - 1) / 2.0)
+            y_offset = -24 * ((len(next_nodes) - 1) / 2.0)
             for nxt in next_nodes:
-                queue.append((nxt, x + 150, y + y_offset))
-                y_offset += 60
+                queue.append((nxt, x + 180, y + y_offset))
+                y_offset += 24
 
     # Build node list
     for node_id, data in layout.items():
@@ -57,6 +57,7 @@ def get_network_topology():
                     "target": str(nxt),
                     "length": 1, # logical length
                     "max_speed": info.get("speed", 100),
+                    "capacity": info.get("capacity", 1),
                     "type": "track"
                 })
 

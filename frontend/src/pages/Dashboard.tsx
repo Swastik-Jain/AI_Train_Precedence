@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { KineticMap } from '../components/KineticMap/KineticMap';
 import { AICopilotPanel } from '../components/AICopilotPanel/AICopilotPanel';
 import { MareyTimeline } from '../components/MareyTimeline/MareyTimeline';
+import { useMapStore } from '../store/useMapStore';
 
 const Dashboard: React.FC = () => {
   const [punctuality, setPunctuality] = useState(98.4);
@@ -14,6 +15,8 @@ const Dashboard: React.FC = () => {
   const [isInferenceActive, setIsInferenceActive] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isLockdown, setIsLockdown] = useState(false);
+  
+  const { zoomLevel, setZoomLevel } = useMapStore();
 
   useEffect(() => {
     const fetchTelemetry = async () => {
@@ -163,10 +166,14 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end pointer-events-none">
             <div className="flex gap-2 pointer-events-auto">
-              <button className="w-10 h-10 glass-card rounded-full flex items-center justify-center shadow-md border border-white text-slate-600">
+              <button 
+                onClick={() => setZoomLevel(prev => Math.min(prev + 0.2, 3.0))}
+                className="w-10 h-10 glass-card rounded-full flex items-center justify-center shadow-md border border-white text-slate-600 hover:bg-white/50 transition-colors">
                 <span className="material-symbols-outlined text-sm">add</span>
               </button>
-              <button className="w-10 h-10 glass-card rounded-full flex items-center justify-center shadow-md border border-white text-slate-600">
+              <button 
+                onClick={() => setZoomLevel(prev => Math.max(prev - 0.2, 0.4))}
+                className="w-10 h-10 glass-card rounded-full flex items-center justify-center shadow-md border border-white text-slate-600 hover:bg-white/50 transition-colors">
                 <span className="material-symbols-outlined text-sm">remove</span>
               </button>
             </div>
