@@ -1,0 +1,25 @@
+Metric                 | Rule-Based             | FCFS                   | RL Agent               | RL + Shield           
+-----------------------|------------------------|------------------------|------------------------|-----------------------
+Avg Reward             | 866.94                 | 860.99                 | 867.28                 | 863.56                
+Std Reward             | 48.72                  | 49.95                  | 53.23                  | 54.98                 
+Min Reward (worst)     | 680.12                 | 673.72                 | 464.57                 | 533.64                
+P5 Reward (5th pctl)   | 783.82                 | 773.16                 | 792.72                 | 775.3                 
+Avg Ep Length          | 239.5                  | 238.5                  | 237.1                  | 238.5                 
+Max Ep Length          | 282.0                  | 279.0                  | 275.0                  | 276.0                 
+Timeout Rate %         | 0.0                    | 0.0                    | 0.0                    | 0.0                   
+Collision Rate %       | 0.0                    | 0.0                    | 0.0                    | 0.0                   
+On Time %              | 99.9                   | 99.9                   | 99.8                   | 99.6                  
+Avg Delay (steps)      | 0.0                    | 0.0                    | 0.0                    | 0.0                   
+Ghat Wait (steps)      | 0.0                    | 0.1                    | 0.1                    | 0.0                   
+High-Prio Delay        | 0.0                    | 0.0                    | 0.0                    | 0.0                   
+Efficiency (T/step)    | 0.063                  | 0.0632                 | 0.0635                 | 0.0631                
+
+────────────────────────────────────────────────────────────
+IMPROVEMENT SUMMARY (RL Agent vs Rule-Based):
+────────────────────────────────────────────────────────────
+  Reward:      +0.34 (+0.0%)
+  On-Time:     -0.1 pp
+  Consistency: +4.51 std (worse)
+  Worst-Case:  -215.55 min reward (worse)
+  HP Delay:    +0.0 steps (worse)
+  T-Test (p):  9.4627e-01 (not significant)

@@ -17,7 +17,7 @@ import schema
 import crud 
 from database import TrainPosition
 from ai.config import ACTIVE_FLEET as TRAIN_CONFIG
-from ai.smart_optimizer import SmartOptimizer
+from or_tools.smart_optimizer import SmartOptimizer
 from topology import get_network_topology
 
 
@@ -90,12 +90,12 @@ def _get_sim_brain():
     if _SIM_MODEL is not None:
         return _SIM_MODEL, _SIM_ENV
 
-    # ── 7-Train best checkpoint (for final evaluation) ──────────────────
+    # ── 15-Train best checkpoint (for final evaluation) ──────────────────
     model_path = os.path.join(
-        os.path.dirname(__file__), "ai", "models", "ppo_phase3_L2_7Trains_final.zip"
+        os.path.dirname(__file__), "ai", "models", "Phase3", "L10_15Trains_Best", "best_model.zip"
     )
     stats_path = os.path.join(
-        os.path.dirname(__file__), "ai", "models", "vec_normalize_L2_7Trains.pkl"
+        os.path.dirname(__file__), "ai", "models", "Phase3", "vec_normalize_L10_15Trains.pkl"
     )
 
     if not os.path.exists(model_path):
@@ -108,10 +108,10 @@ def _get_sim_brain():
         from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
         from ai.train_env import TrainDispatchEnv
 
-        # Build env at 7-train difficulty (must match training config)
+        # Build env at 15-train difficulty (must match training config)
         def make_env():
             e = TrainDispatchEnv()
-            e.set_difficulty(7)
+            e.set_difficulty(15)
             return e
 
         raw_env = DummyVecEnv([make_env])
@@ -121,7 +121,7 @@ def _get_sim_brain():
             env = VecNormalize.load(stats_path, raw_env)
             env.training = False   # freeze stats — do NOT update during inference
             env.norm_reward = False
-            print("[SIM-BRAIN] 📊 VecNormalize stats loaded for 7-train model.")
+            print("[SIM-BRAIN] 📊 VecNormalize stats loaded for 15-train model.")
         else:
             env = raw_env
             print("[SIM-BRAIN] ⚠️  No VecNormalize stats found — running without normalization.")
@@ -133,7 +133,7 @@ def _get_sim_brain():
         )
         _SIM_MODEL = model
         _SIM_ENV   = env
-        print("✅ [SIM-BRAIN] 7-Train MaskablePPO model (best checkpoint) loaded for sandbox analysis.")
+        print("✅ [SIM-BRAIN] 15-Train MaskablePPO model (best checkpoint) loaded for sandbox analysis.")
         return model, env
     except Exception as exc:
         import traceback

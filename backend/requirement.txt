@@ -12,6 +12,7 @@ gymnasium
 pandas
 numpy
 matplotlib
+scipy
 
 # Database Connector
 psycopg2-binary

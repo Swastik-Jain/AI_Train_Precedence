@@ -14,6 +14,8 @@ export interface Edge {
   target: string;
   length: number;
   max_speed: number;
+  capacity?: number;
+  type: string;
 }
 
 export interface TopologyData {
@@ -42,12 +44,14 @@ interface MapState {
   committedTrainId: string | null;
   /** The RL action that was committed: 0=STOP, 2=DIVERT, 1=MAIN */
   committedAction: number | null;
+  zoomLevel: number;
   
   setTopology: (topology: TopologyData) => void;
   updateLiveState: (trains: TrainState[], conflicts: string[]) => void;
   setSelectedTrain: (trainId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
   setIsConnected: (status: boolean) => void;
+  setZoomLevel: (zoom: number | ((prev: number) => number)) => void;
   connectWebSocket: () => void;
 }
 
@@ -65,6 +69,7 @@ export const useMapStore = create<MapState>((set) => {
     isConnected: false,
     committedTrainId: null,
     committedAction: null,
+    zoomLevel: 1.2,
 
 
     setTopology: (topology) => set({ topology }),
@@ -76,6 +81,10 @@ export const useMapStore = create<MapState>((set) => {
     setSelectedEdge: (selectedEdgeId) => set({ selectedEdgeId }),
     
     setIsConnected: (isConnected) => set({ isConnected }),
+
+    setZoomLevel: (zoom) => set((state) => ({ 
+      zoomLevel: typeof zoom === 'function' ? zoom(state.zoomLevel) : zoom 
+    })),
 
     connectWebSocket: () => {
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {

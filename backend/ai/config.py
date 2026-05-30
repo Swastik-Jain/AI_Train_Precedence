@@ -8,9 +8,12 @@ import random
 # ENVIRONMENT CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-MAX_TRAINS_CAPACITY = 10        # max trains in one episode (curriculum goes 2→5→7→10)
+MAX_TRAINS_CAPACITY = 15        # Phase 3: 15 trains — saturates the track to force genuine conflicts
 MAX_SPEED           = 130       # km/h — fastest train on corridor (Rajdhani)
 SECTION_LENGTH_KM   = 261       # CSMT → Manmad total distance
+
+# Evaluation Stress Test
+DEADLINE_MULTIPLIER = 0.45      # 45% of normal = tight but achievable
 
 # Physics
 ACCEL_RATE          = 10        # km/h gained per sim-step
@@ -235,13 +238,13 @@ def generate_daily_schedule(num_trains: int = 5, seed: int = None):
         schedule = {
             'GOODS_100': {
                 'start_time': 0,
-                'deadline':   400,
+                'deadline':   int(400 * DEADLINE_MULTIPLIER),
                 'stops':      ARCHETYPE_BY_NAME['GOODS']['stops_down'],
                 'direction':  'DOWN',
             },
             'SF_101': {
                 'start_time': 15,
-                'deadline':   200,
+                'deadline':   int(200 * DEADLINE_MULTIPLIER),
                 'stops':      ARCHETYPE_BY_NAME['SUPERFAST']['stops_up'],
                 'direction':  'UP',
             },
@@ -278,7 +281,7 @@ def generate_daily_schedule(num_trains: int = 5, seed: int = None):
         else:
             travel_budget = rng.randint(340, 420)   # freight gets more time
 
-        deadline = current_time + travel_budget
+        deadline = current_time + int(travel_budget * DEADLINE_MULTIPLIER)
 
         stops = (archetype_data['stops_down']
                  if direction == 'DOWN'
@@ -316,6 +319,100 @@ def generate_daily_schedule(num_trains: int = 5, seed: int = None):
             'stops':      stops,
             'direction':  direction,
         }
+
+    return fleet, schedule
+
+
+def generate_stress_schedule(num_trains: int = 10, seed: int = None):
+    """
+    Stress-test schedule: clustered spawns + tight deadlines.
+    Forces 4-5 trains into the ghat section simultaneously from
+    both directions, creating genuine queueing conflicts where
+    dispatcher ordering truly matters.
+
+    Key differences from normal schedule:
+      - Trains spawn in tight bursts (2-4 step intervals)
+      - Deadlines are 50% of normal (very tight)
+      - Direction clustering: bursts alternate UP/DOWN
+    """
+    rng = random.Random(seed)
+
+    fleet    = []
+    schedule = {}
+
+    # Cluster trains into bursts of 3-5 with opposing directions
+    remaining = num_trains
+    current_time = 0
+    burst_id = 0
+
+    while remaining > 0:
+        burst_size = min(remaining, rng.randint(3, 5))
+        # Alternate burst directions — first burst DOWN, next UP, etc.
+        burst_dir = 'DOWN' if burst_id % 2 == 0 else 'UP'
+        # Mix in 1-2 opposing trains per burst for maximum conflict
+        directions = [burst_dir] * burst_size
+        if burst_size >= 3:
+            n_opposing = rng.randint(1, 2)
+            for j in range(n_opposing):
+                directions[-(j+1)] = 'UP' if burst_dir == 'DOWN' else 'DOWN'
+        rng.shuffle(directions)
+
+        for j, direction in enumerate(directions):
+            archetype_data = rng.choice(_SPAWN_POOL)
+            arch_name = archetype_data['archetype']
+            t_id = f"{arch_name[:3].upper()}_{100 + len(fleet)}"
+
+            # Tight cluster: 2-4 steps between trains in same burst
+            interval = rng.randint(2, 4)
+            current_time += interval
+
+            # Very tight deadlines (50% of normal)
+            if archetype_data['priority'] >= 5:
+                travel_budget = rng.randint(220, 280)
+            elif archetype_data['priority'] >= 3:
+                travel_budget = rng.randint(280, 340)
+            else:
+                travel_budget = rng.randint(340, 420)
+
+            deadline = current_time + int(travel_budget * DEADLINE_MULTIPLIER)
+
+            stops = (archetype_data['stops_down']
+                     if direction == 'DOWN'
+                     else archetype_data['stops_up'])
+
+            train = {
+                'id':              t_id,
+                'archetype':       arch_name,
+                'priority':        archetype_data['priority'],
+                'direction':       direction,
+                'max_speed':       archetype_data['max_speed'],
+                'accel_rate':      archetype_data['accel_rate'],
+                'decel_rate':      archetype_data['decel_rate'],
+                'banker_required': archetype_data['banker_required'],
+                'position':        0,
+                'speed':           0,
+                'target_speed':    0,
+                'delay':           0,
+                'idle_time':       0,
+                'dwell_rem':       0,
+                'finished':        False,
+                'visited_nodes':   set(),
+                'banker_attached': False,
+                'banker_wait':     0,
+            }
+
+            fleet.append(train)
+            schedule[t_id] = {
+                'start_time': current_time,
+                'deadline':   deadline,
+                'stops':      stops,
+                'direction':  direction,
+            }
+
+        remaining -= burst_size
+        burst_id += 1
+        # Gap between bursts — small enough that first burst hasn't cleared ghat
+        current_time += rng.randint(8, 15)
 
     return fleet, schedule
 
