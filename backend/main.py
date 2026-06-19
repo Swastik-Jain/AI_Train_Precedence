@@ -41,6 +41,8 @@ COPILOT_WEBSOCKETS: set = set()         # AI Co-pilot broadcast sockets
 SYSTEM_LOCKDOWN = False
 OR_SHIELD_ENABLED = True
 AI_AUTO_COMMIT = False
+SIM_SPEED_FACTOR = 0.4
+TICK_INTERVAL_S = 1.0
 
 # OR-Shield singleton — validates proposals before queuing + at commit time
 _OR_SHIELD = SmartOptimizer()
@@ -69,12 +71,15 @@ _SIM_ENV   = None
 INFERENCE_ACTIVE = False
 _INFERENCE_OBS = None
 _INFERENCE_ACTIONS = None  # raw numpy array from model.predict (shape: [n_trains])
+_INFERENCE_RAW_ACTIONS = None # original RL actions before dispatcher overrides
 
 # ---------------------------------------------------------------------------
 # Simulation tick counter — incremented once per simulate_trains_bg iteration.
 # Used by the committed-override mechanism to enforce a time-bounded hold.
 # ---------------------------------------------------------------------------
 _SIM_TICK: int = 0
+SUGGESTION_TTL_TICKS = 20
+COPILOT_SUGGESTIONS_MAX_SIZE = 100
 
 # Stores the result of the last successful OR-Tools schedule generation.
 # Shape: { train_id: { node_id: {arrival, departure} } }
@@ -90,12 +95,12 @@ def _get_sim_brain():
     if _SIM_MODEL is not None:
         return _SIM_MODEL, _SIM_ENV
 
-    # ── 15-Train best checkpoint (for final evaluation) ──────────────────
+    # ── Level 6 checkpoint (Latest best) ──────────────────
     model_path = os.path.join(
-        os.path.dirname(__file__), "ai", "models", "Phase3", "L10_15Trains_Best", "best_model.zip"
+        os.path.dirname(__file__), "ai", "models", "Phase3", "L6_25Trains_Best_v4", "best_model.zip"
     )
     stats_path = os.path.join(
-        os.path.dirname(__file__), "ai", "models", "Phase3", "vec_normalize_L10_15Trains.pkl"
+        os.path.dirname(__file__), "ai", "models", "Phase3", "vec_normalize_L6_25Trains.pkl"
     )
 
     if not os.path.exists(model_path):
@@ -106,12 +111,12 @@ def _get_sim_brain():
         os.environ.setdefault('TORCH_COMPILE_DISABLE', '1')
         from sb3_contrib import MaskablePPO
         from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-        from ai.train_env import TrainDispatchEnv
+        from train_env import TrainDispatchEnv
 
-        # Build env at 15-train difficulty (must match training config)
+        # Build env at 25-train difficulty (must match training config)
         def make_env():
             e = TrainDispatchEnv()
-            e.set_difficulty(15)
+            e.set_difficulty(25)
             return e
 
         raw_env = DummyVecEnv([make_env])
@@ -133,7 +138,7 @@ def _get_sim_brain():
         )
         _SIM_MODEL = model
         _SIM_ENV   = env
-        print("✅ [SIM-BRAIN] 15-Train MaskablePPO model (best checkpoint) loaded for sandbox analysis.")
+        print("✅ [SIM-BRAIN] 25-Train MaskablePPO model (best checkpoint) loaded for sandbox analysis.")
         return model, env
     except Exception as exc:
         import traceback
@@ -221,6 +226,12 @@ def _sync_blocks_to_rl_env() -> None:
             if src in patched_map and dst in patched_map[src].get("next", []):
                 patched_map[src]["next"] = [
                     n for n in patched_map[src]["next"] if n != dst
+                ]
+            
+            # Remove the blocked source from the destination node's 'prev' list
+            if dst in patched_map and src in patched_map[dst].get("prev", []):
+                patched_map[dst]["prev"] = [
+                    n for n in patched_map[dst]["prev"] if n != src
                 ]
         inner_env.track_map = patched_map
     except Exception as e:
@@ -358,68 +369,184 @@ def _resolve_reroute_strategy(element_id: str) -> Dict[str, Any]:
         "element_id": element_id,
         "timestamp": _now_iso(),
     }
-
-
-def _make_suggestion() -> Dict[str, Any]:
-    """Generate an AI recommendation.
-    When INFERENCE_ACTIVE: uses real RL model actions for the real TRAIN_STATES trains.
-    Falls back to structured mock when inference is not running.
+def _compute_impact_minutes(train_id: str, rl_action: int) -> int:
     """
-    global INFERENCE_ACTIVE, _INFERENCE_ACTIONS
+    Returns estimated delay impact in minutes.
+    Positive = time saved. Negative = delay added.
+    Reads from LAST_OR_SCHEDULE if available, else uses physics estimate.
+    """
+    state = TRAIN_STATES.get(train_id)
+    if not state:
+        return 0
 
-    # ── Real RL-driven suggestions ─────────────────────────────────────────
-    if INFERENCE_ACTIVE and _INFERENCE_ACTIONS is not None:
-        # _INFERENCE_ACTIONS[i] is the OR-shield-validated action for the i-th
-        # active (non-Finished) TRAIN_STATES train, in insertion order.
-        live_trains = [
-            (tid, state) for tid, state in TRAIN_STATES.items()
-            if state.get('status') not in ('Finished',)
-        ]
-        for i, act in enumerate(_INFERENCE_ACTIONS):
-            if i >= len(live_trains):
-                break
-            if act not in (0, 2):          # only STOP or DIVERT are interesting
+    scheduled_arrival = state.get("scheduled_arrival", 0)
+    sim_time          = state.get("sim_time", 0)
+    delay_so_far      = state.get("delay_mins", 0)
+
+    if rl_action == 0:  # STOP — adds roughly 1-2 minutes of waiting
+        return -2       # negative: costs the train 2 minutes
+    elif rl_action == 2:  # DIVERT — loop adds ~3-5 min but prevents collision penalty
+        path = state.get("path", [])
+        trains_on_mainline = sum(
+            1 for s in TRAIN_STATES.values()
+            if s.get("edge_id") in path and s.get("train_id") != train_id
+        )
+        return max(3, trains_on_mainline * 2)  # positive: saves cascade delays
+
+    return 0
+
+
+def _make_suggestion() -> list:
+    """Returns a list of AI recommendations (empty list if none)."""
+    global INFERENCE_ACTIVE, _INFERENCE_ACTIONS, _INFERENCE_ACTION_PROBS, _INFERENCE_RAW_ACTIONS
+
+    if not (INFERENCE_ACTIVE and _INFERENCE_RAW_ACTIONS is not None):
+        return []
+
+    suggestions = []
+
+    for i, act in enumerate(_INFERENCE_RAW_ACTIONS):
+        if i >= len(_INFERENCE_TRAIN_IDS):
+            break
+
+        tid = _INFERENCE_TRAIN_IDS[i]
+        state = TRAIN_STATES.get(tid)
+        if not state or state.get("status") in ("Finished", "Scheduled"):
+            continue
+
+        edge_id = state.get("edge_id", "edge-0-1")
+
+        # Safe probability extraction
+        try:
+            prob = float(_INFERENCE_ACTION_PROBS[i]) if _INFERENCE_ACTION_PROBS and i < len(_INFERENCE_ACTION_PROBS) else 0.85
+        except Exception:
+            prob = 0.85
+        prob = max(0.0, min(1.0, prob))
+
+        # Check if any other active train is on the same edge
+        next_edge_occupied = any(
+            s.get("edge_id") == edge_id and k != tid
+            for k, s in TRAIN_STATES.items()
+            if s.get("status") not in ("Finished", "Scheduled")
+        )
+
+        # ── Action = STOP (0): Always generate a high-priority suggestion ──────
+        if act == 0:
+            # Skip if an override is already active for this train
+            if state.get("override_expires", 0) > _SIM_TICK:
                 continue
-
-            tid, state = live_trains[i]
-            edge_id = state.get('edge_id', 'edge-0-1')
-
-            if act == 0:
-                action_str = f"Hold {tid} at current block to prevent conflict"
-                reasoning  = (
-                    f"RL agent (PPO 7-Train) detected a block conflict ahead of {tid}. "
-                    "Holding at current signal preserves absolute-block safety."
-                )
-                priority = 1
-            else:  # act == 2
-                action_str = f"Divert {tid} to loop/platform"
-                reasoning  = (
-                    f"RL agent detected a priority overtaking opportunity at {edge_id}. "
-                    "Routing {tid} to the loop clears mainline for higher-priority service."
-                )
-                priority = 3
-
-            return {
+            urgency = "CRITICAL" if next_edge_occupied else "ADVISORY"
+            priority = 1 if urgency == "CRITICAL" else 2
+            action_str = f"Hold {tid} at current block to prevent conflict"
+            reasoning = (
+                f"RL agent detected a block conflict ahead of {tid}. "
+                "Holding at current signal preserves absolute-block safety."
+            )
+            suggestions.append({
                 "recommendation_id" : str(uuid.uuid4()),
                 "type"              : "AI_RECOMMENDATION",
                 "priority_level"    : priority,
+                "urgency"           : urgency,
                 "target_train_id"   : tid,
                 "proposed_action"   : action_str,
-                "impact_analysis"   : random.randint(-30, -5) if act == 0 else random.randint(5, 45),
-                "confidence_score"  : round(random.uniform(0.85, 0.99), 2),
+                "impact_analysis"   : _compute_impact_minutes(tid, act),
+                "confidence_score"  : round(prob, 2),
                 "reasoning"         : reasoning,
                 "affected_edges"    : [edge_id],
                 "timestamp"         : _now_iso(),
                 "status"            : "pending",
                 "is_maintenance_reroute": False,
                 "source"            : "RL_MODEL",
-                # Raw RL action stored so the commit handler can apply the
-                # correct override (0=STOP, 1=MAIN, 2=DIVERT) to TRAIN_STATES.
                 "rl_action"         : int(act),
-            }
+                "suggested_at_edge" : edge_id,
+                "suggested_at_tick" : _SIM_TICK,
+                "obs_snapshot"      : {
+                    "edge_id"            : edge_id,
+                    "position_percentage": state.get("position_percentage", 0),
+                    "speed_kmh"          : state.get("speed_kmh", 0),
+                    "status"             : state.get("status"),
+                    "sim_time"           : state.get("sim_time", 0),
+                },
+            })
 
-    # Fallback / No suggestion
-    return None
+        # ── Action = DIVERT (2): Always generate a medium-priority suggestion ──
+        elif act == 2:
+            urgency = "ADVISORY"
+            priority = 2 if next_edge_occupied else 3
+            action_str = f"Divert {tid} to loop/platform"
+            reasoning = (
+                f"RL agent detected a priority overtaking opportunity at {edge_id}. "
+                f"Routing {tid} to the loop clears mainline for higher-priority service."
+            )
+            suggestions.append({
+                "recommendation_id" : str(uuid.uuid4()),
+                "type"              : "AI_RECOMMENDATION",
+                "priority_level"    : priority,
+                "urgency"           : urgency,
+                "target_train_id"   : tid,
+                "proposed_action"   : action_str,
+                "impact_analysis"   : _compute_impact_minutes(tid, act),
+                "confidence_score"  : round(prob, 2),
+                "reasoning"         : reasoning,
+                "affected_edges"    : [edge_id],
+                "timestamp"         : _now_iso(),
+                "status"            : "pending",
+                "is_maintenance_reroute": False,
+                "source"            : "RL_MODEL",
+                "rl_action"         : int(act),
+                "suggested_at_edge" : edge_id,
+                "suggested_at_tick" : _SIM_TICK,
+                "obs_snapshot"      : {
+                    "edge_id"            : edge_id,
+                    "position_percentage": state.get("position_percentage", 0),
+                    "speed_kmh"          : state.get("speed_kmh", 0),
+                    "status"             : state.get("status"),
+                    "sim_time"           : state.get("sim_time", 0),
+                },
+            })
+
+        # ── Action = MAIN (1): Only suggest if stopped ────────────────────────
+        elif act == 1:
+            # Only suggest MAIN if the train is currently stopped and needs to resume
+            is_stopped = state.get("speed_kmh", 0) < 5
+            if not is_stopped:
+                continue
+                
+            priority = 3
+            urgency = "ADVISORY"
+            action_str = f"Resume speed for {tid} to clear block"
+            reasoning = "Path ahead is clear. Train should resume normal operating speed."
+            suggestions.append({
+                "recommendation_id" : str(uuid.uuid4()),
+                "type"              : "AI_RECOMMENDATION",
+                "priority_level"    : priority,
+                "urgency"           : urgency,
+                "target_train_id"   : tid,
+                "proposed_action"   : action_str,
+                "impact_analysis"   : _compute_impact_minutes(tid, act),
+                "confidence_score"  : round(prob, 2),
+                "reasoning"         : reasoning,
+                "affected_edges"    : [edge_id],
+                "timestamp"         : _now_iso(),
+                "status"            : "pending",
+                "is_maintenance_reroute": False,
+                "source"            : "RL_MODEL",
+                "rl_action"         : int(act),
+                "suggested_at_edge" : edge_id,
+                "suggested_at_tick" : _SIM_TICK,
+                "obs_snapshot"      : {
+                    "edge_id"            : edge_id,
+                    "position_percentage": state.get("position_percentage", 0),
+                    "speed_kmh"          : state.get("speed_kmh", 0),
+                    "status"             : state.get("status"),
+                    "sim_time"           : state.get("sim_time", 0),
+                },
+            })
+
+    # Cap total suggestions per batch to 3 — prioritise STOP > DIVERT > INFO
+    suggestions.sort(key=lambda x: x["priority_level"])
+    return suggestions[:3]
+
 
 async def _broadcast_copilot(payload: Dict[str, Any]) -> None:
     """Send a message to all connected copilot WebSocket clients."""
@@ -443,125 +570,23 @@ async def _broadcast_topology(payload: Dict[str, Any]) -> None:
 # Background Tasks
 # ---------------------------------------------------------------------------
 async def simulate_trains_bg():
-    global TRAIN_STATES
-    TRAIN_STATES = {
-        # ── Train 1: Vande Bharat Express (High Priority — lead train) ──────────────
-        "VB-20501": {
-            "train_id": "VB-20501",
-            "train_type": "Vande Bharat",
-            "edge_id": "edge-3-4",
-            "position_percentage": 0.6,
-            "status": "Moving",
-            "speed_kmh": 130,
-            "path": [
-                "edge-3-4", "edge-4-5", "edge-5-6",
-                "edge-6-7", "edge-7-8", "edge-8-9", "edge-9-10", "edge-10-11",
-                "edge-11-12", "edge-12-20014", "edge-20014-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 2: Rajdhani Express (High Priority — via mainline) ────────────────
-        "RJ-12952": {
-            "train_id": "RJ-12952",
-            "train_type": "Rajdhani",
-            "edge_id": "edge-4-5",
-            "position_percentage": 0.8,
-            "status": "Moving",
-            "speed_kmh": 120,
-            "path": [
-                "edge-4-5", "edge-5-6", "edge-6-7", "edge-7-8",
-                "edge-8-9", "edge-9-10", "edge-10-11", "edge-11-12",
-                "edge-12-20013", "edge-20013-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 3: Superfast Express (Medium Priority — via loop divert) ──────────
-        "SF-22119": {
-            "train_id": "SF-22119",
-            "train_type": "Superfast",
-            "edge_id": "edge-20007-7",
-            "position_percentage": 0.2,
-            "status": "Moving",
-            "speed_kmh": 110,
-            "path": [
-                "edge-5-20007", "edge-20007-7", "edge-7-8", "edge-8-9", "edge-9-10",
-                "edge-10-11", "edge-11-12",
-                "edge-12-20015", "edge-20015-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 4: Express (Medium Priority — starts midway) ──────────────────────
-        "Express-12402": {
-            "train_id": "Express-12402",
-            "train_type": "Express",
-            "edge_id": "edge-10-11",
-            "position_percentage": 0.2,
-            "status": "Moving",
-            "speed_kmh": 90,
-            "path": [
-                "edge-10-11", "edge-11-12",
-                "edge-12-20016", "edge-20016-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 5: Suburban Local (Low Priority — second loop path) ───────────────
-        "SUB-4401": {
-            "train_id": "SUB-4401",
-            "train_type": "Suburban",
-            "edge_id": "edge-1-2",
-            "position_percentage": 0.2,
-            "status": "Moving",
-            "speed_kmh": 75,
-            "path": [
-                "edge-1-2", "edge-2-3", "edge-3-4", "edge-4-5", "edge-5-6",
-                "edge-6-7", "edge-7-8", "edge-8-9",
-                "edge-9-10", "edge-10-11", "edge-11-12",
-                "edge-12-20015", "edge-20015-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 6: Passenger (Low Priority — starts at yard, behind all) ──────────
-        "PAS-9901": {
-            "train_id": "PAS-9901",
-            "train_type": "Passenger",
-            "edge_id": "edge-0-1",
-            "position_percentage": 0.0,
-            "status": "Moving",
-            "speed_kmh": 60,
-            "path": [
-                "edge-0-1", "edge-1-2", "edge-2-3", "edge-3-4", "edge-4-5",
-                "edge-5-6", "edge-6-7", "edge-7-8", "edge-8-9",
-                "edge-9-10", "edge-10-11", "edge-11-12",
-                "edge-12-20013", "edge-20013-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-        # ── Train 7: Freight WAG-9 (Lowest Priority — slow, via full loop) ──────────
-        "Freight-7798": {
-            "train_id": "Freight-7798",
-            "train_type": "Freight (WAG-9)",
-            "edge_id": "edge-2-3",
-            "position_percentage": 0.4,
-            "status": "Moving",
-            "speed_kmh": 40,
-            "path": [
-                "edge-1-2", "edge-2-3", "edge-3-4", "edge-4-5", "edge-5-20006", "edge-20006-7", "edge-7-8",
-                "edge-8-9", "edge-9-10", "edge-10-11", "edge-11-12",
-                "edge-12-20017", "edge-20017-18",
-                "edge-18-19", "edge-19-20", "edge-20-21", "edge-21-22", "edge-22-23",
-                "edge-23-24", "edge-24-25", "edge-25-999"
-            ]
-        },
-    }
-    
+    global TRAIN_STATES, INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, _SIM_TICK
+    from ai.config import generate_daily_schedule
+
+    TRAIN_STATES = {}
+    _spawned = False
+
+    # Real mainline has nodes 0→1→2→...→83→999 (84 edges DOWN)
+    DOWN_PATH = [f"edge-{k}-{k+1}" for k in range(83)] + ["edge-83-999"]
+    # For UP trains, they traverse the exact same edges but in reverse order.
+    # The UI only knows about forward edge IDs (edge-0-1, etc), so we must use those.
+    UP_PATH   = ["edge-83-999"] + [f"edge-{k}-{k+1}" for k in reversed(range(83))]
+
     while True:
-        global _SIM_TICK
+        if not INFERENCE_ACTIVE:
+            await asyncio.sleep(1.0)
+            continue
+            
         _SIM_TICK += 1
         now_ts = time.time()
         # TTL Pruning for DYNAMIC_CONSTRAINTS
@@ -580,7 +605,6 @@ async def simulate_trains_bg():
             for t_id, state in TRAIN_STATES.items():
                 state['status'] = 'Halted'
         else:
-            global INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS
             # ── Build the ordered list of active trains once per tick ──────────
             live_train_ids = list(TRAIN_STATES.keys())
 
@@ -588,61 +612,161 @@ async def simulate_trains_bg():
                 try:
                     model, env = _get_sim_brain()
                     if model and env:
-                        # ── SYNC: Align Digital Twin with Live State ──────────
                         inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
-                        
-                        # 1. Force the track map to match the real topology
-                        inner_env.track_map = RAW_TRACK_MAP
-                        
-                        # 2. Sync trains in the exact order the model expects
-                        for i, t_id in enumerate(_INFERENCE_TRAIN_IDS):
-                            if t_id in TRAIN_STATES and i < len(inner_env.trains):
-                                live = TRAIN_STATES[t_id]
-                                sim = inner_env.trains[i]
-                                
-                                # Convert edge_id (string) to node_id (int)
-                                # Map uses edge-X-Y, RL env uses node X.
-                                curr_edge = live.get('edge_id', 'edge-0-1')
-                                parts = curr_edge.split('-')
-                                curr_node = int(parts[1]) if len(parts) >= 2 else 0
-                                
-                                sim['position'] = curr_node
-                                sim['speed'] = live.get('speed_kmh', 0)
-                                sim['finished'] = (live.get('status') == 'Finished')
-                                
-                                # Update physics matrix
-                                inner_env.train_states[i][0] = curr_node
-                                inner_env.train_states[i][1] = sim['speed']
 
+                        # ── Get observation and predict ────────────────────────
                         if _INFERENCE_OBS is None:
                             _INFERENCE_OBS = env.reset()
-                        else:
-                            # Re-generate observation from the synced state
-                            _INFERENCE_OBS = np.array([inner_env._get_observation()])
+
+                        # Pass global sim speed to environment
+                        if hasattr(inner_env, 'sim_speed_factor'):
+                            pass
+                        inner_env.sim_speed_factor = SIM_SPEED_FACTOR
 
                         action_masks = np.array(env.env_method("get_action_mask"))
                         action, _ = model.predict(
                             _INFERENCE_OBS, deterministic=True, action_masks=action_masks
                         )
 
-                        # OR-Shield validates raw RL actions
+                        import torch
+                        obs_tensor = model.policy.obs_to_tensor(_INFERENCE_OBS)[0]
+                        act_list = list(action[0]) if hasattr(action[0], '__iter__') else list(action)
+                        global _INFERENCE_ACTION_PROBS
+                        try:
+                            with torch.no_grad():
+                                dist = model.policy.get_distribution(obs_tensor)
+                                action_tensor = torch.tensor(act_list).to(model.device)
+                                log_probs = dist.log_prob(action_tensor)
+                                probs = torch.exp(log_probs).cpu().numpy()
+                            _INFERENCE_ACTION_PROBS = list(probs)
+                        except Exception as e:
+                            print(f"[ORBIT] ⚠️  Inference probability extraction error: {e}")
+                            _INFERENCE_ACTION_PROBS = [0.85] * len(act_list)
+
+
+                        global _INFERENCE_RAW_ACTIONS
                         raw_actions = list(action[0]) if hasattr(action[0], '__iter__') else list(action)
+                        _INFERENCE_RAW_ACTIONS = raw_actions
+
+                        # Step 1: Determine Human/Dispatcher intent
+                        # If the human overrides, use the override. If AI_AUTO_COMMIT is true, use AI's action. Otherwise default to MAIN (1).
+                        desired_actions = []
+                        for i in range(len(raw_actions)):
+                            t_id = _INFERENCE_TRAIN_IDS[i] if i < len(_INFERENCE_TRAIN_IDS) else ""
+                            state = TRAIN_STATES.get(t_id, {})
+                            if state.get('override_expires', 0) > _SIM_TICK:
+                                desired_actions.append(state.get('override_action', 1))
+                            elif AI_AUTO_COMMIT:
+                                desired_actions.append(raw_actions[i])
+                            else:
+                                desired_actions.append(1)  # Default MAIN (keep moving on main line)
+
+                        # Step 2: OR-Shield validates the intent to prevent crashes
                         safe_actions = _OR_SHIELD.optimize_decision(
                             trains=inner_env.trains,
-                            ai_actions=raw_actions,
+                            ai_actions=desired_actions,
                             track_map=inner_env.track_map,
                         )
                         _INFERENCE_ACTIONS = safe_actions
 
-                        # Step the environment with SAFE actions to keep internal logic consistent
-                        # Note: we wrap safe_actions for VecEnv if needed
+                        # Step 3: Execute safe actions in physics engine
                         step_actions = np.array([safe_actions])
                         _INFERENCE_OBS, _, terminated, _ = env.step(step_actions)[:4]
-                        
+
+                        # ── Detect removed trains (finished/deadlocked) ────────
+                        # The physics engine removes finished trains from its active list.
+                        # We must catch this and mark them as Finished in the live map,
+                        # otherwise they stay stuck as 'Moving' forever and inflate traffic counts.
+                        current_rl_train_ids = {t['id'] for t in inner_env.trains}
+                        for t_id, live in list(TRAIN_STATES.items()):
+                            if t_id not in current_rl_train_ids and live.get('status') not in ('Finished', 'Scheduled', 'Expired'):
+                                live['status'] = 'Finished'
+                                live['finish_time'] = _SIM_TICK
+                                live['speed_kmh'] = 0
+                                # Move off-screen visually
+                                if "UP" in t_id:
+                                    live['edge_id'] = "edge-0-1"
+                                    live['position_percentage'] = 0.0
+                                else:
+                                    live['edge_id'] = "edge-83-999"
+                                    live['position_percentage'] = 1.0
+
+                        # ── Read RL env train positions back into TRAIN_STATES ─
+                        # The RL env manages its own complete, valid train state.
+                        # We map RL node positions → edge IDs for the live map.
+                        # Real topology: nodes 0..83 → edge-{n}-{n+1}, node 83 → edge-83-999
+                        for i, t_id in enumerate(_INFERENCE_TRAIN_IDS):
+                            if t_id not in TRAIN_STATES or i >= len(inner_env.trains):
+                                continue
+                            rl_train = inner_env.trains[i]
+                            live     = TRAIN_STATES[t_id]
+
+                            node_id  = rl_train.get('position', 0)
+                            finished = rl_train.get('finished', False)
+                            speed    = rl_train.get('speed', 0)
+
+                            # Build edge_id — topology ends at node 83 → 999
+                            direction_str = live.get('direction', 'DOWN')
+                            
+                            if node_id == 999 or node_id == 998:
+                                edge_id = "edge-83-999"
+                            elif node_id == 0:
+                                edge_id = "edge-0-1"
+                            else:
+                                if direction_str == "UP":
+                                    prev_opts = RAW_TRACK_MAP.get(node_id, {}).get("prev", [])
+                                    if prev_opts:
+                                        edge_id = f"edge-{prev_opts[0]}-{node_id}"
+                                    else:
+                                        edge_id = f"edge-{node_id - 1}-{node_id}"
+                                else:
+                                    next_opts = RAW_TRACK_MAP.get(node_id, {}).get("next", [])
+                                    if next_opts:
+                                        edge_id = f"edge-{node_id}-{next_opts[0]}"
+                                    else:
+                                        edge_id = f"edge-{node_id}-{node_id + 1}"
+
+                            live['edge_id']    = edge_id
+                            live['speed_kmh']  = speed
+                            
+                            # Smooth continuous position extraction.
+                            # _movement_acc is clamped to [0, 0.999] in physics,
+                            # so pct can NEVER be 1.0 while still on this node.
+                            pct = 0.5
+                            if hasattr(inner_env, '_movement_acc'):
+                                try:
+                                    pct = float(inner_env._movement_acc[i])
+                                    pct = max(0.0, min(pct, 0.999))  # defensive clamp
+                                except IndexError:
+                                    pass
+                            
+                            # UP trains traverse the edge in reverse (high→low km).
+                            if direction_str == "UP":
+                                pct = 1.0 - pct
+                                
+                            live['position_percentage'] = pct
+                            if finished:
+                                live['status'] = 'Finished'
+                                live['finish_time'] = _SIM_TICK
+                            elif node_id in (0, 998):
+                                live['status'] = 'Scheduled'
+                            elif rl_train.get('banker_wait', 0) > 0:
+                                live['status'] = 'Banker Ops'
+                            elif rl_train.get('dwell_rem', 0) > 0:
+                                live['status'] = 'Boarding'
+                            elif i < len(_INFERENCE_ACTIONS) and _INFERENCE_ACTIONS[i] == 0:
+                                live['status'] = 'Waiting at Signal'
+                            else:
+                                live['status'] = 'Moving'
+
                         if bool(terminated[0]) if hasattr(terminated, '__getitem__') else bool(terminated):
-                            # On collision/finish in sim, we don't reset the WHOLE thing, 
-                            # we just let the next tick sync it back.
-                            pass
+                            # Auto-reset the RL env to keep inference running continuously.
+                            # The internal RL episode ends when all trains arrive, but the
+                            # live dashboard keeps going with newly scheduled trains.
+                            print("[ORBIT] 🔄 RL episode complete — auto-resetting for continuous inference.")
+                            _INFERENCE_OBS = env.reset()
+                            _INFERENCE_RAW_ACTIONS = None
+
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
@@ -690,6 +814,31 @@ async def simulate_trains_bg():
                     # RL says: 0=STOP, 1=MAIN (move), 2=DIVERT (move to loop, treated as move)
                     rl_act = _INFERENCE_ACTIONS[idx] if idx < len(_INFERENCE_ACTIONS) else 1
 
+                    # ── Auto-Intervention (Fix 7) ─────────────────────────────
+                    if rl_act == 0 and state.get('override_expires', 0) <= _SIM_TICK and state.get('status') not in ('Finished', 'Scheduled'):
+                        edge_id = state.get("edge_id")
+                        next_edge_occupied = any(
+                            s.get("edge_id") == edge_id and s.get("train_id") != t_id
+                            for s in TRAIN_STATES.values()
+                            if s.get("status") not in ("Finished", "Scheduled")
+                        )
+                        if next_edge_occupied:
+                            state['override_action'] = 0
+                            state['override_expires'] = _SIM_TICK + 8
+                            asyncio.create_task(_broadcast_copilot({
+                                "type": "AUTO_INTERVENTION",
+                                "target_train_id": t_id,
+                                "message": f"Critical intervention: Auto-applying STOP for {t_id} to prevent collision."
+                            }))
+                            AUDIT_LOGS.insert(0, {
+                                "t": _now_iso(),
+                                "source": "OR-SHIELD",
+                                "action": f"Auto-applied STOP for {t_id}",
+                                "operator": "SYSTEM",
+                                "status": "Committed",
+                                "statusType": "warning"
+                            })
+
                     # ── Committed override takes priority over live RL ────────
                     # A controller commit writes override_action + override_expires
                     # to TRAIN_STATES.  While the override is active we honour the
@@ -707,19 +856,25 @@ async def simulate_trains_bg():
 
                 if should_move:
                     state['status'] = 'Moving'
-                    state['position_percentage'] = state.get('position_percentage', 0) + 0.05
-                    if state['position_percentage'] >= 1.0:
-                        state['position_percentage'] = 0.0
-                        try:
-                            curr_idx = path.index(state['edge_id'])
-                            if curr_idx + 1 < len(path):
-                                state['edge_id'] = path[curr_idx + 1]
-                            else:
-                                state['status'] = 'Finished'
-                        except ValueError:
-                            pass
+                    # Only apply manual fallback movement if inference is not driving the positions
+                    if not INFERENCE_ACTIVE:
+                        spd = state.get('speed_kmh', 0)
+                        mx = state.get('max_speed', 130)
+                        state['position_percentage'] = state.get('position_percentage', 0) + (spd / mx) * 0.05 * SIM_SPEED_FACTOR
+                        if state['position_percentage'] >= 1.0:
+                            state['position_percentage'] = 0.0
+                            try:
+                                curr_idx = path.index(state['edge_id'])
+                                if curr_idx + 1 < len(path):
+                                    state['edge_id'] = path[curr_idx + 1]
+                                else:
+                                    state['status'] = 'Finished'
+                                    state['finish_time'] = _SIM_TICK
+                            except ValueError:
+                                pass
                 else:
                     state['status'] = 'Halted'
+
 
         edges_occupied: Dict[str, list] = {}
         for t_id, state in TRAIN_STATES.items():
@@ -733,7 +888,14 @@ async def simulate_trains_bg():
                 conflicts.add(element_id)
 
         for e_id, trains in edges_occupied.items():
-            if len(trains) > 1:
+            # Find edge capacity
+            cap = 1
+            for edge_info in NETWORK_TOPOLOGY.get('edges', []):
+                if edge_info['id'] == e_id:
+                    cap = edge_info.get('capacity', 1)
+                    break
+            
+            if len(trains) > cap:
                 conflicts.add(e_id)
                 for t in trains:
                     if t['status'] != 'Blocked':
@@ -752,108 +914,99 @@ async def simulate_trains_bg():
             "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
         }
         await _broadcast_topology(payload)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(TICK_INTERVAL_S)
 
 
 async def copilot_suggestion_bg():
     """
     AI Co-Pilot background task — runs every 8 seconds.
-
-    Pipeline:
-      1. Generate a candidate suggestion (from RL model / structured mock).
-      2. Pass through OR-Shield hard-constraint gate:
-           - Train must exist in live sim.
-           - Affected edges must not be under TOTAL_BLOCK maintenance.
-           - Affected edges must not violate Absolute Block (≥ 2 trains/edge).
-           - Train must not already be finished.
-         → Violated proposals are DROPPED silently (never shown to controller).
-      3. Safe proposals are cached in COPILOT_SUGGESTIONS + broadcast to all
-         connected WebSocket clients.
     """
     await asyncio.sleep(3)   # hold for frontend to connect
     while True:
+        # Pruning Sweep (Fix 5)
+        expired_keys = []
+        for k, v in COPILOT_SUGGESTIONS.items():
+            if v.get("status") == "pending" and _SIM_TICK - v.get("suggested_at_tick", _SIM_TICK) > SUGGESTION_TTL_TICKS:
+                expired_keys.append(k)
+        for k in expired_keys:
+            s = COPILOT_SUGGESTIONS[k]
+            s["status"] = "expired"
+            _write_feedback(s, "expired", "TTL exceeded")
+            
+        if len(COPILOT_SUGGESTIONS) > COPILOT_SUGGESTIONS_MAX_SIZE:
+            # Drop the oldest half
+            sorted_keys = sorted(COPILOT_SUGGESTIONS.keys(), key=lambda x: COPILOT_SUGGESTIONS[x].get("timestamp", ""))
+            for k in sorted_keys[:COPILOT_SUGGESTIONS_MAX_SIZE // 2]:
+                del COPILOT_SUGGESTIONS[k]
+
         if COPILOT_WEBSOCKETS and INFERENCE_ACTIVE:
-            candidate = _make_suggestion()          # RL proposal
-            if not candidate:
+            candidates = _make_suggestion()          # RL proposal
+            if not candidates:
                 await asyncio.sleep(2)
                 continue
-
-            # ── OR-Shield Gate ──────────────────────────────────────────────
-            if OR_SHIELD_ENABLED:
-                is_safe, reason = _OR_SHIELD.or_shield_check(
-                    suggestion=candidate,
-                    train_states=TRAIN_STATES,
-                    active_blocks=ACTIVE_BLOCKS,
-                    dynamic_constraints=DYNAMIC_CONSTRAINTS,
-                )
-            else:
-                is_safe, reason = True, "OR-Shield Disabled"
-
-            if not is_safe:
-                # Hard-constraint violation — silently drop, never shown to UI
-                print(
-                    f"[OR-Shield] 🛡️  Filtered suggestion "
-                    f"{candidate['recommendation_id'][:8]}… "
-                    f"(target: {candidate['target_train_id']}) — "
-                    f"reason: {reason}"
-                )
-            else:
-                if AI_AUTO_COMMIT and candidate["priority_level"] >= 3:
-                    # Auto-commit high-priority suggestions
-                    candidate["status"] = "committed"
-                    candidate["committed_at"] = _now_iso()
-                    
-                    target_id = candidate["target_train_id"]
-                    new_edge_id = None
-                    if target_id in TRAIN_STATES:
-                        t = TRAIN_STATES[target_id]
-                        path = t.get("path", [])
-                        curr_edge = t.get("edge_id")
-                        affected = candidate.get("affected_edges", [])
-                        if affected and curr_edge in path:
-                            candidate_edge = affected[0]
-                            curr_idx = path.index(curr_edge)
-                            if curr_idx + 1 < len(path) and path[curr_idx + 1] == candidate_edge:
-                                t["edge_id"] = candidate_edge
-                                t["position_percentage"] = 0.0
-                                t["status"] = "Moving"
-                                new_edge_id = candidate_edge
-                    
-                    schedule_update = {
-                        "type": "SCHEDULE_UPDATED",
-                        "recommendation_id": candidate["recommendation_id"],
-                        "target_train_id": target_id,
-                        "proposed_action": candidate["proposed_action"],
-                        "affected_edges": candidate["affected_edges"],
-                        "new_edge_id": new_edge_id,
-                        "committed_at": candidate["committed_at"],
-                        "timestamp": candidate["committed_at"],
-                    }
-                    COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
-                    
-                    AUDIT_LOGS.append({
-                        "t": candidate["committed_at"],
-                        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-                        "source": f"AI_{target_id}",
-                        "action": f"Auto-Dispatch: {candidate['proposed_action']} ({candidate['reason']})",
-                        "operator": "ORBIT Co-Pilot",
-                        "status": "Committed",
-                        "statusType": "success",
-                        "id": str(uuid.uuid4())
-                    })
-                    
-                    await _broadcast_topology(schedule_update)
-                    await _broadcast_copilot(schedule_update)
-                    print(f"[ORBIT] 🤖 Auto-committed suggestion {candidate['recommendation_id'][:8]}…")
-                else:
-                    # Safe proposal — queue for controller decision
-                    COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
-                    await _broadcast_copilot(candidate)
-                    print(
-                        f"[ORBIT] ✅ Emitted suggestion "
-                        f"{candidate['recommendation_id'][:8]}… "
-                        f"(P{candidate['priority_level']}, {candidate['target_train_id']})"
+                
+            for candidate in candidates:
+                # ── OR-Shield Gate ──────────────────────────────────────────────
+                if OR_SHIELD_ENABLED:
+                    is_safe, reason = _OR_SHIELD.or_shield_check(
+                        suggestion=candidate,
+                        train_states=TRAIN_STATES,
+                        active_blocks=ACTIVE_BLOCKS,
+                        dynamic_constraints=DYNAMIC_CONSTRAINTS,
                     )
+                else:
+                    is_safe, reason = True, "OR-Shield Disabled"
+
+                if not is_safe:
+                    print(
+                        f"[OR-Shield] 🛡️  Filtered suggestion "
+                        f"{candidate['recommendation_id'][:8]}… "
+                        f"(target: {candidate['target_train_id']}) — "
+                        f"reason: {reason}"
+                    )
+                else:
+                    if AI_AUTO_COMMIT and candidate["priority_level"] >= 3:
+                        candidate["status"] = "committed"
+                        candidate["committed_at"] = _now_iso()
+                        
+                        if candidate["target_train_id"] in TRAIN_STATES:
+                            t = TRAIN_STATES[candidate["target_train_id"]]
+                            path = t.get("path", [])
+                            curr_edge = t.get("edge_id")
+                            affected = candidate.get("affected_edges", [])
+                            if affected and curr_edge in path:
+                                try:
+                                    next_idx = path.index(curr_edge) + 1
+                                    if next_idx < len(path):
+                                        new_edge_id = path[next_idx]
+                                        t["edge_id"] = new_edge_id
+                                        t["position_percentage"] = 0.0
+                                except ValueError:
+                                    pass
+                                    
+                        _write_feedback(candidate, "committed", "Auto-committed by AI_AUTO_COMMIT")
+
+                        schedule_update = {
+                            "type": "SCHEDULE_UPDATED",
+                            "recommendation_id": candidate["recommendation_id"],
+                            "target_train_id": candidate["target_train_id"],
+                            "proposed_action": candidate["proposed_action"],
+                            "affected_edges": candidate["affected_edges"],
+                            "committed_at": candidate["committed_at"],
+                            "timestamp": candidate["committed_at"],
+                        }
+                        COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
+                        await _broadcast_topology(schedule_update)
+                        await _broadcast_copilot(schedule_update)
+                        print(f"[ORBIT] 🤖 Auto-committed suggestion {candidate['recommendation_id'][:8]}…")
+                    else:
+                        COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
+                        await _broadcast_copilot(candidate)
+                        print(
+                            f"[ORBIT] ✅ Emitted suggestion "
+                            f"{candidate['recommendation_id'][:8]}… "
+                            f"(P{candidate['priority_level']}, {candidate['target_train_id']})"
+                        )
 
         await asyncio.sleep(8)
 
@@ -869,7 +1022,7 @@ async def startup_event():
 # ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -885,14 +1038,12 @@ class OverrideRequest(BaseModel):
 async def start_inference():
     """
     Start the RL inference loop.
-
-    Flow:
-      1. Require a schedule to exist (generated on Fleet Status page).
-      2. Re-seed TRAIN_STATES from the OR schedule paths so the live map
-         reflects the actual scheduled routes.
-      3. Reset the RL environment and begin the inference loop.
     """
-    global INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, TRAIN_STATES, LAST_OR_SCHEDULE, _INFERENCE_TRAIN_IDS
+    global INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, _INFERENCE_RAW_ACTIONS, TRAIN_STATES, LAST_OR_SCHEDULE, _INFERENCE_TRAIN_IDS
+    INFERENCE_ACTIVE = False
+    _INFERENCE_OBS = None
+    _INFERENCE_ACTIONS = None
+    _INFERENCE_RAW_ACTIONS = None
     if not LAST_OR_SCHEDULE:
         return {
             "status" : "error",
@@ -906,10 +1057,18 @@ async def start_inference():
     # ── Re-seed TRAIN_STATES from OR schedule ─────────────────────────────
     new_states: Dict[str, Any] = {}
     ordered_ids = []
+    
+    # Reconstruct canonical path edges for DOWN/UP (nodes 0..83)
+    DOWN_PATH = ["edge-0-1"] + [f"edge-{k}-{k+1}" for k in range(1, 83)] + ["edge-83-999"]
+    UP_PATH   = ["edge-83-999"] + [f"edge-{k}-{k+1}" for k in reversed(range(83))]
+
     for t_id, cfg in FLEET_REGISTRY.items():
         path = cfg.get("path", [])
         if not path:
-            continue
+            direction_str = "DOWN" if cfg.get("direction", 1) in (1, "DOWN") else "UP"
+            path = DOWN_PATH if direction_str == "DOWN" else UP_PATH
+            cfg["path"] = path
+
         ordered_ids.append(t_id)
         new_states[t_id] = {
             "train_id"             : t_id,
@@ -917,18 +1076,17 @@ async def start_inference():
             "edge_id"              : path[0],
             "position_percentage"  : 0.0,
             "status"               : "Scheduled",
-            "speed_kmh"            : 0,
+            "speed_kmh"            : cfg.get("max_speed", 90),
             "path"                 : path,
-            # ── Schedule timing (from OR-Tools output) ──────────────────
+            "priority"             : cfg.get("priority", 6),
+            "direction"            : cfg.get("direction", "DOWN"),
+            # ── Schedule timing ─────────────────────────────────────────────
             "scheduled_departure"  : cfg.get("start_time", 0),
             "scheduled_arrival"    : cfg.get("deadline", 120),
             "delay_mins"           : 0,
-            # ── Per-train sim clock (incremented each simulate_trains_bg tick) ─
             "sim_time"             : 0,
-            # ── Committed-action override ───────────────────────────────
-            # Set by POST /dispatch/commit; expires after N ticks.
-            "override_action"      : 1,   # 1 = MAIN (move) — default: let RL decide
-            "override_expires"     : 0,   # 0 = no active override
+            "override_action"      : 1,
+            "override_expires"     : 0,
         }
 
     if new_states:
@@ -936,28 +1094,24 @@ async def start_inference():
         _INFERENCE_TRAIN_IDS = ordered_ids
 
     # ── Reset RL env & activate inference ─────────────────────────────────
-    _INFERENCE_OBS     = env.reset()
-    
-    # Force sync the internal RL environment's fleet with our seeded fleet
+    # Use the custom schedule generated by OR-Tools so the RL env matches the UI.
     inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
-    inner_env.trains = []
-    inner_env.schedule = {}
-    for t_id in _INFERENCE_TRAIN_IDS:
-        cfg = FLEET_REGISTRY[t_id]
-        inner_env.trains.append({
-            'id': t_id,
-            'priority': cfg.get('priority', 5),
-            'max_speed': cfg.get('max_speed', 120),
-            'position': 0,
-            'finished': False,
-            'speed': 0
-        })
-        # Important: Sync schedule so _get_observation doesn't KeyError
-        inner_env.schedule[t_id] = {
-            'start_time': cfg.get('start_time', 0),
-            'deadline': cfg.get('deadline', 1000)
+    
+    formatted_schedule = {}
+    for t_id, t_sched in LAST_OR_SCHEDULE.items():
+        cfg = FLEET_REGISTRY.get(t_id, {})
+        formatted_schedule[t_id] = {
+            'start_time': cfg.get("start_time", 0),
+            'deadline': cfg.get("deadline", 120),
+            'direction': "DOWN" if cfg.get("direction", 1) in (1, "DOWN") else "UP",
+            'stops': list(t_sched.keys())
         }
-
+        
+    inner_env.set_custom_schedule(
+        fleet=list(FLEET_REGISTRY.values()),
+        schedule=formatted_schedule
+    )
+    _INFERENCE_OBS     = env.reset()
     _INFERENCE_ACTIONS = None
     INFERENCE_ACTIVE   = True
 
@@ -1104,6 +1258,11 @@ async def run_simulation(data: Dict[Any, Any]):
     return {"status": "optimized", "changes": []}
 
 # Pages 0 & 5: Metadata
+@app.post("/api/v1/telemetry")
+async def post_telemetry(req: dict):
+    print(f"FRONTLOG: {req}")
+    return {"status": "ok"}
+
 @app.get("/api/v1/meta")
 async def get_meta():
     return {"version": "2.0", "author": "Swastik (MITS)"}
@@ -1111,50 +1270,97 @@ async def get_meta():
 @app.get("/api/v1/telemetry", tags=["Telemetry"])
 async def get_telemetry():
     """Returns real-time telemetry calculated from the current simulation state."""
-    active_trains = len(TRAIN_STATES)
-    
-    # Calculate terminal trains: trains that are on the last 2 edges of their path
+    active_trains = 0
+    incoming_trains = 0
+    outgoing_trains = 0
     terminal_trains = 0
     halted_trains = 0
-    for state in TRAIN_STATES.values():
-        path = state.get("path", [])
-        edge = state.get("edge_id")
-        if path and edge in path:
-            idx = path.index(edge)
-            if idx >= len(path) - 2:
-                terminal_trains += 1
+
+    for t_id, state in TRAIN_STATES.items():
+        if state.get("status") == "Finished":
+            terminal_trains += 1
+            continue
+            
+        active_trains += 1
         
-        if state.get("status") in ("Halted", "Blocked"):
+        # Determine direction based on ID
+        if "UP" in t_id:
+            incoming_trains += 1
+        else:
+            outgoing_trains += 1
+        
+        if state.get("status") in ("Blocked", "Halted"):
             halted_trains += 1
 
-    # Punctuality based on halted/blocked trains
-    punctuality = 100.0
-    if active_trains > 0:
-        punctuality -= (halted_trains / active_trains) * 10.0
-        punctuality = max(0.0, min(100.0, punctuality))
+    DELAY_THRESHOLD = 10.0
+    on_time_trains = 0
+    evaluated_trains = 0
 
-    # System Health
-    system_health = "Nominal"
-    node_response_time = random.randint(8, 12)
-    if len(ACTIVE_BLOCKS) > 0:
-        system_health = "Warning"
-        node_response_time += 5
-    if halted_trains > 2:
-        system_health = "Degraded"
-        node_response_time += 15
+    for t_id, state in TRAIN_STATES.items():
+        reg = FLEET_REGISTRY.get(t_id, {})
+        deadline = reg.get("deadline", 120)
 
-    # AI Load Forecast (base load + load per train + load per block)
+        delay = 0.0
+        if state.get("status") == "Finished":
+            t_actual = state.get("finish_time", _SIM_TICK)
+            delay = max(0.0, t_actual - deadline)
+        else:
+            path = state.get("path", [])
+            curr_edge = state.get("edge_id")
+            if path and curr_edge in path:
+                path_len = len(path)
+                curr_idx = path.index(curr_edge)
+                edge_pct = state.get("position_percentage", 0.0)
+                completion = (curr_idx + edge_pct) / path_len
+                
+                if completion > 0.01:
+                    eta = _SIM_TICK / completion
+                    delay = max(0.0, eta - deadline)
+                else:
+                    delay = 0.0
+
+        if delay <= DELAY_THRESHOLD:
+            on_time_trains += 1
+            
+        evaluated_trains += 1
+
+    if evaluated_trains > 0:
+        punctuality = (on_time_trains / evaluated_trains) * 100.0
+    else:
+        punctuality = 100.0
+
+    halted_pct = (halted_trains / active_trains * 100) if active_trains > 0 else 0
+    blocks_active = len(ACTIVE_BLOCKS) > 0
+    
+    if halted_pct > 20:
+        network_fluidity = "Degraded"
+    elif blocks_active or (10 <= halted_pct <= 20):
+        network_fluidity = "Warning"
+    else:
+        network_fluidity = "Nominal"
+
     ai_load = 40 + (active_trains * 5) + (len(ACTIVE_BLOCKS) * 15)
     ai_load = max(0, min(100, ai_load))
+
+    node_response_time = random.randint(8, 12)
+    if ai_load > 85:
+        node_response_time = random.randint(50, 75)
 
     return {
         "punctuality": round(punctuality, 1),
         "active_trains": active_trains,
+        "incoming_trains": incoming_trains,
+        "outgoing_trains": outgoing_trains,
         "terminal_trains": terminal_trains,
-        "system_health": system_health,
+        "network_fluidity": network_fluidity,
+        "halted_pct": round(halted_pct, 1),
+        "halted_trains": halted_trains,
         "node_response_time": node_response_time,
         "ai_load": ai_load,
+        "schedule_ready": len(LAST_OR_SCHEDULE) > 0,
+        "schedule_train_count": len(LAST_OR_SCHEDULE),
         "lockdown": SYSTEM_LOCKDOWN,
+        "active": INFERENCE_ACTIVE,
         "timestamp": _now_iso()
     }
 
@@ -1192,15 +1398,14 @@ async def topology_websocket(websocket: WebSocket):
 async def copilot_websocket(websocket: WebSocket):
     """
     ORBIT AI Co-pilot WebSocket.
-    Streams AI_RECOMMENDATION events to connected controllers.
     """
     await websocket.accept()
     COPILOT_WEBSOCKETS.add(websocket)
-    print(f"[ORBIT] Co-pilot WS connected. Active clients: {len(COPILOT_WEBSOCKETS)}")
-
-    # Send any already-cached pending suggestions so the UI isn't empty on connect
+    
     pending = [s for s in COPILOT_SUGGESTIONS.values() if s.get("status") == "pending"]
-    for suggestion in pending[-3:]:  # max 3 on reconnect to avoid flood
+    pending = [s for s in pending if _SIM_TICK - s.get("suggested_at_tick", _SIM_TICK) <= SUGGESTION_TTL_TICKS]
+    
+    for suggestion in pending[-3:]:
         try:
             await websocket.send_text(json.dumps(suggestion))
         except Exception:
@@ -1208,7 +1413,6 @@ async def copilot_websocket(websocket: WebSocket):
 
     try:
         while True:
-            # Keep the socket alive; client may send "ping" frames
             await websocket.receive_text()
     except Exception as e:
         COPILOT_WEBSOCKETS.discard(websocket)
@@ -1217,24 +1421,31 @@ async def copilot_websocket(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # ORBIT Dispatch Endpoints
 # ---------------------------------------------------------------------------
+def _write_feedback(suggestion: Dict[str, Any], outcome: str, reason: str = ""):
+    """Fix 9: Write RLHF telemetry."""
+    try:
+        feedback = {
+            "timestamp": _now_iso(),
+            "recommendation_id": suggestion.get("recommendation_id"),
+            "target_train_id": suggestion.get("target_train_id"),
+            "proposed_action": suggestion.get("proposed_action"),
+            "rl_action": suggestion.get("rl_action"),
+            "obs_snapshot": suggestion.get("obs_snapshot", {}),
+            "outcome": outcome,
+            "reason": reason
+        }
+        with open("human_feedback.jsonl", "a") as f:
+            f.write(json.dumps(feedback) + "\n")
+    except Exception as e:
+        print(f"[ORBIT] Warning: failed to write feedback: {e}")
+
+class CommitRequest(BaseModel):
+    recommendation_id: str
+    modified_action: Optional[int] = None
+    modified_edge: Optional[str] = None
+
 @app.post("/api/v1/dispatch/commit", tags=["ORBIT Co-pilot"])
 async def commit_suggestion(req: CommitRequest):
-    """
-    Human-approved: commit an AI recommendation to the live schedule.
-
-    Steps:
-      1. Fetch suggestion from in-memory cache.
-      2. Re-run OR-Shield hard-constraint check at commit time
-         (state may have changed since the suggestion was queued).
-      3. Also block if any affected edge is under active TOTAL_BLOCK maintenance.
-      4. Update suggestion status & store ISO-8601 timestamp.
-      5. Mutate TRAIN_STATES — advance target train to the next path edge
-         if the suggested edge is the correct next hop.
-      6. Broadcast SCHEDULE_UPDATED (with new_edge_id) to all WebSocket clients
-         so the map updates in real-time.
-      7. Return committed payload.
-    """
-    # 1. Fetch from cache
     suggestion = COPILOT_SUGGESTIONS.get(req.recommendation_id)
     if not suggestion:
         raise HTTPException(status_code=404, detail="Recommendation not found or already expired.")
@@ -1245,7 +1456,28 @@ async def commit_suggestion(req: CommitRequest):
             detail=f"Recommendation is already '{suggestion['status']}'."
         )
 
-    # 2. Real OR-Shield re-check at commit time
+    if req.modified_action is not None:
+        suggestion["rl_action"] = req.modified_action
+    if req.modified_edge is not None:
+        suggestion["affected_edges"] = [req.modified_edge]
+
+    train_id = suggestion["target_train_id"]
+    current_state = TRAIN_STATES.get(train_id)
+    if not current_state:
+        raise HTTPException(status_code=400, detail="Train no longer active.")
+    
+    suggested_tick = suggestion.get("suggested_at_tick", _SIM_TICK)
+    if _SIM_TICK - suggested_tick > SUGGESTION_TTL_TICKS:
+        suggestion["status"] = "expired"
+        _write_feedback(suggestion, "expired", "Staleness TTL exceeded")
+        raise HTTPException(status_code=400, detail="Suggestion has expired (TTL).")
+        
+    suggested_edge = suggestion.get("suggested_at_edge")
+    if suggested_edge and current_state.get("edge_id") != suggested_edge:
+        suggestion["status"] = "expired"
+        _write_feedback(suggestion, "expired", "Positional staleness - train has moved.")
+        raise HTTPException(status_code=400, detail="Train has already moved past the suggested decision point.")
+
     is_safe, reason = _OR_SHIELD.or_shield_check(
         suggestion=suggestion,
         train_states=TRAIN_STATES,
@@ -1253,7 +1485,6 @@ async def commit_suggestion(req: CommitRequest):
         dynamic_constraints=DYNAMIC_CONSTRAINTS,
     )
 
-    # 3. Additional maintenance TOTAL_BLOCK check (belt-and-suspenders)
     if is_safe:
         for edge_id in suggestion.get("affected_edges", []):
             blk = ACTIVE_BLOCKS.get(edge_id)
@@ -1389,6 +1620,8 @@ async def reject_suggestion(req: RejectRequest):
     suggestion["status"] = "rejected"
     suggestion["rejected_at"] = _now_iso()
     suggestion["reject_reason"] = req.reason
+    
+    _write_feedback(suggestion, "rejected", req.reason)
 
     AUDIT_LOGS.append({
         "t": suggestion["rejected_at"],
@@ -1889,7 +2122,17 @@ def _seed_fleet_registry():
         # Read train_type directly from TRAIN_STATES if available
         train_type = state.get("train_type", "Express")
         max_speed  = state.get("speed_kmh") or MAX_SPEED_MAP.get(train_type, 90)
-        priority   = PRIORITY_MAP.get(train_type, 6)
+        
+        # Preserve priority if it already exists in state; otherwise try to map it
+        priority   = state.get("priority")
+        if priority is None:
+            priority = PRIORITY_MAP.get(train_type.title(), 6)
+
+        # Preserve configuration if it exists, otherwise pull from TRAIN_STATES
+        existing_cfg = FLEET_REGISTRY.get(t_id, {})
+        direction    = existing_cfg.get("direction") or state.get("direction", "DOWN")
+        start_time   = existing_cfg.get("start_time") or state.get("start_time", 0)
+        deadline     = existing_cfg.get("deadline") or state.get("deadline", 120)
 
         # Always sync — ensures type/priority/speed stay correct after restarts
         FLEET_REGISTRY[t_id] = {
@@ -1897,11 +2140,11 @@ def _seed_fleet_registry():
             "train_type": train_type,
             "max_speed" : max_speed,
             "priority"  : priority,
-            "start_time": 0,
-            "deadline"  : 120,
-            "direction" : 1,
+            "start_time": start_time,
+            "deadline"  : deadline,
+            "direction" : direction,
             "path"      : state.get("path", []),
-            "added_at"  : FLEET_REGISTRY.get(t_id, {}).get("added_at", _now_iso()),
+            "added_at"  : existing_cfg.get("added_at", _now_iso()),
         }
 
 
@@ -2072,10 +2315,22 @@ async def generate_schedule():
     Stores the result in LAST_OR_SCHEDULE so /start-inference can consume
     it to seed TRAIN_STATES and kick off the RL inference loop.
     """
-    from ai.or_solver import solve_train_schedule
+    from or_tools.corridor_planner import CorridorPlanner
+    from ai.map_generator import STATIONS, generate_realistic_section
+    from ai.config import generate_daily_schedule, ARCHETYPE_BY_NAME
 
     if not FLEET_REGISTRY:
-        raise HTTPException(status_code=400, detail="Fleet is empty — add trains first.")
+        fleet, schedule_map = generate_daily_schedule(num_trains=25)
+        for t in fleet:
+            # Map Python simulator archetype/schedule back to the API/Frontend schema
+            t_sched = schedule_map.get(t['id'], {})
+            t['path'] = []
+            t['train_id'] = t['id']
+            t['train_type'] = t.get('archetype', 'Express')
+            t['start_time'] = t_sched.get('start_time', 0)
+            t['deadline'] = t_sched.get('deadline', 100)
+            
+            FLEET_REGISTRY[t['id']] = t
 
     topo_nodes = {n["id"]: n for n in NETWORK_TOPOLOGY.get("nodes", [])}
     track_map  = {}
@@ -2083,46 +2338,59 @@ async def generate_schedule():
         track_map[nid] = {
             "type"    : ndata.get("type", "BLOCK"),
             "capacity": 2 if ndata.get("type") in ("PLATFORM", "LOOP") else 1,
+            "next"    : ndata.get("next", [])
         }
 
+    _, _, _, _, token_blocks = generate_realistic_section()
+    planner = CorridorPlanner(track_map, STATIONS, token_blocks)
+
     active_fleet = []
+    schedule_req = {}
+
     for t_id, cfg in FLEET_REGISTRY.items():
-        original_path = cfg.get("path", [])
-        if not original_path:
-            continue
-            
         # DYNAMIC REROUTING: Check for maintenance blocks and pick alternative platforms/loops
-        path = _get_rerouted_path(original_path)
-        cfg["path"] = path # update the registry so start-inference uses the new path
-        
-        node_path  = []
-        last_parts = None
-        for edge_id in path:
-            parts = edge_id.split("-")
-            if len(parts) >= 3:
-                node_path.append(parts[1])
-                last_parts = parts
-        if node_path and last_parts:
-            node_path.append(last_parts[-1])
+        original_path = cfg.get("path", [])
+        if original_path:
+            path = _get_rerouted_path(original_path)
+            cfg["path"] = path # update the registry so start-inference uses the new path
+
+        train_type = cfg.get("train_type", "Express")
+        direction_val = cfg.get("direction", 1)
+        direction_str = "DOWN" if direction_val in (1, "DOWN") else "UP"
+
+        train_type_upper = train_type.upper()
+        if "EXPRESS" in train_type_upper or "MAIL" in train_type_upper:
+            train_type_upper = "MAIL_EXPRESS"
+        elif "FREIGHT" in train_type_upper or "GOODS" in train_type_upper:
+            train_type_upper = "GOODS"
+        elif "LOCAL" in train_type_upper or "SUBURBAN" in train_type_upper:
+            train_type_upper = "PASSENGER"
+        elif "VANDE BHARAT" in train_type_upper:
+            train_type_upper = "RAJDHANI"
+
+        # Lookup archetype for stops and banker requirement
+        archetype = ARCHETYPE_BY_NAME.get(train_type_upper, ARCHETYPE_BY_NAME["MAIL_EXPRESS"])
+        stops = archetype.get("stops_down" if direction_str == "DOWN" else "stops_up", [])
 
         active_fleet.append({
-            "id"               : t_id,
-            "type"             : cfg.get("train_type", "Express"),
-            "path"             : node_path,
-            "scheduled_arrival": cfg.get("deadline", 120),
-            "runtimes"         : {n: 2 for n in node_path},
-            "dwell_times"      : {n: 0 for n in node_path},
-            "direction"        : cfg.get("direction", 1),
-            "priority"         : cfg.get("priority", 5),
+            "id": t_id,
+            "direction": direction_str,
+            "priority": cfg.get("priority", 5),
+            "max_speed": cfg.get("max_speed", 100),
+            "banker_required": archetype.get("banker_required", False),
+            "finished": False,
+            "position": 0 if direction_str == "DOWN" else 998, # Start position so it's not finished
         })
+        schedule_req[t_id] = {
+            "stops": stops,
+            "start_time": cfg.get("start_time", 0),
+            "deadline": cfg.get("deadline", 120),
+        }
 
     if not active_fleet:
-        raise HTTPException(status_code=400, detail="No valid train paths to schedule.")
+        raise HTTPException(status_code=400, detail="No valid trains to schedule.")
 
-    try:
-        result = solve_train_schedule(track_map, active_fleet)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OR-Solver failed: {str(exc)}")
+    result = planner.solve(active_fleet, schedule_req, sim_time=0)
 
     if result is None:
         return {

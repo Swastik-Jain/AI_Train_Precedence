@@ -8,7 +8,7 @@ import random
 # ENVIRONMENT CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-MAX_TRAINS_CAPACITY = 15        # Phase 3: 15 trains — saturates the track to force genuine conflicts
+MAX_TRAINS_CAPACITY = 25        # Phase 4: 25 trains — real congestion ceiling for L6 curriculum
 MAX_SPEED           = 130       # km/h — fastest train on corridor (Rajdhani)
 SECTION_LENGTH_KM   = 261       # CSMT → Manmad total distance
 
@@ -64,7 +64,7 @@ TRAIN_ARCHETYPES = [
     # Stops: CSMT, KALYAN, IGATPURI (technical, no banker), NASHIK, MANMAD
     {
         'archetype': 'RAJDHANI',
-        'priority': 6,
+        'priority': 10,
         'max_speed': 130,
         'accel_rate': 15,
         'decel_rate': 25,
@@ -81,7 +81,7 @@ TRAIN_ARCHETYPES = [
     # Stops: CSMT, DADAR, KALYAN, IGATPURI, DEVLALI, NASHIK, MANMAD
     {
         'archetype': 'SUPERFAST',
-        'priority': 5,
+        'priority': 8,
         'max_speed': 110,
         'accel_rate': 12,
         'decel_rate': 22,
@@ -97,7 +97,7 @@ TRAIN_ARCHETYPES = [
     # Stops: MANMAD, NASHIK, IGATPURI, KALYAN, DADAR, CSMT
     {
         'archetype': 'MAIL_EXPRESS',
-        'priority': 4,
+        'priority': 6,
         'max_speed': 110,
         'accel_rate': 10,
         'decel_rate': 20,
@@ -126,7 +126,7 @@ TRAIN_ARCHETYPES = [
     # Stops at major stations only — uses loop sidings at small stations
     {
         'archetype': 'GOODS',
-        'priority': 1,
+        'priority': 2,
         'max_speed': 60,
         'accel_rate': 5,
         'decel_rate': 10,
@@ -235,28 +235,35 @@ def generate_daily_schedule(num_trains: int = 5, seed: int = None):
                 'banker_wait':    0,
             },
         ]
+        # Deadlines must be achievable at the train's actual max_speed.
+        # GOODS at 60km/h over 261km ≈ 261 steps (1km/step at 60km/h).
+        # SUPERFAST at 110km/h over 261km ≈ 143 steps.
+        # Add generous buffer (×2.5) so early training doesn't drown in
+        # deadline penalties before the model learns to move at all.
         schedule = {
             'GOODS_100': {
                 'start_time': 0,
-                'deadline':   int(400 * DEADLINE_MULTIPLIER),
+                'deadline':   600,   # ~2.5× realistic travel time for GOODS
                 'stops':      ARCHETYPE_BY_NAME['GOODS']['stops_down'],
                 'direction':  'DOWN',
             },
             'SF_101': {
                 'start_time': 15,
-                'deadline':   int(200 * DEADLINE_MULTIPLIER),
+                'deadline':   400,   # ~2.5× realistic travel time for SUPERFAST
                 'stops':      ARCHETYPE_BY_NAME['SUPERFAST']['stops_up'],
                 'direction':  'UP',
             },
         }
         return fleet, schedule
 
-    # ── Phase 2: Mixed fleet for curriculum stages 5, 7, 10 ───────────────
-    # Ensure at least one UP and one DOWN train
-    # Alternate directions to create crossing conflicts naturally
-    directions = []
-    for i in range(num_trains):
-        directions.append('DOWN' if i % 2 == 0 else 'UP')
+    # ── Phase 2: Mixed fleet for curriculum stages 5, 7, 10+ ─────────────
+    # Hard floor: at least floor(n/2) trains per direction before shuffle.
+    # The old i%2 alternation was correct in principle but rng.shuffle()
+    # could still produce skewed batches (e.g. 4 DOWN + 1 UP for 5 trains).
+    # This guarantee ensures every episode has genuine bidirectional conflict.
+    n_up   = num_trains // 2
+    n_down = num_trains - n_up
+    directions = ['UP'] * n_up + ['DOWN'] * n_down
     rng.shuffle(directions)
 
     current_time = 0
@@ -330,11 +337,23 @@ def generate_stress_schedule(num_trains: int = 10, seed: int = None):
     both directions, creating genuine queueing conflicts where
     dispatcher ordering truly matters.
 
+    NOTE: num_trains < 4 falls back to normal schedule because stress
+    mode with 2-3 trains can produce same-direction pairs (no ghat
+    conflict) that run to full 1500-step timeout with -4000 rewards,
+    completely swamping the training signal.
+
     Key differences from normal schedule:
       - Trains spawn in tight bursts (2-4 step intervals)
       - Deadlines are 50% of normal (very tight)
       - Direction clustering: bursts alternate UP/DOWN
     """
+    # Guard: stress mode needs ≥4 trains to guarantee bidirectional bursts.
+    # With 2-3 trains the burst logic often produces same-direction pairs
+    # which run to a full 1500-step timeout with -4000 rewards, completely
+    # swamping the learning signal at early curriculum levels.
+    if num_trains < 4:
+        return generate_daily_schedule(num_trains, seed=seed)
+
     rng = random.Random(seed)
 
     fleet    = []

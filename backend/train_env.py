@@ -48,7 +48,7 @@ from ai.map_generator import (
 _log = logging.getLogger("TrainDispatchEnv")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OBSERVATION SPACE — 24 features per train
+# OBSERVATION SPACE — 25 features per train
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Category 1 — Self (6 features)
@@ -86,12 +86,19 @@ _log = logging.getLogger("TrainDispatchEnv")
 # Category 6 — Schedule (1 feature)
 #   22 lead_priority_norm  priority of highest-prio train ahead / 6.0
 #
-# Category 7 — Urgency (1 feature)  ← NEW (Phase 3)
+# Category 7 — Urgency (1 feature)
 #   23 required_speed_norm  (dist_remaining_km / steps_remaining) / MAX_SPEED
 #                           = how fast the train MUST move to make deadline.
 #                           > 1.0 means impossible; 0 means already late/finished.
 #
-N_FEATURES = 24
+# Category 8 — Divert awareness (1 feature)  ← NEW (Phase 4)
+#   24 nearest_loop_dist_norm  km to nearest available loop or crossing loop
+#                              ahead in this train's direction / SECTION_LENGTH_KM.
+#                              0.0 = loop right here, 1.0 = none available.
+#                              Covers station loops (AMBERNATH/TITWALA/ATGAON etc.)
+#                              AND mid-section crossing loops (Nandgaon/Lasalgaon).
+#
+N_FEATURES = 25
 
 # Ghost train padding — represents an empty slot
 _GHOST_OBS = np.zeros(N_FEATURES, dtype=np.float32)
@@ -99,6 +106,7 @@ _GHOST_OBS[7]  = 1.0   # dist_to_danger: far
 _GHOST_OBS[8]  = 1.0   # dist_to_lead: far
 _GHOST_OBS[11] = 1.0   # opposing_dist: far
 _GHOST_OBS[23] = 0.0   # required_speed: ghost slot has no urgency
+_GHOST_OBS[24] = 1.0   # nearest_loop_dist: no loop in range
 
 
 class TrainDispatchEnv(gym.Env):
@@ -178,6 +186,30 @@ class TrainDispatchEnv(gym.Env):
         self.reset()
         print(f"🔀 Mixed mode: {num_trains} trains (40% stress)")
 
+    def set_custom_schedule(self, fleet: list, schedule: dict):
+        """Allows inference runner to inject an exact schedule without regenerating it."""
+        self._schedule_mode = 'custom'
+        self.active_fleet = []
+        for t in fleet:
+            train = t.copy()
+            # Ensure standard RL state fields
+            train.setdefault('speed', 0)
+            train.setdefault('target_speed', 0)
+            train.setdefault('delay', 0)
+            train.setdefault('idle_time', 0)
+            train.setdefault('dwell_rem', 0)
+            train.setdefault('finished', False)
+            train['finish_step'] = None
+            train.setdefault('banker_attached', False)
+            train.setdefault('banker_wait', 0)
+            train['visited_nodes'] = set()
+            # Use sensible defaults for physics parameters if missing
+            train.setdefault('accel_rate', 10)
+            train.setdefault('decel_rate', 15)
+            self.active_fleet.append(train)
+        self.schedule = {k: v.copy() for k, v in schedule.items()}
+        self._num_trains = len(fleet)
+
     def attach_feasibility_shield(self, shield):
         self._feasibility_shield = shield
         status = "attached" if shield is not None else "detached"
@@ -233,6 +265,8 @@ class TrainDispatchEnv(gym.Env):
             self.active_fleet, self.schedule = generate_stress_schedule(
                 self._num_trains
             )
+        elif self._schedule_mode == 'custom':
+            pass # Keep self.active_fleet and self.schedule exactly as injected
         else:
             self.active_fleet, self.schedule = generate_daily_schedule(
                 self._num_trains
@@ -286,14 +320,10 @@ class TrainDispatchEnv(gym.Env):
             self.apply_incident()
 
         # O(1) occupancy — rebuild from current positions
-        self._occupancy = Counter(
-            t['position'] for t in self.trains
-            if t['position'] not in [0, 998, 999]
-        )
-
-        # Physics arrays
-        self._train_speeds = np.zeros(MAX_TRAINS_CAPACITY, dtype=np.float32)
+        self.sim_time = 0
+        self._occupancy = {}  # format: {node_id: {'UP': count, 'DOWN': count}}
         self._movement_acc = np.zeros(MAX_TRAINS_CAPACITY, dtype=np.float32)
+        self._train_speeds = np.zeros(MAX_TRAINS_CAPACITY, dtype=np.float32)
 
         if self.chaos_mode:
             self._apply_chaos()
@@ -313,18 +343,29 @@ class TrainDispatchEnv(gym.Env):
             return SECTION_LENGTH_KM
         return self.track_map.get(node_id, {}).get('km', 0.0)
 
-    def get_node_occupancy(self, node_id: int) -> int:
-        """O(1) occupancy lookup."""
-        return self._occupancy.get(node_id, 0)
+    def get_node_occupancy(self, node_id: int, direction: str = None) -> int:
+        """O(1) occupancy lookup. If direction is specified, returns occupancy for that specific direction."""
+        occ = self._occupancy.get(node_id, {})
+        if direction:
+            return occ.get(direction, 0)
+        return sum(occ.values())
 
     def _move_train(self, train, from_node: int, to_node: int):
         """Update occupancy counter when a train moves."""
+        direction = train.get('direction', 'DOWN')
+        
         if from_node not in (0, 998, 999):
-            self._occupancy[from_node] -= 1
-            if self._occupancy[from_node] <= 0:
-                del self._occupancy[from_node]
+            if from_node in self._occupancy and direction in self._occupancy[from_node]:
+                self._occupancy[from_node][direction] -= 1
+                if self._occupancy[from_node][direction] <= 0:
+                    del self._occupancy[from_node][direction]
+                if not self._occupancy[from_node]:
+                    del self._occupancy[from_node]
+                    
         if to_node not in (0, 998, 999):
-            self._occupancy[to_node] = self._occupancy.get(to_node, 0) + 1
+            if to_node not in self._occupancy:
+                self._occupancy[to_node] = {}
+            self._occupancy[to_node][direction] = self._occupancy[to_node].get(direction, 0) + 1
 
     def _is_scheduled_stop(self, train, station_name: str) -> bool:
         """True if this train has a scheduled halt at this station."""
@@ -358,6 +399,56 @@ class TrainDispatchEnv(gym.Env):
                     found   = True
 
         return best_km
+
+    def _get_nearest_loop_dist_km(self, train) -> float:
+        """
+        Distance (km) to the nearest available loop or crossing loop ahead
+        of this train in its direction of travel.
+
+        Checks two classes of divert nodes:
+          1. Station loops  — LOOP-type nodes attached to station switch_in nodes
+             (covers AMBERNATH, TITWALA, ATGAON, Kasara, Igatpuri etc.)
+          2. Mid-section crossing loops — CROSSING_LOOP-type nodes with station=None
+             (covers Nandgaon km210, Lasalgaon km235)
+
+        Returns SECTION_LENGTH_KM when no free loop exists ahead.
+        """
+        my_km     = self._get_train_km(train)
+        direction = train['direction']
+        best_dist = SECTION_LENGTH_KM
+
+        # ── Station loops ─────────────────────────────────────────────────
+        for sname, sdata in self.station_nodes.items():
+            s_km = sdata['km']
+            if direction == 'DOWN' and s_km <= my_km:
+                continue
+            if direction == 'UP' and s_km >= my_km:
+                continue
+            for lid in sdata.get('loops', []):
+                occ = self.get_node_occupancy(lid)
+                cap = self.track_map.get(lid, {}).get('capacity', 1)
+                if occ < cap:
+                    dist = abs(s_km - my_km)
+                    if dist < best_dist:
+                        best_dist = dist
+                    break   # one free loop at this station is enough
+
+        # ── Mid-section crossing loops ─────────────────────────────────────
+        for nid, nd in self.track_map.items():
+            if nd.get('type') == 'CROSSING_LOOP' and nd.get('station') is None:
+                cl_km = nd.get('km', 0)
+                if direction == 'DOWN' and cl_km <= my_km:
+                    continue
+                if direction == 'UP' and cl_km >= my_km:
+                    continue
+                occ = self.get_node_occupancy(nid)
+                cap = nd.get('capacity', 1)
+                if occ < cap:
+                    dist = abs(cl_km - my_km)
+                    if dist < best_dist:
+                        best_dist = dist
+
+        return best_dist
 
     def _is_in_token_block(self, node_id: int) -> bool:
         return node_id in self.ghat_token.token_block_ids
@@ -407,22 +498,11 @@ class TrainDispatchEnv(gym.Env):
         cursor = current
         for _ in range(30):   # max 30 hops (~5km each at finest granularity)
             node_data  = self.track_map.get(cursor, {})
-            next_opts  = node_data.get('next', [])
+            next_opts  = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
             if not next_opts:
                 break
 
-            # For UP trains we walk BACKWARDS through next_opts of the
-            # reversed graph — simplified: use km comparison to determine
-            # which next node is "ahead" in the UP direction
-            if direction == 'UP':
-                # UP trains move toward lower km values
-                candidates = [n for n in next_opts
-                              if self.get_node_km(n) < self.get_node_km(cursor)]
-                if not candidates:
-                    candidates = next_opts
-                target = min(candidates, key=lambda n: self.get_node_km(n))
-            else:
-                target = next_opts[0]
+            target = next_opts[0]
 
             target_km  = self.get_node_km(target)
             gap_km     = abs(target_km - my_km)
@@ -507,19 +587,12 @@ class TrainDispatchEnv(gym.Env):
                 continue
 
             node_data = self.track_map.get(current_pos, {})
-            next_opts = node_data.get('next', [])
+            next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
             if not next_opts:
                 continue
 
-            # Determine main target (first in next_opts for DOWN,
-            # lowest-km next node for UP)
-            if direction == 'UP':
-                main_candidates = [n for n in next_opts
-                                   if self.get_node_km(n) <= self.get_node_km(current_pos)]
-                main_target = (min(main_candidates, key=lambda n: self.get_node_km(n))
-                               if main_candidates else next_opts[0])
-            else:
-                main_target = next_opts[0]
+            # Determine main target (first in next_opts for both directions now)
+            main_target = next_opts[0]
 
             # Token block check — applies before capacity check
             if self._is_in_token_block(main_target):
@@ -528,26 +601,38 @@ class TrainDispatchEnv(gym.Env):
                     # PROCEED blocked entirely
                     pass
                 else:
-                    # Can enter token block
-                    main_occ = self.get_node_occupancy(main_target)
                     main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
-                    if main_occ < main_cap:
+                    dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                    main_occ = self.get_node_occupancy(main_target, direction)
+                    if main_occ < dir_cap:
                         mask[i, 1] = True
             else:
                 # Normal capacity check for main target
-                main_occ = self.get_node_occupancy(main_target)
                 main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
-                if main_occ < main_cap:
+                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                main_occ = self.get_node_occupancy(main_target, direction)
+                if main_occ < dir_cap:
                     mask[i, 1] = True
 
             # DIVERT check — loop/platform nodes (next_opts[1:])
             loop_targets = [n for n in next_opts if n != main_target]
             for loop_n in loop_targets:
-                occ = self.get_node_occupancy(loop_n)
                 cap = self.track_map.get(loop_n, {}).get('capacity', 1)
-                if occ < cap:
+                dir_cap = max(1, cap // 2) if cap > 1 else cap
+                occ = self.get_node_occupancy(loop_n, direction)
+                if occ < dir_cap:
                     mask[i, 2] = True
                     break
+
+            # SAFETY RULE: If train is actively inside the token block, it MUST
+            # keep attempting to move every tick. Sleeping on the mountain pass
+            # causes the following train to rear-end it. We remove HOLD from the
+            # mask regardless of whether PROCEED/DIVERT are available — if both
+            # are capacity-blocked, the step() physics will reject the move and
+            # keep the train in place anyway, but the RL model must keep sending
+            # MOVE actions so the moment the node ahead clears, the train goes.
+            if self._is_in_token_block(current_pos):
+                mask[i, 0] = False   # HOLD never legal inside ghat
 
         # OR-solver overlay (optional — inference only)
         # FeasibilityShield.get_masked_actions() requires trains, schedule,
@@ -585,11 +670,11 @@ class TrainDispatchEnv(gym.Env):
                 continue
 
             train     = self.trains[i]
-            pos       = train['position']
-            direction = train['direction']
-            sched     = self.schedule.get(train['id'], {})
+            pos       = train.get('position', 0)
+            direction = train.get('direction', 'DOWN')
+            sched     = self.schedule.get(train.get('id', ''), {})
 
-            if train['finished']:
+            if train.get('finished', False):
                 obs[i] = _GHOST_OBS
                 continue
 
@@ -750,6 +835,10 @@ class TrainDispatchEnv(gym.Env):
             obs[i, 22] = highest_prio_ahead / 6.0            # lead_priority
             obs[i, 23] = required_speed_norm                 # required_speed (urgency)
 
+            # Nearest available divert opportunity ahead (Phase 4 / GAP 1)
+            nearest_loop_dist = self._get_nearest_loop_dist_km(train)
+            obs[i, 24] = min(nearest_loop_dist, SECTION_LENGTH_KM) / SECTION_LENGTH_KM
+
         return obs
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -819,11 +908,9 @@ class TrainDispatchEnv(gym.Env):
             if train.get('banker_wait', 0) > 0:
                 train['banker_wait'] -= 1
                 if train['banker_wait'] == 0:
-                    # Attach complete — train can now enter token block
-                    if direction == 'UP':
+                    if train.get('banker_wait_action') == 'ATTACH':
                         train['banker_attached'] = True
-                    else:
-                        # Detach complete (DOWN train leaving ghat)
+                    elif train.get('banker_wait_action') == 'DETACH':
                         train['banker_attached'] = False
                 current_positions.append(pos)
                 continue
@@ -840,16 +927,29 @@ class TrainDispatchEnv(gym.Env):
             if node_data.get('token_block') and node_data.get('gradient'):
                 track_limit = (50 if direction == 'UP' else 60)
 
-            train['target_speed'] = (
-                min(track_limit, train['max_speed']) if act in (1, 2) else 0
-            )
-
             # ── Braking override ──────────────────────────────────────────
             sig_val, sig_dist_km = self.check_signal(i)
             if train['speed'] > 0 and sig_val == 2.0:
                 d_brake = (train['speed'] ** 2) / (2.0 * train['decel_rate'] * 60.0)
                 if sig_dist_km <= d_brake:
                     train['target_speed'] = 0
+
+            # ── MAIN (act == 1) ────────────────────────────────────────
+            if act == 1:
+                target_node = node_data.get('prev', [])[0] if direction == 'UP' else node_data.get('next', [])[0]
+                cap = self.track_map.get(target_node, {}).get('capacity', 1)
+                dir_cap = max(1, cap // 2) if cap > 1 else cap
+                if self.get_node_occupancy(target_node, direction) >= dir_cap:
+                    # Cannot enter - directional track is full
+                    reward -= 0.05
+                    current_positions.append(pos)
+                    continue
+                train['target_speed'] = min(track_limit, train['max_speed'])
+            elif act == 2:
+                # DIVERT logic
+                pass
+            else:
+                train['target_speed'] = 0
 
             # ── Speed inertia ─────────────────────────────────────────────
             if train['target_speed'] > train['speed']:
@@ -863,7 +963,12 @@ class TrainDispatchEnv(gym.Env):
             self._train_speeds[i] = train['speed']
 
             # ── Movement accumulator ──────────────────────────────────────
-            self._movement_acc[i] += train['speed'] / 60.0
+            # We let this reach >= 1.0 to trigger the block advance below.
+            # The UI in main.py already defensively clamps the visual read to 0.999
+            # so we don't get snap-back.
+            # Add speed * sim_speed_factor
+            speed_factor = getattr(self, 'sim_speed_factor', 1.0)
+            self._movement_acc[i] += (train['speed'] / 60.0) * speed_factor
 
             # ── HOLD ──────────────────────────────────────────────────────
             if act == 0:
@@ -873,41 +978,38 @@ class TrainDispatchEnv(gym.Env):
                         reward -= 0.02   # idle on main line — bad
                 else:
                     if train.get('dwell_rem', 0) == 0:
-                        reward -= 0.01   # loitering in loop after dwell done
+                        reward -= 0.01   # loitering in loop/switch after dwell done
                     else:
                         reward -= 0.0005
-                
-                # Track gridlock (idle without purpose)
+
+                # FIX 5: Graduated idle penalty — smooth gradient from idle=10 to deadlock.
+                # Ramps from 0.0 at idle=10 up to 0.5 at idle=120, giving the PPO critic
+                # a continuous signal to learn from rather than a cliff at deadlock.
                 if train['speed'] == 0 and train.get('dwell_rem', 0) == 0 and train.get('banker_wait', 0) == 0:
                     train['idle_time'] += 1
+                    idle = train['idle_time']
+                    if idle > 10:
+                        idle_penalty = min((idle - 10) / 220.0, 0.5)  # ramps to 0.5 at idle=120
+                        reward -= idle_penalty
 
                 current_positions.append(pos)
 
             # ── PROCEED or DIVERT ─────────────────────────────────────────
             else:
                 if self._movement_acc[i] < 1.0:
-                    # Hasn't moved a full block yet
+                    # Hasn't accumulated enough distance to cross to next node yet.
+                    # Reset idle_time so train is not penalised while building speed.
                     current_positions.append(pos)
                     continue
 
-                next_opts = node_data.get('next', [])
+                next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                 if not next_opts:
                     reward -= 0.01
                     current_positions.append(pos)
                     continue
 
-                # Resolve main target (direction-aware)
-                if direction == 'UP':
-                    main_candidates = [
-                        n for n in next_opts
-                        if self.get_node_km(n) <= self.get_node_km(pos)
-                    ]
-                    main_target = (
-                        min(main_candidates, key=lambda n: self.get_node_km(n))
-                        if main_candidates else next_opts[0]
-                    )
-                else:
-                    main_target = next_opts[0]
+                # Resolve main target
+                main_target = next_opts[0]
 
                 loop_targets = [n for n in next_opts if n != main_target]
 
@@ -915,7 +1017,10 @@ class TrainDispatchEnv(gym.Env):
                 if act == 2 and loop_targets:
                     target_node = None
                     for lnode in loop_targets:
-                        if self.get_node_occupancy(lnode) < self.track_map.get(lnode, {}).get('capacity', 1):
+                        cap = self.track_map.get(lnode, {}).get('capacity', 1)
+                        # Loops are often cap=1 or shared, but for multi-track we enforce directional slots
+                        dir_cap = max(1, cap // 2) if cap > 1 else cap
+                        if self.get_node_occupancy(lnode, direction) < dir_cap:
                             target_node = lnode
                             break
 
@@ -930,39 +1035,90 @@ class TrainDispatchEnv(gym.Env):
                                 self._is_scheduled_stop(train, lnode_station) and
                                 self.track_map[target_node]['type'] == 'PLATFORM'):
                             train['dwell_rem'] = DWELL_TIME_PLATFORM
-                        elif self.track_map.get(target_node, {}).get('type') == 'LOOP':
+                        elif self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
                             train['dwell_rem'] = DWELL_TIME_LOOP
 
-                        # Reward: low-priority train yielding ONLY when main was congested
-                        # Unconditional yield bonus was causing over-diverting into loops
-                        # even when the main track was empty, inflating episode length.
+                        # Reward: low-priority train yielding ONLY when main was congested.
+                        # For mid-section crossing loops (proactive crossing), reward at
+                        # any main occupation (threshold=1). For station loops, require
+                        # main at half-capacity — avoids gratuitous over-diverting.
                         if train['priority'] < 5:
                             main_occ = self.get_node_occupancy(main_target)
                             main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
-                            if main_occ >= max(1, main_cap // 2):
-                                reward += 0.3   # earned yield — main was genuinely busy
+                            tgt_type = self.track_map.get(target_node, {}).get('type', '')
+                            threshold = 1 if tgt_type == 'CROSSING_LOOP' else max(1, main_cap // 2)
+                            if main_occ >= threshold:
+                                delay_val = max(0, self.sim_time - sched.get('deadline', 99999))
+                                if delay_val == 0:
+                                    reward += 0.3   # earned yield — main was genuinely busy, and train isn't late
+
+                        # FIX 6: Proactive ghat yield reward — strong signal for the
+                        # hardest dispatching decision on the corridor.
+                        # Reward low-priority trains that voluntarily divert/wait
+                        # near the ghat entry when opposing traffic is inside.
+                        if train['priority'] < 5:
+                            my_km = self._get_train_km(train)
+                            kasara_km  = self.station_nodes.get('KASARA',   {}).get('km', 0)
+                            igatpuri_km = self.station_nodes.get('IGATPURI', {}).get('km', 0)
+                            ghat_approach_km = 15.0
+                            at_ghat_approach = (
+                                (direction == 'UP'   and abs(my_km - kasara_km)   < ghat_approach_km) or
+                                (direction == 'DOWN' and abs(my_km - igatpuri_km) < ghat_approach_km)
+                            )
+                            tok = self.ghat_token.status()
+                            opposing_in_ghat = (not tok['is_free'] and tok['direction'] != direction)
+                            if at_ghat_approach and opposing_in_ghat:
+                                delay_val = max(0, self.sim_time - sched.get('deadline', 99999))
+                                if delay_val == 0:
+                                    reward += 0.8  # correct dispatcher decision: wait at ghat approach
                 else:
                     target_node = main_target
 
                 # ── Token block entry check ───────────────────────────────
                 if self._is_in_token_block(target_node):
                     if not self.ghat_token.can_enter(train['id'], direction):
-                        # Token held by opposing direction — hard block
+                        # Token held by opposing direction — hard block.
+                        # IMPORTANT: speed is set to 0 to stop further accumulation, but DO NOT reset acc to 0.0,
+                        # otherwise the train will visually snap back to the start of the block!
                         train['speed'] = 0
                         train['target_speed'] = 0
                         self._train_speeds[i] = 0
                         reward -= 0.5   # severe: dispatcher sent train into blocked ghat
+                        train['idle_time'] += 1
                         current_positions.append(pos)
                         continue
+                else:
+                    # ── Gateway Lookahead ─────────────────────────────────────
+                    # If target_node is a gateway leading into the token block,
+                    # do not enter it if the token is held by the opposing direction.
+                    # This keeps the gateway clear for exiting trains.
+                    next_of_target = self.track_map.get(target_node, {}).get(
+                        'prev' if direction == 'UP' else 'next', [])
+                    if next_of_target and self._is_in_token_block(next_of_target[0]):
+                        if not self.ghat_token.can_enter(train['id'], direction):
+                            # Stay in the loop/platform to leave the gateway free.
+                            train['speed'] = 0
+                            train['target_speed'] = 0
+                            self._train_speeds[i] = 0
+                            train['idle_time'] += 1
+                            current_positions.append(pos)
+                            continue
+
 
                 # ── Capacity check at commit time ─────────────────────────
                 commit_occ = self.get_node_occupancy(target_node)
                 commit_cap = self.track_map.get(target_node, {}).get('capacity', 1)
                 if commit_occ >= commit_cap:
+                    # Target is full — reject the move.
+                    # A train waiting here should appear stationary at the signal (acc >= 1.0), not teleporting back.
                     train['speed'] = 0
                     train['target_speed'] = 0
                     self._train_speeds[i] = 0
-                    reward -= 0.5   # severe: dispatcher sent train to full node
+                    reward -= 0.1   # mild penalty — this is a valid wait state
+                    # Only increment idle if NOT inside the token block.
+                    # Inside the token block a train MUST move once clear.
+                    if not self._is_in_token_block(pos):
+                        train['idle_time'] += 1
                     current_positions.append(pos)
                     continue
 
@@ -981,28 +1137,19 @@ class TrainDispatchEnv(gym.Env):
                 elif was_in_token and not now_in_token:
                     self.ghat_token.train_exited(train['id'])
 
-                    # Banker detach check: UP train exiting ghat at Igatpuri
-                    igatpuri_data = self.station_nodes.get('IGATPURI', {})
-                    if (direction == 'UP' and
-                            train.get('banker_required') and
-                            target_node == igatpuri_data.get('switch_in')):
+                    # Banker detach when exiting ghat token block
+                    if train.get('banker_required'):
                         train['banker_wait'] = BANKER_DETACH_TIME
+                        train['banker_wait_action'] = 'DETACH'
 
-                    # DOWN train entering ghat needs banker detach at Kasara exit
-                    kasara_data = self.station_nodes.get('KASARA', {})
-                    if (direction == 'DOWN' and
-                            train.get('banker_required') and
-                            old_pos == kasara_data.get('switch_out')):
-                        # Banker attaches at Kasara for DOWN trains before entering ghat
-                        train['banker_wait'] = BANKER_ATTACH_TIME
-
-                # Banker attach: UP train arriving at Kasara
-                kasara_sw_in = self.station_nodes.get('KASARA', {}).get('switch_in')
-                if (direction == 'UP' and
-                        train.get('banker_required') and
-                        not train.get('banker_attached') and
-                        target_node == kasara_sw_in):
-                    train['banker_wait'] = BANKER_ATTACH_TIME
+                # Banker attach when arriving at station before Ghat
+                target_station = self.track_map.get(target_node, {}).get('station')
+                if train.get('banker_required') and not train.get('banker_attached'):
+                    if (direction == 'DOWN' and target_station == 'KASARA') or \
+                       (direction == 'UP' and target_station == 'IGATPURI'):
+                        if train.get('banker_wait', 0) == 0:
+                            train['banker_wait'] = BANKER_ATTACH_TIME
+                            train['banker_wait_action'] = 'ATTACH'
 
                 # Station pass-through dwell logic
                 target_station = self.track_map.get(target_node, {}).get('station')
@@ -1037,19 +1184,31 @@ class TrainDispatchEnv(gym.Env):
                 current_positions.append(target_node)
 
             # ── Punctuality penalty ───────────────────────────────────────
+            # FIX 1: Linear penalty with hard cap — removes the quadratic
+            # 'death spiral' that made the agent prefer deadlock over lateness.
+            # Max bleed is now 2.0 per step per train (predictable & bounded).
             delay = max(0, self.sim_time - sched['deadline'])
             if delay > 0:
-                reward -= delay * (train['priority'] / 6.0) * 0.005
-                reward -= (delay ** 2) * (train['priority'] / 6.0) * 0.0005
+                # Doubled from 0.01 to 0.02 to punish delay more strictly
+                penalty_rate = delay * (train['priority'] / 6.0) * 0.02
+                reward -= min(penalty_rate, 2.0)
 
         # ── Deadlock detection ────────────────────────────────────────────
-        deadlocked = [t['id'] for t in self.trains if t.get('idle_time', 0) > 80]
+        # FIX 9: Raised threshold 80 → 120 (Fix 5 graduated penalty handles
+        # 10–120 range; hard kill only when truly stuck).
+        # FIX 2: Projected penalty replaces flat -100.
+        # Projects the cost of sitting frozen for all remaining steps so the
+        # agent can never profit by choosing deadlock over lateness.
+        deadlocked = [t['id'] for t in self.trains if t.get('idle_time', 0) > 120]
         if deadlocked:
             print(f"\n{'!'*50}")
             print(f"🛑 DEADLOCK DETECTED @ step {self.sim_time}")
             print(f"   Trains stuck: {deadlocked}")
             print(f"{'!'*50}\n")
-            reward    -= 100.0
+            last_spawn       = max(s['start_time'] for s in self.schedule.values())
+            steps_remaining  = max(0, (last_spawn + 1500) - self.sim_time)
+            projected_penalty = steps_remaining * len(deadlocked) * 0.1
+            reward    -= min(projected_penalty, 500.0)   # cap: never causes gradient shock
             terminated = True
 
         # ── Collision detection ───────────────────────────────────────────
@@ -1064,7 +1223,10 @@ class TrainDispatchEnv(gym.Env):
                 print(f"💥 COLLISION @ step {self.sim_time} node {node}")
                 print(f"   Trains: {crashers}")
                 print(f"{'X'*50}\n")
-                reward    -= 75.0
+                # FIX 3: Collision is the absolute worst outcome — must exceed
+                # max deadlock penalty (-500) to close the 'ram trains to exit'
+                # exploit route. Hierarchy: Collision(-600) > Deadlock(-500).
+                reward    -= 600.0
                 terminated = True
 
         # ── Episode termination ───────────────────────────────────────────
@@ -1080,6 +1242,12 @@ class TrainDispatchEnv(gym.Env):
         if self.sim_time > max_allowed:
             _log.warning(f"[TIMEOUT] sim_time={self.sim_time} max={max_allowed}")
             terminated = True
+
+        # FIX 7: Normalise reward by √n_trains so reward magnitude stays
+        # proportional across curriculum levels (L1→L6 would otherwise grow
+        # 3–5× in absolute scale, destabilising the PPO advantage estimator).
+        n_trains = max(len(self.trains), 1)
+        reward = reward / (n_trains ** 0.5)
 
         return self._get_observation(), reward, terminated, False, {}
 

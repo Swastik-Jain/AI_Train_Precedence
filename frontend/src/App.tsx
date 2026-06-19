@@ -8,9 +8,7 @@ import Page0 from './pages/Page0';
 import DashboardLayout from './layouts/DashboardLayout';
 import Dashboard from './pages/Dashboard';
 import FleetStatus from './pages/FleetStatus';
-import RoutesNetwork from './pages/RoutesNetwork';
-import MaintenanceLogs from './pages/MaintenanceLogs';
-import SimulationSandbox from './pages/SimulationSandbox';
+import ControlCentre from './pages/ControlCentre';
 
 function App() {
   return (
@@ -22,9 +20,7 @@ function App() {
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard"   element={<Dashboard />} />
           <Route path="/fleet"       element={<FleetStatus />} />
-          <Route path="/routes"      element={<RoutesNetwork />} />
-          <Route path="/maintenance" element={<MaintenanceLogs />} />
-          <Route path="/sandbox"     element={<SimulationSandbox />} />
+          <Route path="/control"     element={<ControlCentre />} />
         </Route>
       </Routes>
 

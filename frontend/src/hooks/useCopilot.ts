@@ -39,15 +39,23 @@ export function useCopilot() {
   // Performs the "Verifying with OR-Tools…" wait then commits.
   // ---------------------------------------------------------------------------
   const executeAction = useCallback(
-    async (recommendation_id: string): Promise<ActionResult> => {
+    async (
+      recommendation_id: string,
+      modified_action?: number,
+      modified_edge?: string
+    ): Promise<ActionResult> => {
       try {
         // Small artificial delay to show the "Verifying with OR-Tools…" micro-animation
         await new Promise((r) => setTimeout(r, 1500));
 
+        const bodyPayload: any = { recommendation_id };
+        if (modified_action !== undefined) bodyPayload.modified_action = modified_action;
+        if (modified_edge !== undefined) bodyPayload.modified_edge = modified_edge;
+
         const res = await fetch('/api/v1/dispatch/commit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recommendation_id }),
+          body: JSON.stringify(bodyPayload),
         });
 
         if (res.status === 409) {
@@ -124,20 +132,6 @@ export function useCopilot() {
     setPreviewState(null);
   }, [setPreviewState]);
 
-  // ---------------------------------------------------------------------------
-  // modifyAction — navigate to Simulation Sandbox with suggestion pre-loaded
-  // ---------------------------------------------------------------------------
-  const modifyAction = useCallback(
-    (suggestion: AISuggestion) => {
-      navigate('/sandbox', {
-        state: {
-          preloadedSuggestion: suggestion,
-        },
-      });
-    },
-    [navigate]
-  );
-
   return {
     activeSuggestions,
     previewState,
@@ -148,7 +142,6 @@ export function useCopilot() {
     rejectAction,
     previewAction,
     clearPreview,
-    modifyAction,
     dismissToast,
   };
 }

@@ -7,8 +7,8 @@ import './KineticMap.css';
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-const SVG_W     = 3400;
-const SVG_H     = 440;
+const SVG_W     = 4200;
+const SVG_H     = 560;
 const MAIN_Y    = 220;
 const TRACK_GAP = 22;   // px between parallel track centres
 const LOOP_OFF  = TRACK_GAP * 2;  // 44 px — how far into segment the loop arch extends
@@ -49,28 +49,48 @@ const ZONES: Zone[] = [
   // KALYAN JN (100 px; exits via 4→2 switch)
   { type:'ST',  x1:870,  x2:970,  cap:4, stId:'KALYAN'                  },
   { type:'SW',  x1:970,  x2:1050, fromCap:4, toCap:2                    },
-  // KALYAN → KASARA (67 km — 470 px)
-  { type:'SEG', x1:1050, x2:1520, cap:2, speed:100, km:67 },
+  // KALYAN → AMBERNATH (9 km)
+  { type:'SEG', x1:1050, x2:1150, cap:2, speed:100, km:9  },
+  // AMBERNATH crossing loop
+  { type:'ST',  x1:1150, x2:1220, cap:2, stId:'AMBERNATH'               },
+  // AMBERNATH → TITWALA (17 km)
+  { type:'SEG', x1:1220, x2:1370, cap:2, speed:100, km:17 },
+  // TITWALA crossing loop
+  { type:'ST',  x1:1370, x2:1440, cap:2, stId:'TITWALA'                 },
+  // TITWALA → ATGAON (18 km)
+  { type:'SEG', x1:1440, x2:1590, cap:2, speed:100, km:18 },
+  // ATGAON crossing loop
+  { type:'ST',  x1:1590, x2:1660, cap:2, stId:'ATGAON'                  },
+  // ATGAON → KASARA (23 km)
+  { type:'SEG', x1:1660, x2:1860, cap:2, speed:100, km:23 },
   // KASARA station (80 px; exits via 2→1 for ghat)
-  { type:'ST',  x1:1520, x2:1600, cap:2, stId:'KASARA'                  },
-  { type:'SW',  x1:1600, x2:1644, fromCap:2, toCap:1                    },
-  // Ghat — TOKEN BLOCK single-track (120 px = 15 km)
-  { type:'SEG', x1:1644, x2:1764, cap:1, isGhat:true, speed:50, km:15  },
-  { type:'SW',  x1:1764, x2:1808, fromCap:1, toCap:2                    },
+  { type:'ST',  x1:1860, x2:1940, cap:2, stId:'KASARA'                  },
+  { type:'SW',  x1:1940, x2:1984, fromCap:2, toCap:1                    },
+  // Ghat — TOKEN BLOCK single-track (15 km)
+  { type:'SEG', x1:1984, x2:2344, cap:1, isGhat:true, speed:50, km:15   },
+  { type:'SW',  x1:2344, x2:2388, fromCap:1, toCap:2                    },
   // IGATPURI station (80 px)
-  { type:'ST',  x1:1808, x2:1888, cap:2, stId:'IGATPURI'               },
+  { type:'ST',  x1:2388, x2:2468, cap:2, stId:'IGATPURI'                },
   // IGATPURI → DEVLALI (46 km — 400 px)
-  { type:'SEG', x1:1888, x2:2288, cap:2, speed:110, km:46 },
+  { type:'SEG', x1:2468, x2:2868, cap:2, speed:110, km:46 },
   // DEVLALI station (70 px)
-  { type:'ST',  x1:2288, x2:2358, cap:2, stId:'DEVLALI'                },
+  { type:'ST',  x1:2868, x2:2938, cap:2, stId:'DEVLALI'                 },
   // DEVLALI → NASHIK (5 km — 150 px)
-  { type:'SEG', x1:2358, x2:2508, cap:2, speed:75,  km:5  },
+  { type:'SEG', x1:2938, x2:3088, cap:2, speed:75,  km:5  },
   // NASHIK station (90 px)
-  { type:'ST',  x1:2508, x2:2598, cap:2, stId:'NASHIK'                 },
-  // NASHIK → MANMAD (74 km — 600 px, longest section)
-  { type:'SEG', x1:2598, x2:3198, cap:2, speed:130, km:74 },
+  { type:'ST',  x1:3088, x2:3178, cap:2, stId:'NASHIK'                  },
+  // NASHIK → NANDGAON
+  { type:'SEG', x1:3178, x2:3378, cap:2, speed:130, km:74 },
+  // NANDGAON loop
+  { type:'ST',  x1:3378, x2:3448, cap:2, stId:'LOOP_NANDGAON'           },
+  // NANDGAON → LASALGAON
+  { type:'SEG', x1:3448, x2:3668, cap:2, speed:130, km:25 },
+  // LASALGAON loop
+  { type:'ST',  x1:3668, x2:3738, cap:2, stId:'LOOP_LASALGAON'          },
+  // LASALGAON → MANMAD
+  { type:'SEG', x1:3738, x2:3968, cap:2, speed:130, km:26 },
   // MANMAD terminus (2 tracks, 80 px)
-  { type:'ST',  x1:3198, x2:3278, cap:2, stId:'MANMAD', isRight:true  },
+  { type:'ST',  x1:3968, x2:4048, cap:2, stId:'MANMAD', isRight:true    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,37 +106,52 @@ interface StMeta {
 }
 const STATION_META: Record<string, StMeta> = {
   //                                                               loopLeft     loopRight
-  CSMT:     { label:'CSMT',        km:0,   loops:2, passing:false, loopLeft:'bumper',   loopRight:'segment' },
-  DADAR:    { label:'DADAR',       km:9,   loops:1, passing:false, loopLeft:'segment',  loopRight:'segment' },
-  KALYAN:   { label:'KALYAN JN',   km:54,  loops:2, passing:false, loopLeft:'segment',  loopRight:'inside'  },
-  KASARA:   { label:'KASARA',      km:121, loops:1, passing:true,  loopLeft:'segment',  loopRight:'inside'  },
-  IGATPURI: { label:'IGATPURI',    km:136, loops:1, passing:true,  loopLeft:'inside',   loopRight:'segment' },
-  DEVLALI:  { label:'DEVLALI',     km:182, loops:1, passing:false, loopLeft:'segment',  loopRight:'segment' },
-  NASHIK:   { label:'NASHIK ROAD', km:187, loops:2, passing:false, loopLeft:'segment',  loopRight:'segment' },
-  MANMAD:   { label:'MANMAD JN',   km:261, loops:1, passing:false, loopLeft:'segment',  loopRight:'bumper'  },
+  CSMT:           { label:'CSMT',        km:0,   loops:2, passing:false, loopLeft:'bumper',   loopRight:'segment' },
+  DADAR:          { label:'DADAR',       km:9,   loops:1, passing:false, loopLeft:'segment',  loopRight:'segment' },
+  KALYAN:         { label:'KALYAN JN',   km:54,  loops:3, passing:false, loopLeft:'segment',  loopRight:'inside'  },
+  AMBERNATH:      { label:'AMBERNATH',   km:63,  loops:2, passing:true,  loopLeft:'segment',  loopRight:'segment' },
+  TITWALA:        { label:'TITWALA',     km:80,  loops:2, passing:true,  loopLeft:'segment',  loopRight:'segment' },
+  ATGAON:         { label:'ATGAON',      km:98,  loops:2, passing:true,  loopLeft:'segment',  loopRight:'segment' },
+  KASARA:         { label:'KASARA',      km:121, loops:3, passing:true,  loopLeft:'segment',  loopRight:'inside'  },
+  IGATPURI:       { label:'IGATPURI',    km:136, loops:4, passing:true,  loopLeft:'inside',   loopRight:'segment' },
+  DEVLALI:        { label:'DEVLALI',     km:182, loops:2, passing:false, loopLeft:'segment',  loopRight:'segment' },
+  NASHIK:         { label:'NASHIK ROAD', km:187, loops:3, passing:false, loopLeft:'segment',  loopRight:'segment' },
+  LOOP_NANDGAON:  { label:'NANDGAON',    km:210, loops:2, passing:true,  loopLeft:'segment',  loopRight:'segment' },
+  LOOP_LASALGAON: { label:'LASALGAON',   km:235, loops:2, passing:true,  loopLeft:'segment',  loopRight:'segment' },
+  MANMAD:         { label:'MANMAD JN',   km:261, loops:2, passing:false, loopLeft:'segment',  loopRight:'bumper'  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BACKEND X → SCHEMATIC X  (piecewise-linear, topology is deterministic)
 // ─────────────────────────────────────────────────────────────────────────────
 const B2S: [number,number,number,number][] = [
-  [100,   250,  20,  50 ],  // ORIGIN → CSMT sw_in
-  [250,   430,  50,  130],  // CSMT station zone
-  [430,   880,  130, 330],  // CSMT → DADAR segment
-  [880,   1060, 330, 420],  // DADAR station zone
-  [1060,  2560, 420, 870],  // DADAR → KALYAN segment
-  [2560,  2740, 870, 970],  // KALYAN station zone
-  [2740,  4840, 970, 1520], // KALYAN switch + KALYAN→KASARA segment
-  [4840,  5020, 1520,1600], // KASARA station zone
-  [5020,  5620, 1600,1808], // KASARA switch + ghat + IGATPURI switch
-  [5620,  5800, 1808,1888], // IGATPURI station zone
-  [5800,  7300, 1888,2288], // IGATPURI → DEVLALI segment
-  [7300,  7480, 2288,2358], // DEVLALI station zone
-  [7480,  7780, 2358,2508], // DEVLALI → NASHIK segment
-  [7780,  7960, 2508,2598], // NASHIK station zone
-  [7960,  10360,2598,3198], // NASHIK → MANMAD segment
-  [10360, 10540,3198,3278], // MANMAD station zone
-  [10540, 10690,3278,3360], // MANMAD → DEST
+  [100,   250,  20,  50 ],    // ORIGIN → CSMT sw_in
+  [250,   430,  50,  130],    // CSMT station zone
+  [430,   880,  130, 330],    // CSMT → DADAR segment
+  [880,   1060, 330, 420],    // DADAR station zone
+  [1060,  2560, 420, 870],    // DADAR → KALYAN segment
+  [2560,  2740, 870, 970],    // KALYAN station zone
+  [2740,  3190, 970, 1150],   // KALYAN → AMBERNATH segment (inc switch)
+  [3190,  3370, 1150, 1220],  // AMBERNATH station zone
+  [3370,  4120, 1220, 1370],  // AMBERNATH → TITWALA segment
+  [4120,  4300, 1370, 1440],  // TITWALA station zone
+  [4300,  5050, 1440, 1590],  // TITWALA → ATGAON segment
+  [5050,  5230, 1590, 1660],  // ATGAON station zone
+  [5230,  6130, 1660, 1860],  // ATGAON → KASARA segment
+  [6130,  6310, 1860, 1940],  // KASARA station zone
+  [6310,  7660, 1940, 2388],  // KASARA switch + ghat + IGATPURI switch
+  [7660,  7840, 2388, 2468],  // IGATPURI station zone
+  [7840,  9340, 2468, 2868],  // IGATPURI → DEVLALI segment
+  [9340,  9520, 2868, 2938],  // DEVLALI station zone
+  [9520,  10120, 2938, 3088], // DEVLALI → NASHIK segment
+  [10120, 10300, 3088, 3178], // NASHIK station zone
+  [10300, 11150, 3178, 3378], // NASHIK → NANDGAON segment
+  [11150, 11310, 3378, 3448], // NANDGAON crossing loop zone
+  [11310, 11930, 3448, 3668], // NANDGAON → LASALGAON segment
+  [11930, 12090, 3668, 3738], // LASALGAON crossing loop zone
+  [12090, 12760, 3738, 3968], // LASALGAON → MANMAD segment
+  [12760, 13090, 3968, 4048], // MANMAD station zone
+  [13090, 13300, 4048, 4140], // MANMAD → DEST
 ];
 
 const bx2sx = (bx: number): number => {
@@ -125,7 +160,7 @@ const bx2sx = (bx: number): number => {
       return s1 + ((bx - b1) / (b2 - b1)) * (s2 - s1);
     }
   }
-  return bx < 100 ? 20 : 3400;
+  return bx < 100 ? 20 : 4140;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,17 +201,38 @@ export const KineticMap: React.FC = () => {
     const src = nodePos.get(edge.source);
     const tgt = nodePos.get(edge.target);
     if (!src || !tgt) return null;
-    return {
-      x: src.x + (tgt.x - src.x) * train.position_percentage,
-      y: MAIN_Y,
-    };
+    
+    const x = src.x + (tgt.x - src.x) * train.position_percentage;
+    
+    // Find capacity of the zone we are in
+    let cap = 2;
+    const zone = ZONES.find(z => x >= z.x1 && x <= z.x2);
+    if (zone) {
+      if (zone.type === 'SEG' || zone.type === 'ST') cap = zone.cap;
+      else if (zone.type === 'SW') cap = Math.max(zone.fromCap, zone.toCap);
+    }
+    
+    const trackIdx = trainTrackAt(train, cap);
+    const y = trackY(trackIdx, cap);
+    
+    return { x, y };
   };
 
-  // ── Determine which track a train occupies at a station (hash-based) ───────
+  // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
   const trainTrackAt = (train: TrainState, cap: number): number => {
+    if (cap <= 1) return 0;
+    const isUp = train.direction === "UP";
+    
     let hash = 0;
     for (let i = 0; i < train.train_id.length; i++) hash += train.train_id.charCodeAt(i);
-    return hash % cap;
+    
+    if (isUp) {
+      const available = Math.ceil(cap / 2);
+      return hash % available;
+    } else {
+      const available = Math.floor(cap / 2);
+      return (cap - available) + (hash % available);
+    }
   };
 
   // ── Block tick marks: actual topology block boundaries ──────────────────────
@@ -198,12 +254,31 @@ export const KineticMap: React.FC = () => {
   // ── Render: SEG ─────────────────────────────────────────────────────────────
   const renderSeg = (z: SegZone, key: number, blockXs: number[] = []) => {
     const elems: React.ReactNode[] = [];
-    const mx  = (z.x1 + z.x2) / 2;
-    const w   = z.x2 - z.x1;
+    
+    // Check if adjacent stations encroach on this segment with their loops
+    const prevZ = ZONES[key - 1];
+    const nextZ = ZONES[key + 1];
+    
+    let drawX1 = z.x1;
+    let drawX2 = z.x2;
+    
+    if (prevZ && prevZ.type === 'ST') {
+      const meta = STATION_META[(prevZ as StationZone).stId];
+      if (meta && meta.loopRight === 'segment') drawX1 += LOOP_OFF;
+    }
+    if (nextZ && nextZ.type === 'ST') {
+      const meta = STATION_META[(nextZ as StationZone).stId];
+      if (meta && meta.loopLeft === 'segment') drawX2 -= LOOP_OFF;
+    }
+
+    const mx  = (drawX1 + drawX2) / 2;
+    const w   = drawX2 - drawX1;
     const GAP = 3;  // visible gap at each block boundary (px)
 
     // Draw each block section as a separate line with a small gap at boundaries
-    const xs = [z.x1, ...blockXs.slice().sort((a, b) => a - b), z.x2];
+    const validBlocks = blockXs.filter(x => x > drawX1 && x < drawX2).sort((a, b) => a - b);
+    const xs = [drawX1, ...validBlocks, drawX2];
+    
     for (let bi = 0; bi < xs.length - 1; bi++) {
       const bx1 = xs[bi]     + (bi > 0           ? GAP : 0);
       const bx2 = xs[bi + 1] - (bi < xs.length-2 ? GAP : 0);
@@ -236,7 +311,7 @@ export const KineticMap: React.FC = () => {
         <text key="ghat" x={mx} y={trackY(0, 1) - 12}
           textAnchor="middle" className="sch-ghat-lbl">TOKEN BLOCK</text>,
         <rect key="ghbox"
-          x={z.x1} y={trackY(0, 1) - 6} width={z.x2 - z.x1} height={12}
+          x={drawX1} y={trackY(0, 1) - 6} width={drawX2 - drawX1} height={12}
           fill="rgba(58,112,144,0.06)" stroke="#3a7090" strokeWidth={1}
           strokeDasharray="6 3" />,
       );
@@ -317,7 +392,11 @@ export const KineticMap: React.FC = () => {
     const isTerminus  = !!(z.isLeft || z.isRight);
     const topTrackY   = trackY(0, cap);
     const botTrackY   = trackY(cap - 1, cap);
-    const cx          = (x1 + x2) / 2;
+    
+    // Visually expand the station boundaries to cover the loops if they branch in the segment
+    const visualX1 = meta.loopLeft === 'segment' ? x1 - LOOP_OFF : x1;
+    const visualX2 = meta.loopRight === 'segment' ? x2 + LOOP_OFF : x2;
+    const cx       = (visualX1 + visualX2) / 2;
 
     // Which trains are at this station? (track occupancy)
     const stTrains = trainStates.filter(t => {
@@ -332,16 +411,17 @@ export const KineticMap: React.FC = () => {
 
     const elems: React.ReactNode[] = [];
 
-    // 1) Station box — covers ONLY main platform tracks (not loop sidings)
-    const boxTop = topTrackY - 7;
+    // 1) Station box — covers BOTH main platform tracks AND loop sidings above
+    const loopsTop = meta.loops > 0 ? topTrackY - meta.loops * TRACK_GAP - 7 : topTrackY - 7;
+    const boxTop = loopsTop;
     const boxBot = botTrackY + 7;
     elems.push(
       <rect key="box"
-        x={x1} y={boxTop} width={x2 - x1} height={boxBot - boxTop}
-        fill="rgba(26,26,26,0.80)"
-        stroke={isTerminus ? '#666' : '#3a3a3a'}
+        x={visualX1} y={boxTop} width={visualX2 - visualX1} height={boxBot - boxTop}
+        fill="rgba(40,44,52,0.4)"
+        stroke={isTerminus ? '#555' : '#333'}
         strokeWidth={isTerminus ? 1.5 : 1}
-        rx={2}
+        rx={4}
       />
     );
 
@@ -349,17 +429,13 @@ export const KineticMap: React.FC = () => {
     for (let i = 0; i < cap; i++) {
       const y = trackY(i, cap);
       elems.push(
-        <line key={`mt${i}`} x1={x1} y1={y} x2={x2} y2={y}
+        <line key={`mt${i}`} x1={visualX1} y1={y} x2={visualX2} y2={y}
           stroke="#484848" strokeWidth={2} strokeLinecap="square" />
       );
     }
 
-    // 3) Loop / siding tracks — smooth bezier S-curves, branching outside the station box.
-    //    loopLeft/loopRight  'segment' | 'inside' | 'bumper'
-    //      'segment' → bezier arch extends LOOP_OFF px into the adjacent segment
-    //      'inside'  → bezier stays within station (for capacity-change junctions)
-    //      'bumper'  → loop terminates; bumper bar drawn below
-
+    // 3) Loop / siding tracks — smooth bezier S-curves above main tracks.
+    //    We retain the straight middle section and use bezier entries/exits.
     for (let l = 0; l < meta.loops; l++) {
       const sidY  = topTrackY - (l + 1) * TRACK_GAP;
       const parts: string[] = [];
@@ -402,8 +478,9 @@ export const KineticMap: React.FC = () => {
 
       elems.push(
         <path key={`sid${l}`} d={parts.join(' ')} fill="none"
-          stroke="#3c3c3c" strokeWidth={1.5}
-          strokeLinecap="round" strokeLinejoin="round" />
+          stroke="#404040" strokeWidth={1.5}
+          strokeLinecap="round" strokeLinejoin="round"
+          strokeDasharray="4 4" />
       );
     }
 
@@ -423,8 +500,8 @@ export const KineticMap: React.FC = () => {
       const occTrain = occ;
       const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
       const isHalted   = occTrain?.status === 'Halted';
-      const pfFill   = !occTrain ? 'rgba(30,30,30,0.9)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
-      const pfStroke = !occTrain ? '#3a3a3a' : isConflict ? '#ef4444' : isHalted ? '#f59e0b' : '#22c55e';
+      const pfFill   = !occTrain ? 'rgba(35,38,45,0.6)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
+      const pfStroke = !occTrain ? '#333' : isConflict ? '#ef4444' : isHalted ? '#f59e0b' : '#22c55e';
 
       elems.push(
         <g key={`pf${i}`}>
@@ -442,19 +519,17 @@ export const KineticMap: React.FC = () => {
       );
     }
 
-    // 5) Loop siding platform markers — centred on the horizontal section of the siding
-    const lpHorizL = meta.loopLeft  === 'inside' ? x1 + LOOP_OFF : x1;
-    const lpHorizR = meta.loopRight === 'inside' ? x2 - LOOP_OFF : x2;
-    const lpCx = (lpHorizL + lpHorizR) / 2;
+    // 5) Loop siding platform markers — positioned above each loop track line
+    const lpCx = cx; // Perfectly align with PF markers in the visually expanded box
     for (let l = 0; l < meta.loops; l++) {
       const sidY = topTrackY - (l + 1) * TRACK_GAP;
       elems.push(
         <g key={`lpf${l}`}>
           <rect x={lpCx - PF_W / 2} y={sidY - PF_H - 2}
             width={PF_W} height={PF_H}
-            fill="rgba(24,24,24,0.9)" stroke="#333" strokeWidth={1} rx={1} />
+            fill="rgba(35,38,45,0.6)" stroke="#333" strokeWidth={1} rx={1} />
           <text x={lpCx} y={sidY - PF_H / 2 + 2}
-            textAnchor="middle" className="sch-pf-label" fill="#444">
+            textAnchor="middle" className="sch-pf-label" fill="#555">
             LP{l + 1}
           </text>
         </g>
@@ -465,7 +540,7 @@ export const KineticMap: React.FC = () => {
     for (let i = 0; i < cap; i++) {
       const y = trackY(i, cap);
       elems.push(
-        <text key={`tn${i}`} x={x1 + 5} y={y + 4}
+        <text key={`tn${i}`} x={visualX1 + 5} y={y + 4}
           className="sch-track-num" textAnchor="start">{i + 1}</text>
       );
     }
@@ -513,13 +588,13 @@ export const KineticMap: React.FC = () => {
       if (meta.loopLeft === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
           const sidY = topTrackY - (l + 1) * TRACK_GAP;
-          elems.push(<line key={`bll${l}`} x1={x1} y1={sidY-4} x2={x1} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
+          elems.push(<line key={`bll${l}`} x1={visualX1} y1={sidY-4} x2={visualX1} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
       if (meta.loopRight === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
           const sidY = topTrackY - (l + 1) * TRACK_GAP;
-          elems.push(<line key={`blr${l}`} x1={x2} y1={sidY-4} x2={x2} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
+          elems.push(<line key={`blr${l}`} x1={visualX2} y1={sidY-4} x2={visualX2} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
     }
@@ -556,7 +631,6 @@ export const KineticMap: React.FC = () => {
         </span>
         <span className="sch-route">CSMT → MANMAD  /  261 km  /  {trainStates.length} trains</span>
         <div style={{ flex: 1 }} />
-        <span className="sch-hint">scroll · +/− zoom</span>
       </div>
 
       {/* ── SCROLLABLE MAP ──────────────────────────────────────────────── */}

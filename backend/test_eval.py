@@ -7,7 +7,7 @@ import numpy as np
 
 def mask_fn(env): return env.get_action_mask()
 
-model = MaskablePPO.load("ai/models/L4_10Trains_Best/best_model")
+model = MaskablePPO.load("ai/models/Phase3/L4_10Trains_Best/best_model")
 rewards, lengths = [], []
 for ep in range(30):
     env = TrainDispatchEnv()

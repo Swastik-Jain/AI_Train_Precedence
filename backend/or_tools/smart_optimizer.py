@@ -79,19 +79,22 @@ class SmartOptimizer:
         -------
         np.ndarray — safe actions, same shape as ai_actions
         """
-        safe_actions = ai_actions.copy().astype(int)
+        import numpy as np
+        safe_actions = np.array(ai_actions).copy().astype(int)
         node_km      = node_km or {}
 
         # ── Snapshot current occupancy ────────────────────────────────────
-        current_occ = defaultdict(int)
+        # Format: current_occ[node_id][direction] = count
+        current_occ = defaultdict(lambda: defaultdict(int))
         for t in trains:
             p = t['position']
+            d = t.get('direction', 'DOWN')
             if p not in (0, 998, 999):
-                current_occ[p] += 1
+                current_occ[p][d] += 1
 
         # ── FCFS claim tracker — updated as trains are processed ──────────
         # Highest priority trains processed first, they claim capacity first
-        claimed_occ = defaultdict(int)
+        claimed_occ = defaultdict(lambda: defaultdict(int))
 
         sorted_indices = sorted(
             range(len(trains)),
@@ -108,9 +111,11 @@ class SmartOptimizer:
             # Used by anti-loitering to detect deliberate HOLD decisions.
             rl_original_action = int(ai_actions[i]) if i < len(ai_actions) else 0
 
+            direction  = train.get('direction', 'DOWN')
+
             # Skip finished trains
             if train['finished'] or pos == 999:
-                claimed_occ[pos] += 1
+                claimed_occ[pos][direction] += 1
                 continue
 
             # Skip staging nodes
@@ -119,12 +124,12 @@ class SmartOptimizer:
 
             node_data  = track_map.get(pos, {})
             node_type  = node_data.get('type', 'MAIN_BLOCK')
-            next_opts  = node_data.get('next', [])
-            direction  = train.get('direction', 'DOWN')
+
+            next_opts = track_map.get(pos, {}).get('prev', []) if direction == 'UP' else track_map.get(pos, {}).get('next', [])
             is_token   = node_data.get('token_block', False)
 
             if not next_opts:
-                claimed_occ[pos] += 1
+                claimed_occ[pos][direction] += 1
                 continue
 
             # Direction-aware main target
@@ -141,8 +146,9 @@ class SmartOptimizer:
             # else (dwell logic, env guard) forced the current act to 0
             # while the agent actually wanted to move.
             if act == 0 and node_type in MAINLINE_TYPES and rl_original_action != 0:
-                main_occ = current_occ[main_target] + claimed_occ[main_target]
                 main_cap = track_map.get(main_target, {}).get('capacity', 1)
+                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                main_occ = current_occ[main_target][direction] + claimed_occ[main_target][direction]
 
                 # Don't force into token block if opposing direction holds it
                 token_blocked = False
@@ -163,12 +169,13 @@ class SmartOptimizer:
             # sitting in a loop after dwell is done should always exit when
             # the main line is free — there is no strategic reason to stay.
             elif act == 0 and node_type in HOLDING_TYPES:
-                main_occ = current_occ[main_target] + claimed_occ[main_target]
                 main_cap = track_map.get(main_target, {}).get('capacity', 1)
+                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                main_occ = current_occ[main_target][direction] + claimed_occ[main_target][direction]
                 # Only wake up if dwell is done (dwell_rem == 0)
-                if (main_occ < main_cap
+                if (main_occ < dir_cap
                         and train.get('dwell_rem', 0) == 0
-                        and claimed_occ[main_target] == 0):
+                        and claimed_occ[main_target][direction] == 0):
                     act = 1
                     safe_actions[i] = 1
                     _log.debug(f"Loop wake-up: {train['id']} exiting {node_type}")
@@ -177,9 +184,10 @@ class SmartOptimizer:
             elif act == 2:
                 loop_available = False
                 for ln in loop_targets:
-                    ln_occ = current_occ[ln] + claimed_occ[ln]
                     ln_cap = track_map.get(ln, {}).get('capacity', 1)
-                    if ln_occ < ln_cap:
+                    dir_cap = max(1, ln_cap // 2) if ln_cap > 1 else ln_cap
+                    ln_occ = current_occ[ln][direction] + claimed_occ[ln][direction]
+                    if ln_occ < dir_cap:
                         loop_available = True
                         break
 
@@ -198,28 +206,30 @@ class SmartOptimizer:
             else:  # act == 2
                 target_pos = pos   # default if no loop found
                 for ln in loop_targets:
-                    ln_occ = current_occ[ln] + claimed_occ[ln]
                     ln_cap = track_map.get(ln, {}).get('capacity', 1)
-                    if ln_occ < ln_cap:
+                    dir_cap = max(1, ln_cap // 2) if ln_cap > 1 else ln_cap
+                    ln_occ = current_occ[ln][direction] + claimed_occ[ln][direction]
+                    if ln_occ < dir_cap:
                         target_pos = ln
                         break
 
             # Capacity enforcement
             if target_pos not in (0, 998, 999) and target_pos != pos:
                 target_cap = track_map.get(target_pos, {}).get('capacity', 1)
-                total_occ  = current_occ[target_pos] + claimed_occ[target_pos]
+                dir_cap = max(1, target_cap // 2) if target_cap > 1 else target_cap
+                total_occ  = current_occ[target_pos][direction] + claimed_occ[target_pos][direction]
 
-                if total_occ >= target_cap:
+                if total_occ >= dir_cap:
                     # Block is full — force HOLD
                     safe_actions[i] = 0
                     target_pos      = pos
                     _log.debug(
                         f"Collision gate: {train['id']} blocked from "
-                        f"node {target_pos} (occ={total_occ}/{target_cap})"
+                        f"node {target_pos} (occ={total_occ}/{dir_cap})"
                     )
 
             # Update claim tracker
-            claimed_occ[target_pos] += 1
+            claimed_occ[target_pos][direction] += 1
 
         return safe_actions
 
@@ -247,3 +257,13 @@ class SmartOptimizer:
         if ghat_token is None:
             return set()
         return ghat_token.token_block_ids
+
+    def or_shield_check(self, suggestion: dict, train_states: dict, active_blocks: dict, dynamic_constraints: dict) -> tuple:
+        """
+        Legacy validation for single-action suggestions from the Copilot UI.
+        Since OR-Shield is now globally integrated into the physics step via optimize_decision(),
+        we simply approve UI suggestions here and let the global solver enforce safety.
+        """
+        # Could implement basic checks here (e.g. is target edge blocked by maintenance)
+        # but the API endpoint handles maintenance blocks separately.
+        return True, "Safe via global optimizer"

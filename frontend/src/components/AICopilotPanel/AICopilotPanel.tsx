@@ -17,6 +17,21 @@ const PRIORITY_META: Record<number, { label: string; color: string; bg: string }
 };
 
 // ---------------------------------------------------------------------------
+// TTL Hook
+// ---------------------------------------------------------------------------
+const useCardAge = (suggestion: AISuggestion) => {
+  const [ageSecs, setAgeSecs] = useState(0);
+  React.useEffect(() => {
+    const start = new Date(suggestion.timestamp).getTime();
+    const updateAge = () => setAgeSecs(Math.floor((Date.now() - start) / 1000));
+    updateAge();
+    const interval = setInterval(updateAge, 500);
+    return () => clearInterval(interval);
+  }, [suggestion.timestamp]);
+  return ageSecs;
+};
+
+// ---------------------------------------------------------------------------
 // Circular Confidence Gauge
 // ---------------------------------------------------------------------------
 const ConfidenceGauge: React.FC<{ score: number }> = ({ score }) => {
@@ -92,24 +107,31 @@ const WhyTooltip: React.FC<{ reasoning: string }> = ({ reasoning }) => {
 // ---------------------------------------------------------------------------
 const DecisionCard: React.FC<{
   suggestion: AISuggestion;
-  onApprove: (id: string) => Promise<void>;
-  onModify: (s: AISuggestion) => void;
+  onApprove: (id: string, modAct?: number, modEdge?: string) => Promise<void>;
   onDismiss: (id: string) => void;
   onHoverStart: (s: AISuggestion) => void;
   onHoverEnd: () => void;
-}> = ({ suggestion, onApprove, onModify, onDismiss, onHoverStart, onHoverEnd }) => {
+}> = ({ suggestion, onApprove, onDismiss, onHoverStart, onHoverEnd }) => {
   const [approveState, setApproveState] = useState<'idle' | 'verifying' | 'success' | 'conflict'>('idle');
+  const [isModifying, setIsModifying] = useState(false);
+  const [modAct, setModAct] = useState<number>((suggestion as any).rl_action ?? 1);
+  const [modEdge, setModEdge] = useState<string>(suggestion.affected_edges?.[0] || '');
+
+  const age = useCardAge(suggestion);
+  const TTL = 20; // Increased to 20s to match new tick interval
+  const isExpired = age >= TTL || suggestion.status === 'expired';
+
   const pm = PRIORITY_META[suggestion.priority_level] ?? PRIORITY_META[3];
   const impactText =
     suggestion.impact_analysis >= 0
-      ? `+${suggestion.impact_analysis}s saved`
-      : `${suggestion.impact_analysis}s delay`;
+      ? `+${suggestion.impact_analysis}min saved`
+      : `${suggestion.impact_analysis}min delay`;
   const impactColor = suggestion.impact_analysis >= 0 ? '#16a34a' : '#dc2626';
 
   const handleApprove = useCallback(async () => {
-    if (approveState !== 'idle') return;
+    if (approveState !== 'idle' || isExpired) return;
     setApproveState('verifying');
-    const result = await onApprove(suggestion.recommendation_id);
+    const result = await onApprove(suggestion.recommendation_id, isModifying ? modAct : undefined, isModifying ? modEdge : undefined);
     // @ts-ignore — result type from parent
     if (result?.ok === false && result?.safetyConflict) {
       setApproveState('conflict');
@@ -118,7 +140,7 @@ const DecisionCard: React.FC<{
       setApproveState('idle');
     }
     // On success the card is removed from the list by the store
-  }, [approveState, onApprove, suggestion.recommendation_id]);
+  }, [approveState, isExpired, onApprove, suggestion.recommendation_id, isModifying, modAct, modEdge]);
 
   return (
     <motion.div
@@ -131,11 +153,28 @@ const DecisionCard: React.FC<{
       exit={{ opacity: 0, x: -60, scale: 0.95 }}
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
     >
+      {/* TTL Bar */}
+      <div style={{ height: '3px', background: '#e2e8f0', width: '100%', marginBottom: '6px', borderRadius: '2px', overflow: 'hidden' }}>
+        <div style={{
+          height: '100%',
+          background: isExpired ? '#dc2626' : '#8B5CF6',
+          width: `${Math.max(0, 100 - (age / TTL) * 100)}%`,
+          transition: 'width 0.5s linear'
+        }} />
+      </div>
+
       {/* Card Header */}
       <div className="copilot-card-header">
-        <span className="copilot-priority-badge" style={{ color: pm.color, backgroundColor: pm.bg }}>
-          {pm.label}
-        </span>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <span className="copilot-priority-badge" style={{ color: pm.color, backgroundColor: pm.bg }}>
+            {pm.label}
+          </span>
+          {suggestion.urgency === 'CRITICAL' && (
+            <span className="copilot-priority-badge" style={{ color: '#fff', backgroundColor: '#dc2626', padding: '2px 6px', fontSize: '10px' }}>
+              AUTO-ACT
+            </span>
+          )}
+        </div>
         <div className="copilot-card-meta">
           <WhyTooltip reasoning={suggestion.reasoning} />
           <span className="copilot-train-id">{suggestion.target_train_id}</span>
@@ -159,6 +198,33 @@ const DecisionCard: React.FC<{
         </div>
       </div>
 
+      {/* Inline Modification Panel */}
+      <AnimatePresence>
+        {isModifying && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{ overflow: 'hidden', marginBottom: '8px' }}
+          >
+            <div style={{ padding: '8px', background: '#f8fafc', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontWeight: 600, color: '#475569' }}>Action:</label>
+                <select value={modAct} onChange={e => setModAct(Number(e.target.value))} style={{ padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                  <option value={0}>STOP</option>
+                  <option value={1}>MAIN</option>
+                  <option value={2}>DIVERT</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontWeight: 600, color: '#475569' }}>Edge:</label>
+                <input type="text" value={modEdge} onChange={e => setModEdge(e.target.value)} style={{ padding: '2px 6px', width: '100px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Action Buttons */}
       <div className="copilot-actions">
         {/* Approve */}
@@ -166,17 +232,19 @@ const DecisionCard: React.FC<{
           id={`approve-${suggestion.recommendation_id}`}
           className="copilot-btn copilot-btn-approve"
           onClick={handleApprove}
-          disabled={approveState === 'verifying'}
+          disabled={approveState === 'verifying' || isExpired}
           animate={
             approveState === 'conflict'
               ? { x: [0, -8, 8, -8, 8, 0], backgroundColor: '#dc2626' }
               : approveState === 'verifying'
               ? {}
+              : isExpired
+              ? { backgroundColor: '#cbd5e1' }
               : { x: 0, backgroundColor: '#8B5CF6' }
           }
           transition={{ duration: 0.4 }}
           whileTap={{ scale: 0.96 }}
-          style={{ backgroundColor: approveState === 'conflict' ? '#dc2626' : '#8B5CF6' }}
+          style={{ backgroundColor: approveState === 'conflict' ? '#dc2626' : isExpired ? '#cbd5e1' : '#8B5CF6' }}
         >
           {approveState === 'verifying' ? (
             <span className="copilot-verifying">
@@ -187,6 +255,10 @@ const DecisionCard: React.FC<{
             <>
               <AlertTriangle size={13} />
               Safety Conflict!
+            </>
+          ) : isExpired ? (
+            <>
+              Expired
             </>
           ) : (
             <>
@@ -199,7 +271,7 @@ const DecisionCard: React.FC<{
         {/* Modify */}
         <motion.button
           className="copilot-btn copilot-btn-modify"
-          onClick={() => onModify(suggestion)}
+          onClick={() => setIsModifying(!isModifying)}
           whileTap={{ scale: 0.96 }}
         >
           <Pencil size={12} />
@@ -230,12 +302,11 @@ export const AICopilotPanel: React.FC = () => {
     rejectAction,
     previewAction,
     clearPreview,
-    modifyAction,
   } = useCopilot();
 
   const handleApprove = useCallback(
-    async (id: string) => {
-      const result = await executeAction(id);
+    async (id: string, modAct?: number, modEdge?: string) => {
+      const result = await executeAction(id, modAct, modEdge);
       return result;
     },
     [executeAction]
@@ -287,7 +358,6 @@ export const AICopilotPanel: React.FC = () => {
                 key={s.recommendation_id}
                 suggestion={s}
                 onApprove={handleApprove}
-                onModify={modifyAction}
                 onDismiss={(id) => rejectAction(id)}
                 onHoverStart={previewAction}
                 onHoverEnd={clearPreview}

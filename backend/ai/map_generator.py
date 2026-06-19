@@ -32,8 +32,8 @@ STATIONS = {
     'CSMT': {
         'km': 0,
         'code': 'CSMT',
-        'platforms': 16,
-        'loops': 4,
+        'platforms': 4,
+        'loops': 2,
         'type': 'TERMINUS',
         'speed_limit': 30,
         'is_banker_point': False,
@@ -41,8 +41,8 @@ STATIONS = {
     'DADAR': {
         'km': 9,
         'code': 'DR',
-        'platforms': 8,
-        'loops': 2,
+        'platforms': 3,
+        'loops': 1,
         'type': 'MAJOR_JUNCTION',
         'speed_limit': 50,
         'is_banker_point': False,
@@ -57,6 +57,33 @@ STATIONS = {
         'is_banker_point': False,
         # Suburban ends here. All trains beyond Kalyan stop at every station.
         'suburban_terminus': True,
+    },
+    'AMBERNATH': {
+        'km': 63,
+        'code': 'AMBN',
+        'platforms': 0,   # crossing loop only — no passenger platforms
+        'loops': 2,
+        'type': 'CROSSING_LOOP',
+        'speed_limit': 75,
+        'is_banker_point': False,
+    },
+    'TITWALA': {
+        'km': 80,
+        'code': 'TTWL',
+        'platforms': 0,   # crossing loop only — no passenger platforms
+        'loops': 2,
+        'type': 'CROSSING_LOOP',
+        'speed_limit': 75,
+        'is_banker_point': False,
+    },
+    'ATGAON': {
+        'km': 98,
+        'code': 'ATGN',
+        'platforms': 0,   # crossing loop only — no passenger platforms
+        'loops': 2,
+        'type': 'CROSSING_LOOP',
+        'speed_limit': 75,
+        'is_banker_point': False,
     },
     'KASARA': {
         'km': 121,
@@ -108,7 +135,7 @@ STATIONS = {
 }
 
 # Station order — fixed, CSMT→Manmad (DOWN direction)
-STATION_ORDER = ['CSMT', 'DADAR', 'KALYAN', 'KASARA', 'IGATPURI', 'DEVLALI', 'NASHIK', 'MANMAD']
+STATION_ORDER = ['CSMT', 'DADAR', 'KALYAN', 'AMBERNATH', 'TITWALA', 'ATGAON', 'KASARA', 'IGATPURI', 'DEVLALI', 'NASHIK', 'MANMAD']
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INTER-STATION BLOCK SPECS
@@ -130,20 +157,43 @@ INTER_STATION_SPECS = {
     },
     ('DADAR', 'KALYAN'): {
         'blocks': 9,
-        'capacity': 4,       # quadruple track
+        'capacity': 3,       # quadruple track reduced to 3 — suburban congestion
         'speed': 130,
         'token_block': False,
         'gradient': False,
     },
-    ('KALYAN', 'KASARA'): {
-        'blocks': 13,
-        'capacity': 2,       # double track, rising terrain
+    # KALYAN→KASARA split into 4 sub-segments via crossing stations
+    # Each sub-segment has its own blocks proportional to distance
+    ('KALYAN', 'AMBERNATH'): {
+        'blocks': 2,         # 63-54 = 9km, ~4.5km per block
+        'capacity': 2,       # double track
+        'speed': 100,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('AMBERNATH', 'TITWALA'): {
+        'blocks': 4,         # 80-63 = 17km, ~4.25km per block
+        'capacity': 2,       # double track
+        'speed': 100,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('TITWALA', 'ATGAON'): {
+        'blocks': 4,         # 98-80 = 18km, ~4.5km per block
+        'capacity': 2,       # double track
+        'speed': 100,
+        'token_block': False,
+        'gradient': False,
+    },
+    ('ATGAON', 'KASARA'): {
+        'blocks': 5,         # 121-98 = 23km, ~4.6km per block
+        'capacity': 2,       # double track
         'speed': 100,
         'token_block': False,
         'gradient': False,
     },
     ('KASARA', 'IGATPURI'): {
-        'blocks': 3,
+        'blocks': 8,         # 15km ghat, ~1.9km per block — was 3, now 8
         'capacity': 1,       # ← THE BOTTLENECK: mid-line token block
         'speed': 50,         # speed restricted, 1:37 gradient
         'token_block': True, # bidirectional token working
@@ -157,7 +207,7 @@ INTER_STATION_SPECS = {
         'gradient': False,
     },
     ('DEVLALI', 'NASHIK'): {
-        'blocks': 1,
+        'blocks': 3,         # was 1 — 5km at ~1.7km per block, more realistic
         'capacity': 2,
         'speed': 75,
         'token_block': False,
@@ -170,6 +220,22 @@ INTER_STATION_SPECS = {
         'token_block': False,
         'gradient': False,
     },
+}
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# MID-SECTION CROSSING LOOPS
+# These are standalone siding tracks between stations — not at a station.
+# Each entry: km position → number of loop tracks at that location.
+# The generator attaches them to the nearest main-line block at that km.
+# Wiring: main_block['next'] = [next_main_block, crossing_loop_node]
+#         crossing_loop_node['next'] = [next_main_block]   ← rejoins after
+# This means a train in the loop still progresses — it re-enters main line
+# at the NEXT block after the loop, just like a real passing loop.
+# ────────────────────────────────────────────────────────────────────────────────
+MID_SECTION_CROSSING_LOOPS = {
+    210.0: {'loops': 2, 'speed': 50, 'label': 'LOOP_NANDGAON'},   # Nashik→Manmad km 210
+    235.0: {'loops': 2, 'speed': 50, 'label': 'LOOP_LASALGAON'},  # Nashik→Manmad km 235
 }
 
 
@@ -360,6 +426,57 @@ def generate_realistic_section():
                 last_block_id = current_node - 1
                 track_map[last_block_id]['next'] = [station_nodes[next_station]['switch_in']]
 
+    # ── Mid-section crossing loops ────────────────────────────────────────────────────────────
+    # For each km position in MID_SECTION_CROSSING_LOOPS, find the nearest
+    # MAIN_BLOCK node. Wire it so:
+    #   main_block['next'] = [original_next_block, loop_node_1, loop_node_2, ...]
+    #   loop_node['next']  = [original_next_block]   ← loop rejoins after block
+    # This gives trains a DIVERT option at that block: take the loop and
+    # rejoin the main line at the same exit point, having yielded the block.
+
+    for loop_km, loop_spec in MID_SECTION_CROSSING_LOOPS.items():
+        # Find nearest MAIN_BLOCK node to this km
+        nearest_id = None
+        nearest_dist = float('inf')
+        for nid, nd in track_map.items():
+            if nd.get('type') == 'MAIN_BLOCK' and nd.get('station') is None:
+                dist = abs(nd['km'] - loop_km)
+                if dist < nearest_dist:
+                    nearest_dist = dist
+                    nearest_id = nid
+
+        if nearest_id is None:
+            continue
+
+        # The main block's current next (must have exactly 1 next to be safe)
+        original_next = track_map[nearest_id]['next']
+        if not original_next:
+            continue
+        rejoin_node = original_next[0]
+
+        # Create loop nodes for this crossing loop
+        new_loop_ids = []
+        for l_idx in range(loop_spec['loops']):
+            lid = platform_node_base
+            platform_node_base += 1
+            track_map[lid] = {
+                'type': 'CROSSING_LOOP',
+                'speed': loop_spec['speed'],
+                'capacity': 1,
+                'next': [rejoin_node],   # ← loop rejoins main line after this block
+                'km': loop_km,
+                'station': None,
+                'token_block': False,
+                'gradient': False,
+                'label': loop_spec['label'],
+                'loop_index': l_idx,
+            }
+            new_loop_ids.append(lid)
+            loop_sections.append(lid)
+
+        # Wire the main block: [original_next] + loop_nodes
+        track_map[nearest_id]['next'] = original_next + new_loop_ids
+
     # ── Destination node ──────────────────────────────────────────────────
     track_map[999] = {
         'type': 'DESTINATION',
@@ -371,6 +488,21 @@ def generate_realistic_section():
         'token_block': False,
         'gradient': False,
     }
+
+    # ── Populate backward links (prev) ────────────────────────────────────
+    # Ensure every node has a 'prev' list
+    for nid, ndata in track_map.items():
+        if 'prev' not in ndata:
+            ndata['prev'] = []
+    
+    # Populate the lists based on forward 'next' links
+    for nid, ndata in track_map.items():
+        for target_id in ndata.get('next', []):
+            if target_id in track_map:
+                if 'prev' not in track_map[target_id]:
+                    track_map[target_id]['prev'] = []
+                if nid not in track_map[target_id]['prev']:
+                    track_map[target_id]['prev'].append(nid)
 
     return track_map, loop_sections, 999, station_nodes, token_blocks
 

@@ -10,8 +10,8 @@ import {
   HelpCircle,
   LogOut,
   ChevronRight,
-  Activity,
 } from 'lucide-react';
+import { useSystemStore } from '../store/useSystemStore';
 import '../pages/Dashboard.css';
 
 /* ────────────────────────────────────────────────────────────────
@@ -20,8 +20,7 @@ import '../pages/Dashboard.css';
 const NAV_ITEMS = [
   { id: 'dashboard',    label: 'Dashboard',    icon: LayoutDashboard, route: '/dashboard' },
   { id: 'fleet',        label: 'Fleet Status', icon: Gauge,           route: '/fleet' },
-  { id: 'maintenance',  label: 'Maintenance',  icon: Wrench,          route: '/maintenance' },
-  { id: 'simulation',   label: 'Simulation',   icon: Activity,        route: '/sandbox' },
+  { id: 'control',      label: 'Control Centre', icon: Wrench,        route: '/control' },
 ];
 
 /* ────────────────────────────────────────────────────────────────
@@ -44,6 +43,11 @@ const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const clock = useLiveClock();
+  const { isLockdown, isSafetyShield, isAutoCommit, fetchStatus, setLockdown, setSafetyShield, setAutoCommit } = useSystemStore();
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   // Determine current page name for top bar breadcrumb
   const currentNav = NAV_ITEMS.find(n => n.route === location.pathname);
@@ -122,7 +126,27 @@ const DashboardLayout: React.FC = () => {
               ORBIT <span>›</span> <strong>{pageTitle}</strong>
             </p>
           </div>
-          <div className="dash__topbar-right">
+          <div className="dash__topbar-right" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+            <div className="flex gap-2 mr-4">
+              <button 
+                onClick={() => setAutoCommit(!isAutoCommit)}
+                className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-full border transition-colors ${isAutoCommit ? 'bg-primary/10 border-primary text-primary' : 'bg-surface-container border-outline-variant/20 text-on-surface-variant'}`}
+              >
+                Auto-Commit
+              </button>
+              <button 
+                onClick={() => setSafetyShield(!isSafetyShield)}
+                className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-full border transition-colors ${isSafetyShield ? 'bg-tertiary/10 border-tertiary text-tertiary' : 'bg-surface-container border-outline-variant/20 text-on-surface-variant'}`}
+              >
+                OR-Shield
+              </button>
+              <button 
+                onClick={() => setLockdown(!isLockdown)}
+                className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-full border transition-colors ${isLockdown ? 'bg-rose-500 border-rose-600 text-white animate-pulse' : 'bg-surface-container border-outline-variant/20 text-on-surface-variant hover:border-rose-500/50 hover:text-rose-500'}`}
+              >
+                Lockdown
+              </button>
+            </div>
             <p className="dash__topbar-clock">{clock} · IST</p>
             <div className="dash__topbar-status">
               <span className="dash__topbar-status-dot" />

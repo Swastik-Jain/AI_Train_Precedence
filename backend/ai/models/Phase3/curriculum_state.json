@@ -1,0 +1,7 @@
+{
+  "last_completed_level": 6,
+  "steps_trained": 40000000,
+  "best_reward": 400.7304484744885,
+  "advance_reason": "mastered_still_improving",
+  "timestamp": "2026-06-12T21:54:02"
+}
