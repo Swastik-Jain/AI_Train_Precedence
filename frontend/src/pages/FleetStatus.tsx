@@ -38,10 +38,13 @@ const TRAIN_TYPES = [
 // Helpers
 // ---------------------------------------------------------------------------
 const STATUS_STYLE: Record<string, string> = {
-  Moving   : 'fs-badge fs-badge--moving',
-  Halted   : 'fs-badge fs-badge--halted',
-  Blocked  : 'fs-badge fs-badge--blocked',
-  Scheduled: 'fs-badge fs-badge--scheduled',
+  Moving    : 'fs-badge fs-badge--moving',
+  Halted    : 'fs-badge fs-badge--halted',
+  'Waiting at Signal': 'fs-badge fs-badge--halted',
+  Blocked   : 'fs-badge fs-badge--blocked',
+  Scheduled : 'fs-badge fs-badge--scheduled',
+  Boarding  : 'fs-badge fs-badge--boarding',
+  'Banker Ops': 'fs-badge fs-badge--banker',
 };
 const PRIORITY_COLOR = (p: number) =>
   p >= 9 ? '#dc2626' : p >= 7 ? '#ea580c' : p >= 5 ? '#8B5CF6' : p >= 3 ? '#0ea5e9' : '#64748b';

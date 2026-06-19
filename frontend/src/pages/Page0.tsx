@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useInView } from 'framer-motion';
 import {
@@ -99,11 +99,6 @@ const TECH_CARDS: TechCard[] = [
 ───────────────────────────────────────────────────────────────── */
 const DEV_LINKS = [
   { label: 'Source',    icon: Code2,     href: 'https://github.com/swastikjain' },
-  { label: 'LinkedIn',  icon: Link2,     href: '#' },
-  { label: 'Bio',       icon: FileText,  href: '#' },
-  { label: 'Portfolio', icon: Globe,     href: '#' },
-  { label: 'Docs',      icon: BookOpen,  href: '#' },
-  { label: 'Privacy',   icon: Lock,      href: '#' },
 ];
 
 /* ────────────────────────────────────────────────────────────────
@@ -193,7 +188,7 @@ const Page0: React.FC = () => {
             custom={0}
             initial="hidden"
             animate="visible"
-            variants={fadeUp}
+            variants={fadeUp as any}
             aria-hidden="true"
           >
             <span className="orbit-hero__badge-lamp" />
@@ -206,7 +201,7 @@ const Page0: React.FC = () => {
             custom={0.1}
             initial="hidden"
             animate="visible"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             ORBIT
           </motion.h1>
@@ -217,7 +212,7 @@ const Page0: React.FC = () => {
             custom={0.2}
             initial="hidden"
             animate="visible"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             Operational Rail Backbone &amp; Intelligence Tool
           </motion.p>
@@ -228,7 +223,7 @@ const Page0: React.FC = () => {
             custom={0.3}
             initial="hidden"
             animate="visible"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             A unified neural architecture for autonomous train precedence.
             ORBIT synchronizes RL agents with constraint-based optimization
@@ -241,7 +236,7 @@ const Page0: React.FC = () => {
             custom={0.42}
             initial="hidden"
             animate="visible"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             <button
               id="hero-launch-btn"
@@ -271,17 +266,17 @@ const Page0: React.FC = () => {
       >
         <AnimSection>
           {/* Section header */}
-          <motion.p className="orbit-section__eyebrow" variants={fadeUp}>
+          <motion.p className="orbit-section__eyebrow" variants={fadeUp as any}>
             Core Architecture
           </motion.p>
           <motion.h2
             id="intelligence-heading"
             className="orbit-section__title"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             Intelligence Layer
           </motion.h2>
-          <motion.p className="orbit-section__subtitle" variants={fadeUp}>
+          <motion.p className="orbit-section__subtitle" variants={fadeUp as any}>
             Merging Reinforcement Learning with formal methods for
             high-fidelity rail operations.
           </motion.p>
@@ -297,7 +292,7 @@ const Page0: React.FC = () => {
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true, margin: '-60px' }}
-              variants={cardReveal}
+              variants={cardReveal as any}
               aria-label={card.title}
             >
               {/* Serial / Eyebrow */}
@@ -348,7 +343,7 @@ const Page0: React.FC = () => {
           {/* Quote */}
           <motion.blockquote
             className="orbit-developer__quote"
-            variants={fadeUp}
+            variants={fadeUp as any}
             cite="Swastik Jain"
           >
             "Engineering efficient systems for complex infrastructure."
@@ -358,18 +353,18 @@ const Page0: React.FC = () => {
           <motion.p
             id="developer-heading"
             className="orbit-developer__name"
-            variants={fadeUp}
+            variants={fadeUp as any}
           >
             Developed by Swastik
           </motion.p>
 
           {/* Affiliation */}
-          <motion.p className="orbit-developer__affiliation" variants={fadeUp}>
+          <motion.p className="orbit-developer__affiliation" variants={fadeUp as any}>
             Madhav Institute of Technology and Science
           </motion.p>
 
           {/* Link grid — tactile secondary buttons */}
-          <motion.div className="orbit-developer__links" variants={fadeUp} role="list">
+          <motion.div className="orbit-developer__links" variants={fadeUp as any} role="list">
             {DEV_LINKS.map((link) => (
               <a
                 key={link.label}
@@ -388,10 +383,11 @@ const Page0: React.FC = () => {
         </AnimSection>
       </section>
 
+
       {/* ══════════════════════════════════════════════
           FOOTER
       ══════════════════════════════════════════════ */}
-      <footer className="orbit-footer" role="contentinfo">
+      <footer className="orbit-footer pb-12" role="contentinfo">
         <p className="orbit-footer__copy">
           © 2024 ORBIT Systems. Built for Precision.
         </p>

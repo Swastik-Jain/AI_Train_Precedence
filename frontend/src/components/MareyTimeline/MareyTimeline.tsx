@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCopilotStore } from '../../store/useCopilotStore';
+import { useCopilotStore, STATION_DISTANCES, getSchematicY } from '../../store/useCopilotStore';
 import { useMaintenanceStore } from '../../store/useMaintenanceStore';
+import { useMapStore } from '../../store/useMapStore';
 import type { ScheduleEntry } from '../../store/useCopilotStore';
 import './MareyTimeline.css';
 
@@ -9,13 +10,11 @@ import './MareyTimeline.css';
 // SVG Canvas constants (viewBox 0 0 800 260)
 // ---------------------------------------------------------------------------
 const W = 800;
-const H = 260;
-const PAD_LEFT = 90;
+const H = 400;
+const PAD_LEFT = 140;
 const PAD_RIGHT = 20;
 const PAD_TOP = 20;
 const PAD_BTM = 28;
-
-const STATIONS = ['TERMINAL A', 'JUNCTION 4', 'HUB NORTH', 'PLATFORM 2'];
 
 /** Build an SVG path `d` string from an array of {x,y} points */
 function pointsToPath(pts: { x: number; y: number }[]): string {
@@ -25,40 +24,43 @@ function pointsToPath(pts: { x: number; y: number }[]): string {
     .join(' ');
 }
 
-/** Map a ghost path from the suggestion's affected_edges into Marey SVG coords */
-function ghostPathFromSuggestion(edges: string[]): { x: number; y: number }[] {
-  // Simple deterministic mapping from edge index to Marey xy position
-  // In production this would come from the backend schedule delta.
-  const bandW = (W - PAD_LEFT - PAD_RIGHT) / Math.max(edges.length, 1);
-  return edges.map((_, i) => ({
-    x: PAD_LEFT + bandW * i + bandW * 0.5,
-    y: PAD_TOP + ((H - PAD_TOP - PAD_BTM) / (edges.length + 1)) * (i + 1) + Math.sin(i * 1.3) * 20,
-  }));
+/** Assign a color to a train line based on its ID */
+function getTrainColor(trainId: string): string {
+  if (trainId.includes('UP')) return '#3b82f6'; // blue-500
+  if (trainId.includes('DN') || trainId.includes('DOWN')) return '#f59e0b'; // amber-500
+  if (trainId.includes('EXP')) return '#10b981'; // emerald-500
+  if (trainId.includes('FRT')) return '#64748b'; // slate-500
+  
+  const palette = ['#8B5CF6', '#ec4899', '#14b8a6', '#f43f5e', '#84cc16'];
+  let hash = 0;
+  for (let i = 0; i < trainId.length; i++) hash = trainId.charCodeAt(i) + ((hash << 5) - hash);
+  return palette[Math.abs(hash) % palette.length];
 }
 
-// ---------------------------------------------------------------------------
+
 // Component
 // ---------------------------------------------------------------------------
 export const MareyTimeline: React.FC = () => {
-  const { globalSchedule, previewState, fetchBaseSchedule } = useCopilotStore();
+  const { fetchBaseSchedule, previewState, globalSchedule, scheduleMaxTime } = useCopilotStore();
   const { activeBlocks } = useMaintenanceStore();
+  const { trainStates } = useMapStore();
 
+  const currentSimTime = useMemo(() => {
+    if (!trainStates || trainStates.length === 0) return 0;
+    return (trainStates[0] as any).sim_time || 0;
+  }, [trainStates]);
+
+  const totalW = W - PAD_LEFT - PAD_RIGHT;
+  const timePct = scheduleMaxTime > 0 ? Math.min(Math.max(currentSimTime / scheduleMaxTime, 0), 1) : 0;
+  const nowX = PAD_LEFT + (totalW * timePct);
+
+  // Initial fetch of the schedule from OR-Tools backend
   React.useEffect(() => {
     fetchBaseSchedule();
   }, [fetchBaseSchedule]);
 
-  // Build ghost path from the hovered suggestion
-  const ghostPath = useMemo<{ x: number; y: number }[] | null>(() => {
-    if (!previewState) return null;
-    return ghostPathFromSuggestion(previewState.affected_edges);
-  }, [previewState]);
-
-  const ghostD = ghostPath ? pointsToPath(ghostPath) : '';
-
-  // Station Y positions evenly spaced
-  const stationYs = STATIONS.map(
-    (_, i) => PAD_TOP + ((H - PAD_TOP - PAD_BTM) / (STATIONS.length - 1)) * i
-  );
+  // We no longer render a dummy ghost path since we don't have projected times
+  const ghostD = '';
 
   // MMS hatch bands: map block index to an X position across the timeline
   const maintenanceBands = useMemo(() => {
@@ -118,47 +120,54 @@ export const MareyTimeline: React.FC = () => {
           </defs>
 
           {/* Station horizontal guide lines */}
-          {STATIONS.map((name, i) => (
-            <g key={name}>
-              <line
-                x1={PAD_LEFT}
-                x2={W - PAD_RIGHT}
-                y1={stationYs[i]}
-                y2={stationYs[i]}
-                stroke="#e2e8f0"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-              />
-              <text
-                x={PAD_LEFT - 8}
-                y={stationYs[i] + 4}
-                textAnchor="end"
-                fontSize="9"
-                fontWeight="600"
-                fill="#94a3b8"
-                fontFamily="Inter, sans-serif"
-              >
-                {name}
-              </text>
-            </g>
-          ))}
+          {Object.entries(STATION_DISTANCES).map(([name, km]) => {
+            const y = getSchematicY(km, H - PAD_TOP - PAD_BTM, PAD_TOP);
+            return (
+              <g key={name}>
+                <line
+                  x1={PAD_LEFT}
+                  x2={W - PAD_RIGHT}
+                  y1={y}
+                  y2={y}
+                  stroke="#e2e8f0"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={PAD_LEFT - 8}
+                  y={y + 3}
+                  textAnchor="end"
+                  fontSize="9"
+                  fontWeight="600"
+                  fill="#94a3b8"
+                  fontFamily="Inter, sans-serif"
+                >
+                  {name}
+                </text>
+              </g>
+            );
+          })}
 
           {/* Active schedule paths */}
-          {globalSchedule.map((entry: ScheduleEntry, i: number) => (
-            <motion.path
-              key={`${entry.train_id}-${entry.type}-${i}`}
-              d={pointsToPath(entry.path)}
-              fill="none"
-              stroke={entry.type === 'actual' ? '#8B5CF6' : '#8B5CF6'}
-              strokeWidth={entry.type === 'actual' ? 3.5 : 2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={entry.type === 'actual' ? 1 : 0.9}
-              initial={{ pathLength: 0, opacity: 0 }}
-              animate={{ pathLength: 1, opacity: entry.type === 'actual' ? 1 : 0.9 }}
-              transition={{ duration: 1.2, ease: 'easeOut' }}
-            />
-          ))}
+          {globalSchedule.map((entry: ScheduleEntry, i: number) => {
+            const color = getTrainColor(entry.train_id);
+            return (
+              <g key={`${entry.train_id}-${entry.type}-${i}`}>
+                <motion.path
+                  d={pointsToPath(entry.path)}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={entry.type === 'actual' ? 3.5 : 2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={entry.type === 'actual' ? 1 : 0.9}
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  animate={{ pathLength: 1, opacity: entry.type === 'actual' ? 1 : 0.9 }}
+                  transition={{ duration: 1.2, ease: 'easeOut' }}
+                />
+              </g>
+            );
+          })}
 
           {/* Ghost / AI Proposed Path */}
           <AnimatePresence>
@@ -180,20 +189,7 @@ export const MareyTimeline: React.FC = () => {
             )}
           </AnimatePresence>
 
-          {/* Conflict ripple (static demo point) */}
-          <circle className="marey-conflict-dot" cx="342" cy="110" r="4" fill="#8B5CF6" />
-          <circle
-            cx="342"
-            cy="110"
-            r="10"
-            fill="none"
-            stroke="#8B5CF6"
-            strokeWidth="2"
-            opacity="0.5"
-            className="marey-ping"
-          />
 
-          {/* MMS Maintenance Hatch Bands */}
           <AnimatePresence>
             {maintenanceBands.map(({ blk, x, w }) => (
               <motion.g
@@ -245,14 +241,29 @@ export const MareyTimeline: React.FC = () => {
           </AnimatePresence>
 
           {/* "NOW" time marker */}
-          <line x1="400" x2="400" y1={PAD_TOP - 4} y2={H - PAD_BTM + 4}
+          <line x1={nowX} x2={nowX} y1={PAD_TOP - 4} y2={H - PAD_BTM + 4}
             stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
-          <rect x="384" y={PAD_TOP - 16} width="32" height="14" rx="7" fill="#475569" />
-          <text x="400" y={PAD_TOP - 5} textAnchor="middle" fontSize="8"
+          <rect x={nowX - 16} y={PAD_TOP - 16} width="32" height="14" rx="7" fill="#475569" />
+          <text x={nowX} y={PAD_TOP - 5} textAnchor="middle" fontSize="8"
             fontWeight="700" fill="#fff" fontFamily="Inter, sans-serif">
             NOW
           </text>
         </svg>
+
+        {/* Train ID Legend (Bottom Right) */}
+        {globalSchedule.length > 0 && (
+          <div className="absolute bottom-3 right-4 bg-white/90 backdrop-blur-md border border-slate-200 shadow-lg rounded-lg p-3 flex flex-col z-10 min-w-[240px]">
+            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest px-1 mb-2 border-b border-slate-100 pb-1.5">Active Trains</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 max-h-[220px] overflow-y-auto pr-2">
+              {Array.from(new Set(globalSchedule.map(s => s.train_id))).map(tid => (
+                <div key={tid} className="flex items-center gap-2 px-1 hover:bg-slate-50 rounded transition-colors py-0.5 cursor-default min-w-0">
+                  <div className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0" style={{ backgroundColor: getTrainColor(tid) }} />
+                  <span className="text-[10px] font-mono font-bold text-slate-700 truncate">{tid}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Ghost label overlay */}
         <AnimatePresence>

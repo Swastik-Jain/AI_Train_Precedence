@@ -237,7 +237,8 @@ class CorridorPlanner:
 
                     # Platform capacity at this station
                     sdata = self.station_nodes.get(station, {})
-                    n_platforms = len(sdata.get('platforms', [1]))
+                    platforms_data = sdata.get('platforms', 1)
+                    n_platforms = platforms_data if isinstance(platforms_data, int) else len(platforms_data)
                     capacity = max(n_platforms, 1)
 
                     if capacity == 1:

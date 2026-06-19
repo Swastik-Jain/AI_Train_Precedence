@@ -9,14 +9,17 @@ export interface AISuggestion {
   priority_level: 1 | 2 | 3 | 4 | 5;
   target_train_id: string;
   proposed_action: string;
-  /** Seconds: positive = time saved, negative = time lost */
+  /** Minutes: positive = time saved, negative = time lost */
   impact_analysis: number;
   /** 0.0 – 1.0 */
   confidence_score: number;
   reasoning: string;
   affected_edges: string[];
   timestamp: string; // ISO-8601
-  status: 'pending' | 'committed' | 'rejected';
+  status: 'pending' | 'committed' | 'rejected' | 'expired';
+  urgency: 'CRITICAL' | 'ADVISORY' | 'INFO';
+  suggested_at_edge: string;
+  suggested_at_tick: number;
 }
 
 export interface ScheduleEntry {
@@ -33,6 +36,34 @@ export interface ToastNotification {
   timestamp: number;
 }
 
+export const STATION_DISTANCES: Record<string, number> = {
+  "CSMT": 0,
+  "DADAR": 9,
+  "KALYAN": 54,
+  "AMBERNATH": 63,
+  "TITWALA": 80,
+  "ATGAON": 98,
+  "KASARA": 121,
+  "IGATPURI": 136,
+  "DEVLALI": 182,
+  "NASHIK": 187,
+  "MANMAD": 261
+};
+
+export const getSchematicY = (km: number, totalH: number, padTop: number): number => {
+  const stations = Object.entries(STATION_DISTANCES).sort((a,b) => a[1]-b[1]);
+  const index = Math.max(0, stations.findIndex(s => s[1] === km));
+  const maxIndex = Math.max(1, stations.length - 1);
+  const maxKm = 261;
+  
+  const physicalPct = km / maxKm;
+  const rankPct = index / maxIndex;
+  
+  // Blend 75% physical distance with 25% even spacing to ensure lines don't overlap
+  const blendedPct = physicalPct * 0.75 + rankPct * 0.25;
+  return padTop + totalH * blendedPct;
+};
+
 // ---------------------------------------------------------------------------
 // Store Shape
 // ---------------------------------------------------------------------------
@@ -42,6 +73,7 @@ interface CopilotState {
   previewState: AISuggestion | null;
   /** Committed + live train schedule lines rendered by MareyTimeline */
   globalSchedule: ScheduleEntry[];
+  scheduleMaxTime: number;
   toasts: ToastNotification[];
   isConnected: boolean;
 
@@ -67,16 +99,27 @@ interface CopilotState {
 export const useCopilotStore = create<CopilotState>((set, get) => {
   let socket: WebSocket | null = null;
 
-  /** Seed schedule with some dummy Marey lines that persist across sessions */
-  const seedSchedule: ScheduleEntry[] = [
-    { train_id: 'TRN100', type: 'actual', path: [{ x: 50, y: 40 }, { x: 300, y: 120 }, { x: 550, y: 200 }] },
-    { train_id: 'TRN101', type: 'actual', path: [{ x: 100, y: 200 }, { x: 400, y: 120 }, { x: 700, y: 40 }] },
-  ];
 
   return {
-    activeSuggestions: [],
+    activeSuggestions: [{
+      recommendation_id: 'test-123',
+      type: 'AI_RECOMMENDATION',
+      priority_level: 1,
+      target_train_id: 'TEST_001',
+      proposed_action: 'Test rendering UI',
+      impact_analysis: 5,
+      confidence_score: 0.99,
+      reasoning: 'Testing UI rendering',
+      affected_edges: ['edge_1'],
+      timestamp: new Date().toISOString(),
+      status: 'pending',
+      urgency: 'CRITICAL',
+      suggested_at_edge: 'edge_1',
+      suggested_at_tick: 0
+    }],
     previewState: null,
     globalSchedule: [],
+    scheduleMaxTime: 120,
     toasts: [],
     isConnected: false,
 
@@ -90,25 +133,41 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
         const data = await res.json();
         if (data.schedule) {
           const W = 800;
-          const PAD_LEFT = 90;
+          const PAD_LEFT = 140;
           const PAD_RIGHT = 20;
           const totalW = W - PAD_LEFT - PAD_RIGHT;
-          const H = 260;
+          const H = 400;
           const PAD_TOP = 20;
           const PAD_BTM = 28;
           const totalH = H - PAD_TOP - PAD_BTM;
           
           const newEntries: ScheduleEntry[] = [];
+          let maxTime = 120;
+          
+          // First pass: find max time
+          Object.values(data.schedule).forEach((nodesObj) => {
+              Object.values(nodesObj as Record<string, {arrival: number, departure: number}>).forEach(times => {
+                  if (times.arrival > maxTime) maxTime = times.arrival;
+                  if (times.departure > maxTime) maxTime = times.departure;
+              });
+          });
+
+          // Second pass: map to coords
           Object.entries(data.schedule).forEach(([trainId, nodesObj]) => {
              const nodes = Object.entries(nodesObj as Record<string, {arrival: number, departure: number}>);
              if (nodes.length > 0) {
-                 const path = nodes.map(([, times], idx) => {
-                     // x maps to time (0-120 minutes)
-                     const timePct = Math.min(Math.max((times.arrival || times.departure) / 120, 0), 1);
+                 // Sort nodes chronologically so the SVG path draws forwards in time
+                 nodes.sort((a, b) => a[1].arrival - b[1].arrival);
+
+                 const path = nodes.map(([nodeName, times]) => {
+                     // x maps to time (0 - maxTime)
+                     const timeVal = times.arrival || times.departure;
+                     const timePct = Math.min(Math.max(timeVal / maxTime, 0), 1);
                      const x = PAD_LEFT + (totalW * timePct);
-                     // y maps to node index (roughly station)
-                     const y = PAD_TOP + (totalH / (nodes.length - 1)) * idx;
-                     return { x, y: y || PAD_TOP };
+                     // y maps to absolute distance but blended to prevent overlap
+                     const km = STATION_DISTANCES[nodeName] || 0;
+                     const y = getSchematicY(km, totalH, PAD_TOP);
+                     return { x, y };
                  });
                  newEntries.push({
                      train_id: trainId,
@@ -117,7 +176,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
                  });
              }
           });
-          set({ globalSchedule: newEntries });
+          set({ globalSchedule: newEntries, scheduleMaxTime: maxTime });
         }
       } catch (err) {
         console.warn('Failed to fetch base schedule', err);
@@ -154,27 +213,11 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
     setPreviewState: (s) => set({ previewState: s }),
 
     // -----------------------------------------------------------------------
-    // Commit → transition ghost path into actual schedule
+    // Commit → handled by SCHEDULE_UPDATED
     // -----------------------------------------------------------------------
     commitSuggestion: (id) => {
-      const suggestion = get().activeSuggestions.find((s) => s.recommendation_id === id);
-      if (!suggestion) return;
-
-      // Build a ghost Marey path for the committed action
-      // (In production this would come from the backend schedule update)
-      const newEntry: ScheduleEntry = {
-        train_id: suggestion.target_train_id,
-        type: 'actual',
-        path: [
-          { x: 80,  y: 180 },
-          { x: 320, y: 100 },
-          { x: 620, y: 50  },
-        ],
-      };
-
       set((state) => ({
         activeSuggestions: state.activeSuggestions.filter((s) => s.recommendation_id !== id),
-        globalSchedule: [...state.globalSchedule, newEntry],
         previewState: null,
       }));
     },
@@ -221,6 +264,9 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
 
       socket.onmessage = (event) => {
         try {
+          // DEBUG TRACE
+          fetch('/api/v1/telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ debug_ws: event.data.substring(0, 100) }) }).catch(() => {});
+
           const data = JSON.parse(event.data);
 
           if (data.type === 'AI_RECOMMENDATION') {
@@ -243,23 +289,12 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
               (newEdge ? ` (→ ${newEdge})` : '')
             );
 
-            // 3. Add a Marey ghost-line built from affected_edges as x-axis proxy
-            //    In production replace with real timetable arrival/departure times.
-            if (affEdges.length > 0) {
-              const newEntry: ScheduleEntry = {
-                train_id: trainId,
-                type: 'actual',
-                path: affEdges.map((_, i) => ({
-                  x: 80 + i * 120,
-                  y: 180 - i * 40,
-                })),
-              };
-              set((state) => ({
-                globalSchedule: [...state.globalSchedule, newEntry],
-              }));
-            }
+            // 3. Fetch real updated schedule from the backend to redraw the graph
+            get().fetchBaseSchedule();
 
             console.log('[ORBIT] Schedule updated:', rid);
+          } else if (data.type === 'AUTO_INTERVENTION') {
+            get().addToast('warning', data.message);
           }
         } catch {
           console.warn('[ORBIT] Failed to parse WS message', event.data);

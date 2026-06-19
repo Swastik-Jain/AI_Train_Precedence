@@ -25,6 +25,7 @@ Always start fresh normalization at each level (default behaviour here).
 import os
 import sys
 import argparse
+import math
 
 os.environ['TORCH_COMPILE_DISABLE'] = '1'
 
@@ -47,6 +48,7 @@ from sb3_contrib.common.maskable.evaluation import evaluate_policy
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from train_env import TrainDispatchEnv
+from or_tools.feasibility_shield import FeasibilityShield
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATHS
@@ -58,34 +60,47 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR,   exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HYPERPARAMETERS
-# These worked well on the toy map. Keep stable — don't tune until Phase 3.
+# HYPERPARAMETERS — Tuned for fresh bidirectional training from scratch
 # ─────────────────────────────────────────────────────────────────────────────
-FIXED_LR        = 5e-5
-CLIP_RANGE      = 0.3
-GAMMA           = 0.995
-GAE_LAMBDA      = 0.95
-N_STEPS         = 8192
-BATCH_SIZE      = 512
-N_EPOCHS        = 10
-ENT_COEF        = 0.02
+PEAK_LR         = 3e-4   # default (overridden per level below)
+LR_MIN          = 1e-5   # cosine decay floor
+LR_WARMUP_FRAC  = 0.05   # first 5% = linear warm-up
+CLIP_RANGE      = 0.15   # default (overridden per level)
+GAMMA           = 0.99   # default (overridden per level)
+GAE_LAMBDA      = 0.92   # default (overridden per level)
+N_STEPS         = 4096   # shorter rollouts = more frequent updates
+BATCH_SIZE      = 1024   # consistent with N_STEPS
+N_EPOCHS        = 8      # default (overridden per level)
+ENT_COEF        = 0.05   # default (overridden per level)
 VF_COEF         = 0.5
 MAX_GRAD_NORM   = 0.5
 
-# Number of parallel envs — 8 gives 3-4x speedup over 2
-# Requires SubprocVecEnv (spawns separate processes)
+# Per-level hyperparameters
+# Keys: curriculum level integer (1–6)
+# Each level has its own exploration/exploitation balance:
+#   Early levels: high entropy, short gamma, fast LR — wide exploration needed
+#   Late levels:  low entropy, long gamma, slow LR  — fine-tune precise decisions
+PER_LEVEL_HPARAMS = {
+    1: dict(ent_coef=0.050, gamma=0.990, gae_lambda=0.92, n_epochs=8,  peak_lr=3.0e-4, clip_range=0.20),
+    2: dict(ent_coef=0.040, gamma=0.992, gae_lambda=0.93, n_epochs=8,  peak_lr=2.5e-4, clip_range=0.18),
+    3: dict(ent_coef=0.030, gamma=0.993, gae_lambda=0.94, n_epochs=10, peak_lr=2.0e-4, clip_range=0.15),
+    4: dict(ent_coef=0.020, gamma=0.995, gae_lambda=0.95, n_epochs=10, peak_lr=1.5e-4, clip_range=0.15),
+    5: dict(ent_coef=0.015, gamma=0.996, gae_lambda=0.95, n_epochs=12, peak_lr=1.0e-4, clip_range=0.12),
+    6: dict(ent_coef=0.010, gamma=0.997, gae_lambda=0.95, n_epochs=12, peak_lr=8.0e-5, clip_range=0.10),
+}
+
+# Number of parallel envs
 N_ENVS_TRAIN    = 8
 N_ENVS_EVAL     = 2
 
 # Early stopping reward thresholds per level
-# These are conservative — set high enough to not stop prematurely
-# Adjust down if training stalls (reward never reaches threshold)
 REWARD_THRESHOLDS = {
-    1: 5.0,    # 2 trains: basic movement reward
-    2: 15.0,   # 5 trains: ghat conflicts resolved
-    3: 25.0,   # 7 trains: overtaking working
-    4: 35.0,   # 10 trains: high-density routing
-    5: 50.0,   # 15 trains: Phase 3 saturation target
+    1: 5.0,
+    2: 15.0,
+    3: 25.0,
+    4: 35.0,
+    5: 50.0,
+    6: 65.0,
 }
 
 
@@ -93,26 +108,61 @@ REWARD_THRESHOLDS = {
 # CALLBACKS
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ForceConstantLR(BaseCallback):
+class WarmupCosineDecayLR(BaseCallback):
     """
-    Locks the optimizer LR to a fixed value every rollout.
-    SB3 decays LR by default via lr_schedule — this overrides that.
-    Solved a convergence bug in the toy map training.
-    Keep it. Don't remove it.
+    Learning rate schedule: linear warm-up → cosine decay.
+
+    Phase 1 (0 → warmup_steps): LR rises linearly from ~0 to lr_peak.
+      Gives the fresh model stable early gradients before full-speed updates.
+
+    Phase 2 (warmup_steps → total_steps): LR decays via cosine annealing
+      from lr_peak down to lr_min.  Provides smooth convergence without a
+      hard LR cliff that caused oscillations in toy-map training.
+
+    Replaces the old ForceConstantLR which hard-locked LR and prevented
+    the late-training refinement needed for bidirectional conflict learning.
     """
 
-    def __init__(self, lr: float):
+    def __init__(
+        self,
+        total_steps:   int,
+        lr_peak:       float = PEAK_LR,
+        lr_min:        float = LR_MIN,
+        warmup_frac:   float = LR_WARMUP_FRAC,
+    ):
         super().__init__()
-        self.lr = lr
+        self.total_steps   = total_steps
+        self.lr_peak       = lr_peak
+        self.lr_min        = lr_min
+        self.warmup_steps  = max(1, int(total_steps * warmup_frac))
+
+    def _get_lr(self) -> float:
+        t = self.num_timesteps
+        if t < self.warmup_steps:
+            # Linear warm-up
+            return self.lr_min + (self.lr_peak - self.lr_min) * t / self.warmup_steps
+        else:
+            # Cosine decay
+            progress = (t - self.warmup_steps) / max(
+                self.total_steps - self.warmup_steps, 1
+            )
+            return self.lr_min + 0.5 * (self.lr_peak - self.lr_min) * (
+                1.0 + math.cos(math.pi * progress)
+            )
 
     def _apply_lr(self):
+        lr = self._get_lr()
         if hasattr(self.model, 'policy') and hasattr(self.model.policy, 'optimizer'):
             for pg in self.model.policy.optimizer.param_groups:
-                pg['lr'] = self.lr
+                pg['lr'] = lr
 
     def _on_training_start(self):
         self._apply_lr()
-        print(f"✅ ForceConstantLR: LR locked to {self.lr}")
+        print(
+            f"✅ WarmupCosineDecayLR: "
+            f"peak={self.lr_peak}  min={self.lr_min}  "
+            f"warmup={self.warmup_steps} steps"
+        )
 
     def _on_rollout_start(self):
         self._apply_lr()
@@ -176,6 +226,61 @@ def make_env_fn(num_trains: int):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SHIELD-AWARE ENV FACTORY
+# Used when training WITH the FeasibilityShield active so the RL Agent learns
+# a policy that is always compatible with the Shield's safety constraints.
+# The Shield's vetoes are merged into the action mask at every step, meaning
+# the agent NEVER sees Shield-blocked actions as available options during
+# training. After training, attaching the Shield at inference is seamless
+# because the agent's policy was built entirely within the Shield's guardrails.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def mask_fn_with_shield(env: gym.Env) -> np.ndarray:
+    """
+    Combines the environment's base action mask with the FeasibilityShield's
+    real-time vetoes. The Shield instance is stored on the env so it persists
+    across steps and can accumulate statistics.
+    """
+    base_mask = env.get_action_mask()          # shape: (n_trains, n_actions)
+
+    # Lazy-init shield on the env instance so it is created once per worker
+    if not hasattr(env, '_shield'):
+        env._shield = FeasibilityShield(
+            track_map=env.track_map,
+            station_nodes=env.station_nodes,
+            token_blocks=list(env.token_blocks),
+        )
+
+    shield_mask = env._shield.get_masked_actions(
+        sim_time=env.sim_time,
+        current_mask=base_mask,
+        trains=env.trains,
+        schedule=env.schedule,
+        ghat_token=env.ghat_token,
+    )                                          # shape: (n_trains, n_actions)
+
+    # Combine: action is legal only if BOTH masks allow it
+    combined = base_mask & shield_mask
+
+    # Safety fallback: if Shield masks ALL actions for a train,
+    # fall back to base mask to avoid an impossible action space
+    for i in range(combined.shape[0]):
+        if not combined[i].any():
+            combined[i] = base_mask[i]
+
+    return combined
+
+
+def make_env_fn_with_shield(num_trains: int):
+    """Returns a callable that creates one Shield-aware masked env."""
+    def _make():
+        env = TrainDispatchEnv()
+        env.set_mixed_mode(num_trains)
+        return ActionMasker(env, mask_fn_with_shield)
+    return _make
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAIN TRAINING FUNCTION
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -184,16 +289,28 @@ def train_manual(
     num_trains:     int,
     total_steps:    int,
     load_path:      str   = None,
-    learning_rate:  float = FIXED_LR,
+    learning_rate:  float = None,   # None = use PER_LEVEL_HPARAMS
     no_early_stop:  bool  = False,
-    ent_coef:       float = ENT_COEF,
+    ent_coef:       float = None,   # None = use PER_LEVEL_HPARAMS
     chaos:          bool  = False,
     hardcore:       bool  = False,
     incident:       bool  = False,
 ):
+    # Resolve per-level hyperparameters
+    lvl_int  = int(level) if str(level).isdigit() else 1
+    lvl_hp   = PER_LEVEL_HPARAMS.get(lvl_int, PER_LEVEL_HPARAMS[6])
+    # CLI overrides take priority; otherwise use per-level table
+    peak_lr   = learning_rate if learning_rate is not None else lvl_hp['peak_lr']
+    _ent_coef = ent_coef      if ent_coef      is not None else lvl_hp['ent_coef']
+    _gamma    = lvl_hp['gamma']
+    _gae_lam  = lvl_hp['gae_lambda']
+    _n_epochs = lvl_hp['n_epochs']
+    _clip_rng = lvl_hp['clip_range']
     print(f"\n{'='*60}")
     print(f"🚂 TRAINING: Level {level} | {num_trains} Trains | {total_steps} Steps")
-    print(f"   LR={learning_rate}  ent_coef={ent_coef}  chaos={chaos}  hardcore={hardcore}  incident={incident}")
+    print(f"   LR={peak_lr}  ent_coef={_ent_coef}  gamma={_gamma}  "
+          f"gae_lambda={_gae_lam}  n_epochs={_n_epochs}  clip={_clip_rng}")
+    print(f"   chaos={chaos}  hardcore={hardcore}  incident={incident}")
     print(f"{'='*60}\n")
 
     # ── Create vectorised environments ────────────────────────────────────
@@ -251,13 +368,16 @@ def train_manual(
             env=train_env,
             tensorboard_log=LOGS_DIR,
             custom_objects={
-                'learning_rate': learning_rate,
-                'lr_schedule':   lambda _: learning_rate,
-                'clip_range':    CLIP_RANGE,
-                'ent_coef':      ent_coef,
+                'learning_rate': peak_lr,
+                'lr_schedule':   lambda _: peak_lr,
+                'clip_range':    _clip_rng,
+                'ent_coef':      _ent_coef,
+                'gamma':         _gamma,
+                'gae_lambda':    _gae_lam,
+                'n_epochs':      _n_epochs,
             },
         )
-        print(f"✅ Model loaded | LR overridden → {learning_rate}")
+        print(f"✅ Model loaded | LR overridden → {peak_lr} | ent_coef={_ent_coef} | gamma={_gamma}")
 
     else:
         print("✨ Creating NEW MaskablePPO model")
@@ -266,14 +386,14 @@ def train_manual(
             train_env,
             verbose=1,
             tensorboard_log=LOGS_DIR,
-            learning_rate=learning_rate,
+            learning_rate=peak_lr,   # WarmupCosineDecayLR callback overrides this
             n_steps=N_STEPS,
             batch_size=BATCH_SIZE,
-            n_epochs=N_EPOCHS,
-            gamma=GAMMA,
-            gae_lambda=GAE_LAMBDA,
-            clip_range=CLIP_RANGE,
-            ent_coef=ent_coef,
+            n_epochs=_n_epochs,
+            gamma=_gamma,
+            gae_lambda=_gae_lam,
+            clip_range=_clip_rng,
+            ent_coef=_ent_coef,
             vf_coef=VF_COEF,
             max_grad_norm=MAX_GRAD_NORM,
             device='auto',
@@ -313,7 +433,12 @@ def train_manual(
         render=False,
     )
 
-    lr_callback = ForceConstantLR(learning_rate)
+    lr_callback = WarmupCosineDecayLR(
+        total_steps=total_steps,
+        lr_peak=peak_lr,
+        lr_min=LR_MIN,
+        warmup_frac=LR_WARMUP_FRAC,
+    )
 
     # ── Train ─────────────────────────────────────────────────────────────
     print(f"\n🚀 Training for {total_steps:,} steps on {N_ENVS_TRAIN} parallel envs...")
@@ -338,7 +463,7 @@ def train_manual(
     print(f"\n   To continue to next level:")
 
     next_level  = int(level) + 1 if str(level).isdigit() else 2
-    next_trains = {1: 5, 2: 7, 3: 10, 4: 15, 5: 15}.get(int(level), num_trains + 2)
+    next_trains = {1: 5, 2: 7, 3: 10, 4: 15, 5: 25, 6: 25}.get(int(level), num_trains + 2)
     best_path   = os.path.join(
         MODELS_DIR, f"L{level}_{num_trains}Trains_Best", "best_model.zip"
     )
@@ -375,8 +500,8 @@ if __name__ == '__main__':
                         help='Training timesteps (default: 500000)')
     parser.add_argument('--load',          type=str,   default=None,
                         help='Path to model checkpoint to resume from')
-    parser.add_argument('--lr',            type=float, default=FIXED_LR,
-                        help=f'Learning rate (default: {FIXED_LR})')
+    parser.add_argument('--lr',            type=float, default=PEAK_LR,
+                        help=f'Peak learning rate for cosine schedule (default: {PEAK_LR})')
     parser.add_argument('--no-early-stop', action='store_true',
                         help='Disable early stopping on reward threshold')
     parser.add_argument('--ent-coef',      type=float, default=ENT_COEF,

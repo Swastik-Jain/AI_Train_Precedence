@@ -191,6 +191,8 @@
 .fs-badge--halted   { background: #fef9c3; color: #92400e; }
 .fs-badge--blocked  { background: #fee2e2; color: #b91c1c; }
 .fs-badge--scheduled{ background: #e0f2fe; color: #0369a1; }
+.fs-badge--boarding { background: #e0e7ff; color: #3730a3; }
+.fs-badge--banker   { background: #ffedd5; color: #c2410c; }
 
 /* Loading / Empty */
 .fs-loading { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 3rem; color: var(--c-dim, #64748b); font-size: 0.85rem; }

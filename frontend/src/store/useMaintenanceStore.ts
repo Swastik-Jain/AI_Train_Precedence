@@ -187,7 +187,7 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
         const strat = data.primary_strategy?.replace(/_/g, ' ') ?? 'Rerouting';
         useCopilotStore.getState().addToast(
           'warning',
-          `🔧 ${data.message}`
+          `🔧 ${data.message} (${strat})`
         );
       }
     } catch {

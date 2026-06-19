@@ -29,6 +29,7 @@ export interface TrainState {
   position_percentage: number;
   status: 'Moving' | 'Halted' | 'Conflict';
   path: string[];
+  direction?: string | number;
 }
 
 interface MapState {
@@ -108,6 +109,21 @@ export const useMapStore = create<MapState>((set) => {
             trainStates: data.trains || [],
             conflicts: data.conflicts || []
           });
+          
+          if (data.maintenance_blocks) {
+             useMaintenanceStore.setState((state) => {
+                const newMap = new Map();
+                // Retain what-if blocks
+                state.activeBlocks.forEach((b, k) => {
+                   if (b.isWhatIf) newMap.set(k, b);
+                });
+                // Add backend blocks
+                data.maintenance_blocks.forEach((b: any) => {
+                   newMap.set(b.element_id, { ...b, blockId: b.element_id });
+                });
+                return { activeBlocks: newMap };
+             });
+          }
         } else if (data.type === 'SCHEDULE_UPDATED') {
           // Controller approved an AI action — apply to live train state immediately
           const { target_train_id, new_edge_id, affected_edges, rl_action } = data as {
