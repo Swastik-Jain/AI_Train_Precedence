@@ -90,11 +90,22 @@ export function useCopilot() {
   );
 
   // ---------------------------------------------------------------------------
-  // rejectAction — (now just a local dismiss/acknowledge)
+  // rejectAction — (now just a local dismiss + acknowledge to backend)
   const rejectAction = useCallback(
     async (recommendation_id: string): Promise<void> => {
       // Optimistically remove from UI immediately
       rejectSuggestion(recommendation_id);
+
+      try {
+        await fetch('/api/v1/dispatch/acknowledge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recommendation_id }),
+        });
+      } catch {
+        // Fire-and-forget
+        console.warn('[ORBIT] Acknowledge signal failed to reach backend');
+      }
     },
     [rejectSuggestion]
   );

@@ -18,5 +18,5 @@ env._occupancy = {49: {'UP': 1}, 1033: {'UP': 1}, 50: {'UP': 1}}
 
 from or_tools.smart_optimizer import SmartOptimizer
 opt = SmartOptimizer()
-safe_actions = opt.optimize_decision(env.trains, np.array([1, 1, 1]), env.track_map, env.ghat_token)
+safe_actions, _ = opt.optimize_decision(env.trains, np.array([1, 1, 1]), env.track_map, env.ghat_token)
 print(f"Safe Actions: {safe_actions}")
