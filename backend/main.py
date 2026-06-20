@@ -41,6 +41,7 @@ COPILOT_WEBSOCKETS: set = set()         # AI Co-pilot broadcast sockets
 SYSTEM_LOCKDOWN = False
 OR_SHIELD_ENABLED = True
 AI_AUTO_COMMIT = False      # kept for backward-compat reads
+AUTOPILOT_MODE = True       # kept for backward-compat reads
 EXPLAIN_BEFORE_ACT_MODE = False  # when True: contested decisions HOLD pending override-or-confirm
 SIM_SPEED_FACTOR = 0.4
 TICK_INTERVAL_S = 1.0
