@@ -41,6 +41,7 @@ COPILOT_WEBSOCKETS: set = set()         # AI Co-pilot broadcast sockets
 SYSTEM_LOCKDOWN = False
 OR_SHIELD_ENABLED = True
 AI_AUTO_COMMIT = False      # kept for backward-compat reads
+AUTOPILOT_MODE = True       # kept for backward-compat reads
 EXPLAIN_BEFORE_ACT_MODE = False  # when True: contested decisions HOLD pending override-or-confirm
 SIM_SPEED_FACTOR = 0.4
 TICK_INTERVAL_S = 1.0
@@ -1074,6 +1075,12 @@ app.add_middleware(
 class OverrideRequest(BaseModel):
     enabled: bool
 
+class WhatIfScenarioRequest(BaseModel):
+    label: Optional[str] = "Scenario"
+    delay_train_id: Optional[str] = ""
+    latency_minutes: Optional[int] = 15
+    forced_actions: Optional[Dict[str, int]] = {}   # train_id -> 0=HOLD, 1=MAIN, 2=DIVERT
+
 @app.post("/api/v1/system/start-inference", tags=["System Override"])
 async def start_inference():
     """
@@ -1964,15 +1971,21 @@ async def remove_block(element_id: str):
 
 
 @app.post("/api/v1/simulation/analyze", tags=["Simulation Sandbox"])
-async def analyze_simulation(payload: dict):
+async def analyze_simulation(req: WhatIfScenarioRequest):
     """
     Core two-stage simulation pipeline:
-      1. RL Model  — proposes optimal adaptive actions for the current delay scenario.
-      2. OR-Tools  — validates and overrides any unsafe proposals.
-    Returns deterministic impact scores and human-readable network adjustments.
+      1. RL Model  — proposes optimal adaptive actions for the current scenario.
+      2. Operator forced_actions — override specific trains' proposed actions
+         (models "what if I hold/divert this train" rather than only "what if delayed").
+      3. OR-Tools  — validates and overrides any unsafe proposals (forced actions
+         are NOT exempt from safety validation — an operator's hypothetical
+         override can still be vetoed if it's unsafe, same as live override).
+    Returns deterministic impact scores and human-readable network adjustments,
+    tagged with the scenario label for client-side comparison.
     """
-    delay_train_id: str = payload.get("delay_train_id", "")
-    latency_minutes: int = int(payload.get("latency_minutes", 15))
+    delay_train_id = req.delay_train_id or ""
+    latency_minutes = req.latency_minutes or 15
+    forced_actions = req.forced_actions or {}
 
     # ── Step 1: Snapshot live network state ──────────────────────────────
     live_trains = list(TRAIN_STATES.values())
@@ -2039,6 +2052,17 @@ async def analyze_simulation(payload: dict):
         # Fallback: greedy — every train wants to move (action=1)
         proposed_actions = np.ones(MAX_TRAINS_CAPACITY, dtype=np.int64)
         source = "OR-Tools only (model unavailable)"
+
+    # ── Step 3b: Apply operator's hypothetical overrides ─────────────────
+    # This is what makes the sandbox testable for "what if I hold/route this
+    # train", not just "what if this train is late". Forced actions still
+    # pass through the OR-Shield below — a hypothetical override that's
+    # unsafe gets vetoed in the sandbox exactly like it would in production.
+    forced_override_applied = []
+    for idx, (t_id, edge_id, status, is_delayed) in enumerate(train_meta):
+        if t_id in forced_actions and forced_actions[t_id] in (0, 1, 2):
+            proposed_actions[idx] = forced_actions[t_id]
+            forced_override_applied.append(t_id)
 
     # ── Step 4: OR-Tools safety validation ───────────────────────────────
     # Build a lightweight train list compatible with SmartOptimizer
@@ -2160,9 +2184,11 @@ async def analyze_simulation(payload: dict):
     congestion_pct  = f"+{min(congestion_base, 200):.0f}%"
 
     result = {
+        "label": req.label,
         "source": source,
         "delay_train_id": delay_train_id,
         "latency_minutes": latency_minutes,
+        "forced_actions_applied": forced_override_applied,
         "impact": {
             "reliability": reliability_pct,
             "congestion":  congestion_pct,

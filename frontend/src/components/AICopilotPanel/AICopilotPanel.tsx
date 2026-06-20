@@ -138,8 +138,11 @@ const DecisionCard: React.FC<{
       setTimeout(() => setApproveState('idle'), 3000);
     } else if (result?.ok === false) {
       setApproveState('idle');
+    } else {
+      setApproveState('success');
+      setTimeout(() => setApproveState('idle'), 2000);
     }
-    // On success the card is removed from the list by the store
+    // Note: card is no longer removed from the list, it's marked as 'overridden'
   }, [approveState, isExpired, onOverride, suggestion.recommendation_id, isModifying, modAct, modEdge]);
 
   return (
@@ -255,13 +258,15 @@ const DecisionCard: React.FC<{
               ? { x: [0, -8, 8, -8, 8, 0], backgroundColor: '#dc2626' }
               : approveState === 'verifying'
               ? {}
+              : approveState === 'success'
+              ? { backgroundColor: '#16a34a' }
               : isExpired
               ? { backgroundColor: '#cbd5e1' }
               : { x: 0, backgroundColor: '#8B5CF6' }
           }
           transition={{ duration: 0.4 }}
           whileTap={{ scale: 0.96 }}
-          style={{ backgroundColor: approveState === 'conflict' ? '#dc2626' : isExpired ? '#cbd5e1' : '#8B5CF6' }}
+          style={{ backgroundColor: approveState === 'conflict' ? '#dc2626' : approveState === 'success' ? '#16a34a' : isExpired ? '#cbd5e1' : '#8B5CF6' }}
         >
           {approveState === 'verifying' ? (
             <span className="copilot-verifying">
@@ -272,6 +277,11 @@ const DecisionCard: React.FC<{
             <>
               <AlertTriangle size={13} />
               Safety Conflict!
+            </>
+          ) : approveState === 'success' ? (
+            <>
+              <CheckCircle2 size={13} />
+              Override Applied
             </>
           ) : isExpired ? (
             <>

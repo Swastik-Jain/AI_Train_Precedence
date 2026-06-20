@@ -6,6 +6,16 @@ import { useMaintenanceStore } from '../store/useMaintenanceStore';
 import { useMapStore } from '../store/useMapStore';
 import './ControlCentre.css';
 
+type ScenarioResult = {
+  id: string;
+  label: string;
+  delayTrainId: string;
+  latency: number;
+  forcedActions: Record<string, number>;
+  impact: { reliability: string; congestion: string };
+  adjustments: { id: number; type: string; desc: string; train_id?: string; edge_id?: string; constraint_type?: string; value?: number }[];
+};
+
 /* ────────────────────────────────────────────────────────────────
    FRAMER-MOTION VARIANTS
 ───────────────────────────────────────────────────────────────── */
@@ -36,8 +46,9 @@ const ControlCentre: React.FC = () => {
   const [latency, setLatency] = useState(15);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [recalculatedForTrain, setRecalculatedForTrain] = useState<string | null>(null);
-  const [impact, setImpact] = useState({ reliability: '0%', congestion: '0%' });
-  const [adjustments, setAdjustments] = useState<{id: number, type: string, desc: string, train_id?: string, edge_id?: string, constraint_type?: string, value?: number}[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
+  const [scenarioLabel, setScenarioLabel] = useState('Scenario A');
+  const [forcedActions, setForcedActions] = useState<Record<string, number>>({});
 
   // Audit Log State
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
@@ -81,16 +92,31 @@ const ControlCentre: React.FC = () => {
         const res = await fetch('http://localhost:8000/api/v1/simulation/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ delay_train_id: delayTrainId, latency_minutes: latency })
+            body: JSON.stringify({
+                label: scenarioLabel,
+                delay_train_id: delayTrainId,
+                latency_minutes: latency,
+                forced_actions: forcedActions,
+            })
         });
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
-        setImpact({ reliability: data.impact.reliability, congestion: data.impact.congestion });
-        setAdjustments(data.adjustments || []);
+        setScenarios(prev => [
+            ...prev,
+            {
+                id: `${Date.now()}`,
+                label: data.label || scenarioLabel,
+                delayTrainId,
+                latency,
+                forcedActions,
+                impact: { reliability: data.impact.reliability, congestion: data.impact.congestion },
+                adjustments: data.adjustments || [],
+            },
+        ]);
         setRecalculatedForTrain(delayTrainId);
+        setScenarioLabel(`Scenario ${String.fromCharCode(65 + scenarios.length + 1)}`); // auto-increment A, B, C...
     } catch (err) {
         console.error('[Sandbox] Analysis failed:', err);
-        setAdjustments([{ id: -1, type: 'Backend Unavailable', desc: 'Could not reach the simulation engine.' }]);
     } finally {
         setIsRecalculating(false);
     }
@@ -100,7 +126,7 @@ const ControlCentre: React.FC = () => {
     try {
         const payload = {
             blocks: blockList,
-            constraints: adjustments.map(a => ({
+            constraints: (scenarios[scenarios.length - 1]?.adjustments || []).map(a => ({
                 id: `constraint-${Date.now()}-${a.id}`,
                 type: a.constraint_type || 'SPEED_LIMIT',
                 edge_id: a.edge_id || 'edge-1-2', 
@@ -278,6 +304,34 @@ const ControlCentre: React.FC = () => {
                                 <span>0</span><span className="text-violet-600 font-bold">{latency} min</span><span>60</span>
                             </div>
                         </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Force Action (optional)</label>
+                            <div className="flex gap-2">
+                                <select
+                                    className="flex-1 px-3 py-2 bg-surface-container-low border-none rounded-sm font-mono text-xs text-on-surface"
+                                    value=""
+                                    onChange={e => {
+                                        const action = parseInt(e.target.value);
+                                        if (delayTrainId) setForcedActions(prev => ({ ...prev, [delayTrainId]: action }));
+                                    }}
+                                >
+                                    <option value="" disabled>Select action for {delayTrainId || 'train'}...</option>
+                                    <option value="0">HOLD</option>
+                                    <option value="1">PROCEED (MAIN)</option>
+                                    <option value="2">DIVERT</option>
+                                </select>
+                            </div>
+                            {Object.keys(forcedActions).length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {Object.entries(forcedActions).map(([tid, act]) => (
+                                        <span key={tid} className="text-[10px] bg-violet-100 text-violet-700 px-2 py-1 rounded-full flex items-center gap-1">
+                                            {tid}: {['HOLD','MAIN','DIVERT'][act]}
+                                            <button onClick={() => setForcedActions(prev => { const n = {...prev}; delete n[tid]; return n; })}>×</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <button 
                             onClick={handleRecalculate} disabled={isRecalculating}
                             className="w-full bg-[#8B5CF6] text-white py-4 rounded-sm font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all disabled:opacity-50">
@@ -285,15 +339,36 @@ const ControlCentre: React.FC = () => {
                             {isRecalculating ? 'Recalculating...' : 'Recalculate Network'}
                         </button>
                         <div className="pt-4 border-t border-surface-container">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-surface-container-low p-4 rounded-lg">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase">Reliability</p>
-                                    <p className="text-2xl font-extrabold text-error">{impact.reliability}</p>
-                                </div>
-                                <div className="bg-surface-container-low p-4 rounded-lg">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase">Congestion</p>
-                                    <p className="text-2xl font-extrabold text-on-surface-variant">{impact.congestion}</p>
-                                </div>
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-xs font-bold text-slate-500 uppercase">Scenarios ({scenarios.length})</p>
+                                {scenarios.length > 0 && (
+                                    <button onClick={() => setScenarios([])} className="text-[10px] text-rose-500 font-bold">Clear all</button>
+                                )}
+                            </div>
+                            <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                                {scenarios.length === 0 && (
+                                    <p className="text-xs text-on-surface-variant italic">Run a scenario to see results here.</p>
+                                )}
+                                {scenarios.map(s => (
+                                    <div key={s.id} className="bg-surface-container-low p-3 rounded-lg">
+                                        <p className="text-xs font-bold text-violet-600 mb-1">{s.label}</p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Reliability</p>
+                                                <p className="text-lg font-extrabold text-error">{s.impact.reliability}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Congestion</p>
+                                                <p className="text-lg font-extrabold text-on-surface-variant">{s.impact.congestion}</p>
+                                            </div>
+                                        </div>
+                                        {Object.keys(s.forcedActions).length > 0 && (
+                                            <p className="text-[9px] text-on-surface-variant mt-1">
+                                                Forced: {Object.entries(s.forcedActions).map(([t, a]) => `${t}→${['HOLD','MAIN','DIVERT'][a]}`).join(', ')}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
@@ -351,8 +426,8 @@ const ControlCentre: React.FC = () => {
                         <div className="absolute bottom-6 left-6 bg-white/70 backdrop-blur-md p-4 rounded-lg border border-white shadow-xl max-w-xs">
                             <p className="text-xs font-bold text-violet-600 mb-1">Impact Highlight</p>
                             <p className="text-sm text-on-surface leading-tight font-medium">
-                                {recalculatedForTrain === delayTrainId 
-                                    ? `Recalculation complete. The ${latency}m delay on ${delayTrainId} causes cascading failures.`
+                                {scenarios.length > 0
+                                    ? `${scenarios[scenarios.length - 1].label}: ${scenarios.length} scenario${scenarios.length > 1 ? 's' : ''} compared. Latest reliability: ${scenarios[scenarios.length - 1].impact.reliability}.`
                                     : `Node ${delayTrainId || 'selected train'} might cause bottlenecks.`}
                             </p>
                         </div>
