@@ -45,7 +45,7 @@ class SmartOptimizer:
 
     Usage (inference):
         optimizer = SmartOptimizer()
-        safe_actions = optimizer.optimize_decision(
+        safe_actions, _ = optimizer.optimize_decision(
             trains=env.trains,
             ai_actions=raw_actions,
             track_map=env.track_map,

@@ -619,7 +619,7 @@ async def _broadcast_topology(payload: Dict[str, Any]) -> None:
 # Background Tasks
 # ---------------------------------------------------------------------------
 async def simulate_trains_bg():
-    global TRAIN_STATES, INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, _SIM_TICK
+    global TRAIN_STATES, INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, _SIM_TICK, _INFERENCE_DECISION_META
     from ai.config import generate_daily_schedule
 
     TRAIN_STATES = {}
@@ -734,7 +734,6 @@ async def simulate_trains_bg():
                                     safe_actions[i] = 0  # Hold contested decisions
                                     
                         _INFERENCE_ACTIONS = safe_actions
-                        global _INFERENCE_DECISION_META
                         _INFERENCE_DECISION_META = decision_meta
 
                         # Step 3: Execute safe actions in physics engine
@@ -1735,6 +1734,43 @@ async def override_decision(req: OverrideRequest):
         "timestamp"         : overridden_at,
     }
 
+class AcknowledgeRequest(BaseModel):
+    recommendation_id: str
+    reason: Optional[str] = "controller_dismissed"
+
+@app.post("/api/v1/dispatch/acknowledge", tags=["ORBIT Co-pilot"])
+async def acknowledge_decision(req: AcknowledgeRequest):
+    """
+    Human-dismissed: mark a recommendation as acknowledged/dismissed.
+    """
+    suggestion = COPILOT_SUGGESTIONS.get(req.recommendation_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Recommendation not found.")
+
+    suggestion["status"] = "acknowledged"
+    suggestion["acknowledged_at"] = _now_iso()
+    
+    audit_entry = {
+        "t"         : suggestion["acknowledged_at"],
+        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source"    : f"AI_{suggestion['target_train_id']}",
+        "action"    : f"Decision Acknowledged: {suggestion.get('decided_action', 'Unknown')}",
+        "operator"  : "Dispatcher",
+        "status"    : "Acknowledged",
+        "statusType": "info",
+        "id"        : str(uuid.uuid4())
+    }
+    AUDIT_LOGS.append(audit_entry)
+    _persist_audit_log(audit_entry)
+
+    print(f"[ORBIT] 👁️  Acknowledged: {req.recommendation_id[:8]}…")
+
+    return {
+        "status"            : "acknowledged",
+        "recommendation_id" : req.recommendation_id,
+        "timestamp"         : suggestion["acknowledged_at"],
+    }
+
 
 @app.get("/api/v1/dispatch/suggestions", tags=["ORBIT Co-pilot"])
 async def get_suggestions(status: Optional[str] = None):
@@ -2043,7 +2079,7 @@ async def analyze_simulation(payload: dict):
             ),
         })
 
-    safe_actions = _OR_SHIELD.optimize_decision(
+    safe_actions, _ = _OR_SHIELD.optimize_decision(
         or_trains,
         list(proposed_actions[:len(train_meta)]),
         track_map

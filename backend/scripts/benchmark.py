@@ -419,7 +419,7 @@ def run_dispatcher(
             if model:
                 action, _ = model.predict(obs, deterministic=True)
                 if optimizer is not None:
-                    action = optimizer.optimize_decision(
+                    action, _ = optimizer.optimize_decision(
                         trains=env.trains,
                         ai_actions=action,
                         track_map=env.track_map,
