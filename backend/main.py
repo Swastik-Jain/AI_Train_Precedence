@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional, Tuple, List, Literal
 from pydantic import BaseModel
 import asyncio
 import json
@@ -13,8 +13,8 @@ import numpy as np
 from datetime import datetime, timezone
 
 import database
-import schema 
-import crud 
+import schema
+import crud
 from database import TrainPosition
 from ai.config import ACTIVE_FLEET as TRAIN_CONFIG
 from or_tools.smart_optimizer import SmartOptimizer
@@ -40,9 +40,28 @@ COPILOT_WEBSOCKETS: set = set()         # AI Co-pilot broadcast sockets
 # System Overrides
 SYSTEM_LOCKDOWN = False
 OR_SHIELD_ENABLED = True
-AI_AUTO_COMMIT = False
+AI_AUTO_COMMIT = False      # kept for backward-compat reads; logic uses AUTOPILOT_MODE
+AUTOPILOT_MODE = False      # True → execution stage uses model proposal; False → documented MAIN default
 SIM_SPEED_FACTOR = 0.4
 TICK_INTERVAL_S = 1.0
+
+# ---------------------------------------------------------------------------
+# Operator-loop action tables (Change #1–#3)
+# ---------------------------------------------------------------------------
+# LATEST_MODEL_PROPOSAL  — read-only advisory copy of the last model prediction.
+#   Written after model.predict(), never directly applied to the sim.
+LATEST_MODEL_PROPOSAL: Dict[str, int] = {}
+
+# PENDING_OPERATOR_ACTIONS — one-shot actions injected by operator commit.
+#   Consumed (popped) on the very next env.step() call.
+PENDING_OPERATOR_ACTIONS: Dict[str, int] = {}
+
+# STICKY_ACTIONS — persistent actions (e.g. STOP for N ticks).
+#   Maps train_id → (action, expires_tick).  Checked before PENDING_OPERATOR_ACTIONS.
+STICKY_ACTIONS: Dict[str, Tuple[int, int]] = {}  # train_id → (action, expires_tick)
+
+# How many ticks a committed STOP action persists before the train resumes MAIN.
+OVERRIDE_TICKS = 15
 
 # OR-Shield singleton — validates proposals before queuing + at commit time
 _OR_SHIELD = SmartOptimizer()
@@ -403,6 +422,17 @@ def _make_suggestion() -> list:
     if not (INFERENCE_ACTIVE and _INFERENCE_RAW_ACTIONS is not None):
         return []
 
+    # Statuses that mean "this train is not in a state where operator intervention makes sense"
+    _INACTIVE_STATUSES = frozenset({
+        "Finished",
+        "Scheduled",    # not yet spawned
+        "Boarding",     # dwell at platform — train is stationary by design
+        "Banker Ops",   # banker attach/detach — stationary by design
+    })
+
+    # Staging edges: trains at these edges haven't entered the main corridor yet
+    _STAGING_EDGES = frozenset({"edge-0-1", "edge-83-999"})
+
     suggestions = []
 
     for i, act in enumerate(_INFERENCE_RAW_ACTIONS):
@@ -411,10 +441,23 @@ def _make_suggestion() -> list:
 
         tid = _INFERENCE_TRAIN_IDS[i]
         state = TRAIN_STATES.get(tid)
-        if not state or state.get("status") in ("Finished", "Scheduled"):
+
+        # Guard 1: train not in TRAIN_STATES yet (startup race) or fully inactive
+        if not state or state.get("status") in _INACTIVE_STATUSES:
             continue
 
         edge_id = state.get("edge_id", "edge-0-1")
+
+        # Guard 2: train is still on a staging edge (status may lag by one tick)
+        if edge_id in _STAGING_EDGES:
+            continue
+
+        # Guard 3: skip trains that already have an active committed STOP sticky action.
+        # Prevents flooding the panel with STOP suggestions for trains the operator
+        # has already told to hold.
+        sticky = STICKY_ACTIONS.get(tid)
+        if act == 0 and sticky and sticky[1] > _SIM_TICK:
+            continue
 
         # Safe probability extraction
         try:
@@ -427,14 +470,11 @@ def _make_suggestion() -> list:
         next_edge_occupied = any(
             s.get("edge_id") == edge_id and k != tid
             for k, s in TRAIN_STATES.items()
-            if s.get("status") not in ("Finished", "Scheduled")
+            if s.get("status") not in _INACTIVE_STATUSES
         )
 
         # ── Action = STOP (0): Always generate a high-priority suggestion ──────
         if act == 0:
-            # Skip if an override is already active for this train
-            if state.get("override_expires", 0) > _SIM_TICK:
-                continue
             urgency = "CRITICAL" if next_edge_occupied else "ADVISORY"
             priority = 1 if urgency == "CRITICAL" else 2
             action_str = f"Hold {tid} at current block to prevent conflict"
@@ -505,13 +545,15 @@ def _make_suggestion() -> list:
                 },
             })
 
-        # ── Action = MAIN (1): Only suggest if stopped ────────────────────────
+        # ── Action = MAIN (1): Only suggest if train is actively stopped ──────
         elif act == 1:
-            # Only suggest MAIN if the train is currently stopped and needs to resume
+            # Only meaningful if the train is stopped AND actively in service
+            # (not just waiting to spawn — those have speed=0 too)
             is_stopped = state.get("speed_kmh", 0) < 5
-            if not is_stopped:
+            is_active  = state.get("status") in ("Waiting at Signal", "Halted", "Blocked")
+            if not is_stopped or not is_active:
                 continue
-                
+
             priority = 3
             urgency = "ADVISORY"
             action_str = f"Resume speed for {tid} to clear block"
@@ -546,6 +588,7 @@ def _make_suggestion() -> list:
     # Cap total suggestions per batch to 3 — prioritise STOP > DIVERT > INFO
     suggestions.sort(key=lambda x: x["priority_level"])
     return suggestions[:3]
+
 
 
 async def _broadcast_copilot(payload: Dict[str, Any]) -> None:
@@ -648,18 +691,39 @@ async def simulate_trains_bg():
                         raw_actions = list(action[0]) if hasattr(action[0], '__iter__') else list(action)
                         _INFERENCE_RAW_ACTIONS = raw_actions
 
-                        # Step 1: Determine Human/Dispatcher intent
-                        # If the human overrides, use the override. If AI_AUTO_COMMIT is true, use AI's action. Otherwise default to MAIN (1).
+                        # ── Advisory stage (read-only) ────────────────────────
+                        # Store the model's full proposal without applying it.
+                        # This is the source of truth for the transparency endpoint
+                        # and for AUTOPILOT_MODE — it never directly touches TRAIN_STATES.
+                        for _i, _t_id in enumerate(_INFERENCE_TRAIN_IDS):
+                            if _i < len(raw_actions):
+                                LATEST_MODEL_PROPOSAL[_t_id] = int(raw_actions[_i])
+
+                        # ── Execution stage: clean 4-level priority chain ─────
+                        # Priority order (highest → lowest):
+                        #   1. STICKY_ACTIONS   — operator committed hold (e.g. STOP for N ticks)
+                        #   2. PENDING_OPERATOR_ACTIONS — operator one-shot (consumed after this step)
+                        #   3. AUTOPILOT_MODE   — model proposal applied explicitly under autopilot
+                        #   4. Default MAIN (1) — documented "normal proceed" default
+                        #
+                        # No action is ever applied silently: every train's action
+                        # this tick is attributable to one of these four sources.
                         desired_actions = []
                         for i in range(len(raw_actions)):
                             t_id = _INFERENCE_TRAIN_IDS[i] if i < len(_INFERENCE_TRAIN_IDS) else ""
-                            state = TRAIN_STATES.get(t_id, {})
-                            if state.get('override_expires', 0) > _SIM_TICK:
-                                desired_actions.append(state.get('override_action', 1))
-                            elif AI_AUTO_COMMIT:
+                            sticky = STICKY_ACTIONS.get(t_id)
+                            if sticky and sticky[1] > _SIM_TICK:
+                                # 1. Operator sticky hold still active
+                                desired_actions.append(sticky[0])
+                            elif t_id in PENDING_OPERATOR_ACTIONS:
+                                # 2. One-shot operator action — consume it now
+                                desired_actions.append(PENDING_OPERATOR_ACTIONS.pop(t_id))
+                            elif AUTOPILOT_MODE:
+                                # 3. Explicit autopilot: apply model's advisory proposal
                                 desired_actions.append(raw_actions[i])
                             else:
-                                desired_actions.append(1)  # Default MAIN (keep moving on main line)
+                                # 4. Documented default: normal proceed on main line
+                                desired_actions.append(1)
 
                         # Step 2: OR-Shield validates the intent to prevent crashes
                         safe_actions = _OR_SHIELD.optimize_decision(
@@ -965,48 +1029,21 @@ async def copilot_suggestion_bg():
                         f"reason: {reason}"
                     )
                 else:
-                    if AI_AUTO_COMMIT and candidate["priority_level"] >= 3:
-                        candidate["status"] = "committed"
-                        candidate["committed_at"] = _now_iso()
-                        
-                        if candidate["target_train_id"] in TRAIN_STATES:
-                            t = TRAIN_STATES[candidate["target_train_id"]]
-                            path = t.get("path", [])
-                            curr_edge = t.get("edge_id")
-                            affected = candidate.get("affected_edges", [])
-                            if affected and curr_edge in path:
-                                try:
-                                    next_idx = path.index(curr_edge) + 1
-                                    if next_idx < len(path):
-                                        new_edge_id = path[next_idx]
-                                        t["edge_id"] = new_edge_id
-                                        t["position_percentage"] = 0.0
-                                except ValueError:
-                                    pass
-                                    
-                        _write_feedback(candidate, "committed", "Auto-committed by AI_AUTO_COMMIT")
-
-                        schedule_update = {
-                            "type": "SCHEDULE_UPDATED",
-                            "recommendation_id": candidate["recommendation_id"],
-                            "target_train_id": candidate["target_train_id"],
-                            "proposed_action": candidate["proposed_action"],
-                            "affected_edges": candidate["affected_edges"],
-                            "committed_at": candidate["committed_at"],
-                            "timestamp": candidate["committed_at"],
-                        }
-                        COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
-                        await _broadcast_topology(schedule_update)
-                        await _broadcast_copilot(schedule_update)
-                        print(f"[ORBIT] 🤖 Auto-committed suggestion {candidate['recommendation_id'][:8]}…")
-                    else:
-                        COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
-                        await _broadcast_copilot(candidate)
-                        print(
-                            f"[ORBIT] ✅ Emitted suggestion "
-                            f"{candidate['recommendation_id'][:8]}… "
-                            f"(P{candidate['priority_level']}, {candidate['target_train_id']})"
-                        )
+                    # ── Suggestion generator is now purely advisory ────────────
+                    # Auto-commit is no longer applied here — it was a source of
+                    # duplicated physics and hidden side-effects.  Autopilot logic
+                    # lives exclusively in the execution stage (simulate_trains_bg).
+                    # Every OR-Shield-approved suggestion is queued for operator review.
+                    ticks_remaining = SUGGESTION_TTL_TICKS - (_SIM_TICK - candidate.get("suggested_at_tick", _SIM_TICK))
+                    candidate["expires_in_ticks"] = max(0, ticks_remaining)
+                    COPILOT_SUGGESTIONS[candidate["recommendation_id"]] = candidate
+                    await _broadcast_copilot(candidate)
+                    print(
+                        f"[ORBIT] ✅ Emitted suggestion "
+                        f"{candidate['recommendation_id'][:8]}… "
+                        f"(P{candidate['priority_level']}, {candidate['target_train_id']}, "
+                        f"expires in {ticks_remaining} ticks)"
+                    )
 
         await asyncio.sleep(8)
 
@@ -1130,11 +1167,12 @@ async def stop_inference():
 
 @app.get("/api/v1/system/inference-status", tags=["System Override"])
 async def get_inference_status():
-    global INFERENCE_ACTIVE, OR_SHIELD_ENABLED, AI_AUTO_COMMIT, SYSTEM_LOCKDOWN
+    global INFERENCE_ACTIVE, OR_SHIELD_ENABLED, AI_AUTO_COMMIT, AUTOPILOT_MODE, SYSTEM_LOCKDOWN
     return {
         "active": INFERENCE_ACTIVE,
         "safety_shield": OR_SHIELD_ENABLED,
-        "auto_commit": AI_AUTO_COMMIT,
+        "auto_commit": AUTOPILOT_MODE,   # backward-compat key — now mirrors AUTOPILOT_MODE
+        "autopilot_mode": AUTOPILOT_MODE,
         "lockdown": SYSTEM_LOCKDOWN
     }
 
@@ -1150,17 +1188,19 @@ async def toggle_lockdown(req: OverrideRequest):
                 state["status"] = "Moving"
                 
     status_text = "ACTIVATED" if SYSTEM_LOCKDOWN else "DEACTIVATED"
-    AUDIT_LOGS.insert(0, {
-        "t": _now_iso(),
-        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-        "source": "SYSTEM_CONTROL",
-        "action": f"Emergency Stop {status_text}",
-        "operator": "Dispatcher",
-        "status": "Lockdown" if SYSTEM_LOCKDOWN else "Nominal",
+    entry = {
+        "t"         : _now_iso(),
+        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source"    : "SYSTEM_CONTROL",
+        "action"    : f"Emergency Stop {status_text}",
+        "operator"  : "Dispatcher",
+        "status"    : "Lockdown" if SYSTEM_LOCKDOWN else "Nominal",
         "statusType": "error" if SYSTEM_LOCKDOWN else "success",
-        "id": str(uuid.uuid4())
-    })
-    
+        "id"        : str(uuid.uuid4())
+    }
+    AUDIT_LOGS.insert(0, entry)
+    _persist_audit_log(entry)
+
     return {"status": "success", "lockdown": SYSTEM_LOCKDOWN}
 
 @app.post("/api/v1/system/safety-shield", tags=["System Override"])
@@ -1169,46 +1209,107 @@ async def toggle_safety_shield(req: OverrideRequest):
     OR_SHIELD_ENABLED = req.enabled
     
     status_text = "ACTIVATED" if OR_SHIELD_ENABLED else "DEACTIVATED"
-    AUDIT_LOGS.insert(0, {
-        "t": _now_iso(),
-        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-        "source": "SYSTEM_CONTROL",
-        "action": f"OR-Shield Safety Protocol {status_text}",
-        "operator": "Dispatcher",
-        "status": "Active" if OR_SHIELD_ENABLED else "Disabled",
+    entry = {
+        "t"         : _now_iso(),
+        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source"    : "SYSTEM_CONTROL",
+        "action"    : f"OR-Shield Safety Protocol {status_text}",
+        "operator"  : "Dispatcher",
+        "status"    : "Active" if OR_SHIELD_ENABLED else "Disabled",
         "statusType": "success" if OR_SHIELD_ENABLED else "warning",
-        "id": str(uuid.uuid4())
-    })
-    
+        "id"        : str(uuid.uuid4())
+    }
+    AUDIT_LOGS.insert(0, entry)
+    _persist_audit_log(entry)
+
     return {"status": "success", "safety_shield": OR_SHIELD_ENABLED}
 
 @app.post("/api/v1/system/auto-commit", tags=["System Override"])
-async def toggle_auto_commit(req: OverrideRequest):
-    global AI_AUTO_COMMIT
-    AI_AUTO_COMMIT = req.enabled
-    
-    status_text = "ACTIVATED" if AI_AUTO_COMMIT else "DEACTIVATED"
-    AUDIT_LOGS.insert(0, {
+async def toggle_auto_commit_legacy(req: OverrideRequest):
+    """Deprecated alias — use POST /api/v1/system/autopilot instead."""
+    return await toggle_autopilot(req)
+
+@app.post("/api/v1/system/autopilot", tags=["System Override"])
+async def toggle_autopilot(req: OverrideRequest):
+    """Toggle Autopilot Mode.
+
+    When enabled, the execution stage applies the model's advisory proposal for
+    every train that lacks an explicit operator-committed action.  This is a
+    clearly-labelled, separately-toggled path — not a hidden side-effect of the
+    suggestion generator.
+    """
+    global AI_AUTO_COMMIT, AUTOPILOT_MODE
+    AUTOPILOT_MODE = req.enabled
+    AI_AUTO_COMMIT = req.enabled   # keep legacy alias in sync
+
+    status_text = "ACTIVATED" if AUTOPILOT_MODE else "DEACTIVATED"
+    entry = {
         "t": _now_iso(),
         "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
         "source": "SYSTEM_CONTROL",
-        "action": f"AI Auto-Commit {status_text}",
+        "action": f"Autopilot Mode {status_text}",
         "operator": "Dispatcher",
-        "status": "Active" if AI_AUTO_COMMIT else "Disabled",
-        "statusType": "warning" if AI_AUTO_COMMIT else "success",
+        "status": "Active" if AUTOPILOT_MODE else "Disabled",
+        "statusType": "warning" if AUTOPILOT_MODE else "success",
         "id": str(uuid.uuid4())
-    })
-    
-    return {"status": "success", "auto_commit": AI_AUTO_COMMIT}
+    }
+    AUDIT_LOGS.insert(0, entry)
+    _persist_audit_log(entry)
+
+    return {"status": "success", "autopilot_mode": AUTOPILOT_MODE, "auto_commit": AUTOPILOT_MODE}
 
 AUDIT_LOGS = []
 
+def _persist_audit_log(entry: dict):
+    """Fire-and-forget DB write for an audit log entry.  Silently swallows errors
+    so a DB hiccup never disrupts the hot simulation path."""
+    try:
+        db = database.SessionLocal()
+        crud.create_audit_log(db, entry)
+        db.close()
+    except Exception as _e:
+        print(f"[ORBIT] Warning: audit log DB write failed: {_e}")
+
 @app.get("/api/v1/system/audit-logs", tags=["System Override"])
 async def get_audit_logs(limit: int = 50, skip: int = 0):
-    sorted_logs = sorted(AUDIT_LOGS, key=lambda x: x["timestamp"], reverse=True)
+    """Return audit log entries.  Merges in-memory (current session) with
+    persisted DB records so history survives restarts."""
+    try:
+        db = database.SessionLocal()
+        db_logs = crud.get_recent_audit_logs(db, limit=limit + len(AUDIT_LOGS), skip=0)
+        db.close()
+        # Convert ORM rows to dicts matching the in-memory format
+        db_entries = [
+            {
+                "id": row.log_id,
+                "t": row.timestamp,
+                "timestamp": row.timestamp_ms,
+                "source": row.source,
+                "action": row.action,
+                "operator": row.operator,
+                "status": row.status,
+                "statusType": row.status_type,
+            }
+            for row in db_logs
+        ]
+    except Exception:
+        db_entries = []
+
+    # Merge: in-memory entries take precedence (they're newer / more authoritative
+    # for the current session); de-duplicate by id.
+    seen_ids = set()
+    merged = []
+    for entry in AUDIT_LOGS + db_entries:
+        eid = entry.get("id", "")
+        if eid and eid in seen_ids:
+            continue
+        seen_ids.add(eid)
+        merged.append(entry)
+
+    merged.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
     return {
-        "logs": sorted_logs[skip : skip + limit],
-        "total": len(sorted_logs)
+        "logs": merged[skip : skip + limit],
+        "total": len(merged)
     }
 
 
@@ -1421,18 +1522,43 @@ async def copilot_websocket(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # ORBIT Dispatch Endpoints
 # ---------------------------------------------------------------------------
-def _write_feedback(suggestion: Dict[str, Any], outcome: str, reason: str = ""):
-    """Fix 9: Write RLHF telemetry."""
+def _write_feedback(
+    suggestion: Dict[str, Any],
+    outcome: str,
+    reason: str = "",
+    original_action: Optional[int] = None,
+    original_edge: Optional[str] = None,
+):
+    """Write RLHF telemetry to human_feedback.jsonl.
+
+    When the operator modifies a suggestion before committing, pass the model's
+    original proposal via ``original_action``/``original_edge`` so the diff is
+    captured explicitly.  This is the most valuable training signal:
+    "model proposed X, operator corrected to Y."
+    """
     try:
+        operator_action = suggestion.get("rl_action")
+        operator_edge   = (suggestion.get("affected_edges") or [None])[0]
+        was_modified = (
+            original_action is not None and original_action != operator_action
+        ) or (
+            original_edge is not None and original_edge != operator_edge
+        )
         feedback = {
-            "timestamp": _now_iso(),
-            "recommendation_id": suggestion.get("recommendation_id"),
-            "target_train_id": suggestion.get("target_train_id"),
-            "proposed_action": suggestion.get("proposed_action"),
-            "rl_action": suggestion.get("rl_action"),
-            "obs_snapshot": suggestion.get("obs_snapshot", {}),
-            "outcome": outcome,
-            "reason": reason
+            "timestamp"         : _now_iso(),
+            "recommendation_id" : suggestion.get("recommendation_id"),
+            "target_train_id"   : suggestion.get("target_train_id"),
+            "proposed_action"   : suggestion.get("proposed_action"),
+            "rl_action"         : suggestion.get("rl_action"),
+            "obs_snapshot"      : suggestion.get("obs_snapshot", {}),
+            "outcome"           : outcome,
+            "reason"            : reason,
+            # Modification diff — present only when operator changed the proposal
+            "was_modified"      : was_modified,
+            "original_rl_action": original_action,   # model's proposal before edit
+            "operator_action"   : operator_action,    # what the operator chose
+            "original_edge"     : original_edge,
+            "operator_edge"     : operator_edge,
         }
         with open("human_feedback.jsonl", "a") as f:
             f.write(json.dumps(feedback) + "\n")
@@ -1456,6 +1582,11 @@ async def commit_suggestion(req: CommitRequest):
             detail=f"Recommendation is already '{suggestion['status']}'."
         )
 
+    # Capture original values BEFORE applying operator modifications.
+    # These are passed to _write_feedback so the diff is recorded explicitly.
+    original_action: Optional[int] = suggestion.get("rl_action")
+    original_edge: Optional[str]   = (suggestion.get("affected_edges") or [None])[0]
+
     if req.modified_action is not None:
         suggestion["rl_action"] = req.modified_action
     if req.modified_edge is not None:
@@ -1465,13 +1596,13 @@ async def commit_suggestion(req: CommitRequest):
     current_state = TRAIN_STATES.get(train_id)
     if not current_state:
         raise HTTPException(status_code=400, detail="Train no longer active.")
-    
+
     suggested_tick = suggestion.get("suggested_at_tick", _SIM_TICK)
     if _SIM_TICK - suggested_tick > SUGGESTION_TTL_TICKS:
         suggestion["status"] = "expired"
         _write_feedback(suggestion, "expired", "Staleness TTL exceeded")
         raise HTTPException(status_code=400, detail="Suggestion has expired (TTL).")
-        
+
     suggested_edge = suggestion.get("suggested_at_edge")
     if suggested_edge and current_state.get("edge_id") != suggested_edge:
         suggestion["status"] = "expired"
@@ -1506,93 +1637,86 @@ async def commit_suggestion(req: CommitRequest):
     committed_at = _now_iso()
     suggestion["status"] = "committed"
     suggestion["committed_at"] = committed_at
-    
-    AUDIT_LOGS.append({
-        "t": committed_at,
-        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-        "source": f"AI_{suggestion['target_train_id']}",
-        "action": f"Dispatch: {suggestion['proposed_action']} ({suggestion.get('reasoning', 'No reason provided')})",
-        "operator": "Dispatcher",
-        "status": "Committed",
-        "statusType": "success",
-        "id": str(uuid.uuid4())
-    })
 
-    # 5. Apply decision to live simulation
-    #    Advance the target train to the next edge in its path if the
-    #    suggested affected_edge is the correct next hop.
-    target_id  = suggestion["target_train_id"]
+    audit_entry = {
+        "t"         : committed_at,
+        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source"    : f"AI_{suggestion['target_train_id']}",
+        "action"    : f"Dispatch: {suggestion['proposed_action']} ({suggestion.get('reasoning', 'No reason provided')})",
+        "operator"  : "Dispatcher",
+        "status"    : "Committed",
+        "statusType": "success",
+        "id"        : str(uuid.uuid4())
+    }
+    AUDIT_LOGS.append(audit_entry)
+    _persist_audit_log(audit_entry)
+
+    # 5. Apply decision via clean action injection
+    #
+    #    The commit endpoint NO LONGER directly manipulates TRAIN_STATES physics
+    #    (no more manual path splicing, no more edge advances, no more override_action keys).
+    #
+    #    Instead we inject intent into PENDING_OPERATOR_ACTIONS / STICKY_ACTIONS.
+    #    The execution stage in simulate_trains_bg reads these on the very next
+    #    env.step() call — env.step() is the single source of truth for all physics
+    #    (token logic, capacity checks, banker logic, dwell logic).
+    #
+    #    STOP  → sticky: persists for OVERRIDE_TICKS ticks via STICKY_ACTIONS
+    #    DIVERT → one-shot: env.step() handles loop selection via PENDING_OPERATOR_ACTIONS
+    #    MAIN   → one-shot: proceed signal via PENDING_OPERATOR_ACTIONS
+    target_id = suggestion["target_train_id"]
+    rl_action = suggestion.get("rl_action", 1)  # 0=STOP, 1=MAIN, 2=DIVERT
     new_edge_id: Optional[str] = None
 
-    if target_id in TRAIN_STATES:
-        t         = TRAIN_STATES[target_id]
-        path      = t.get("path", [])
-        curr_edge = t.get("edge_id")
-        affected  = suggestion.get("affected_edges", [])
+    if rl_action == 0:
+        # STOP — sticky hold for OVERRIDE_TICKS ticks
+        STICKY_ACTIONS[target_id] = (0, _SIM_TICK + OVERRIDE_TICKS)
+        # Also update the live display status immediately so the map shows "Halted"
+        if target_id in TRAIN_STATES:
+            TRAIN_STATES[target_id]["status"] = "Halted"
+        print(f"[COMMIT] 🛑 STOP sticky for {target_id} "
+              f"({OVERRIDE_TICKS} ticks, expires tick {_SIM_TICK + OVERRIDE_TICKS})")
 
-        rl_action = suggestion.get("rl_action", 1)   # 0=STOP, 1=MAIN, 2=DIVERT
-        # Override duration: 15 ticks × 500 ms = ~7.5 seconds of enforced action.
-        OVERRIDE_TICKS = 15
+    elif rl_action == 2:
+        # DIVERT — one-shot; env.step() picks the available loop node
+        PENDING_OPERATOR_ACTIONS[target_id] = 2
+        affected = suggestion.get("affected_edges", [])
+        new_edge_id = affected[0] if affected else None
+        print(f"[COMMIT] 🔀 DIVERT one-shot queued for {target_id}")
 
-        if rl_action == 0:
-            # ── STOP: freeze the train for OVERRIDE_TICKS ticks ─────────────
-            # Do NOT advance the edge — the train must stay at curr_edge.
-            t["override_action"]  = 0
-            t["override_expires"] = _SIM_TICK + OVERRIDE_TICKS
-            t["status"]           = "Halted"
-            print(f"[COMMIT] 🛑 STOP override on {target_id} "
-                  f"for {OVERRIDE_TICKS} ticks (expires tick {t['override_expires']})")
+    else:
+        # MAIN — one-shot proceed
+        PENDING_OPERATOR_ACTIONS[target_id] = 1
+        print(f"[COMMIT] ▶️  MAIN one-shot queued for {target_id}")
 
-        elif rl_action == 2 and affected:
-            # ── DIVERT: inject the loop edge into the live path ──────────────
-            # Insert the suggested edge immediately after the current position
-            # so the train takes the divert route on its very next edge advance.
-            candidate_edge = affected[0]
-            try:
-                curr_idx = path.index(curr_edge)
-                if candidate_edge not in path:
-                    # Splice the divert edge into the path right after curr
-                    path.insert(curr_idx + 1, candidate_edge)
-                    print(f"[COMMIT] 🔀 DIVERT {target_id}: "
-                          f"'{candidate_edge}' inserted after '{curr_edge}'")
-                new_edge_id = candidate_edge
-            except ValueError:
-                pass
-            # Also apply a move override so the train doesn't sit still
-            t["override_action"]  = 2
-            t["override_expires"] = _SIM_TICK + OVERRIDE_TICKS
-            t["status"]           = "Moving"
+    # 5b. Write RLHF feedback with modification diff
+    _write_feedback(
+        suggestion,
+        "committed",
+        "Operator committed",
+        original_action=original_action,
+        original_edge=original_edge,
+    )
 
-        else:
-            # ── MAIN (legacy edge-advance behaviour) ─────────────────────────
-            if affected and curr_edge in path:
-                candidate_edge = affected[0]
-                curr_idx = path.index(curr_edge)
-                if curr_idx + 1 < len(path) and path[curr_idx + 1] == candidate_edge:
-                    t["edge_id"]             = candidate_edge
-                    t["position_percentage"] = 0.0
-                    t["status"]              = "Moving"
-                    new_edge_id              = candidate_edge
-
-    # 6. Broadcast SCHEDULE_UPDATED with new train position
+    # 6. Broadcast SCHEDULE_UPDATED
     schedule_update = {
-        "type"               : "SCHEDULE_UPDATED",
-        "recommendation_id"  : req.recommendation_id,
-        "target_train_id"    : target_id,
-        "proposed_action"    : suggestion["proposed_action"],
-        "affected_edges"     : suggestion["affected_edges"],
-        "new_edge_id"        : new_edge_id,   # ← consumed by frontend map store
-        "rl_action"          : rl_action,     # ← 0=STOP, 1=MAIN, 2=DIVERT — drives highlight label
-        "committed_at"       : committed_at,
-        "timestamp"          : committed_at,
+        "type"              : "SCHEDULE_UPDATED",
+        "recommendation_id" : req.recommendation_id,
+        "target_train_id"   : target_id,
+        "proposed_action"   : suggestion["proposed_action"],
+        "affected_edges"    : suggestion["affected_edges"],
+        "new_edge_id"       : new_edge_id,
+        "rl_action"         : rl_action,
+        "committed_at"      : committed_at,
+        "timestamp"         : committed_at,
     }
     await _broadcast_topology(schedule_update)
     await _broadcast_copilot(schedule_update)
 
     print(
         f"[ORBIT] ✅ Committed: {req.recommendation_id[:8]}… → "
-        f"train {target_id} "
-        + (f"→ edge {new_edge_id}" if new_edge_id else "(action applied, no edge advance)")
+        f"train {target_id} action={rl_action} "
+        + (f"→ edge {new_edge_id}" if new_edge_id else "(queued for env.step)")
     )
 
     # 7. Return
@@ -1623,24 +1747,26 @@ async def reject_suggestion(req: RejectRequest):
     
     _write_feedback(suggestion, "rejected", req.reason)
 
-    AUDIT_LOGS.append({
-        "t": suggestion["rejected_at"],
-        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-        "source": f"AI_{suggestion['target_train_id']}",
-        "action": f"Dispatch Rejected: {suggestion['proposed_action']}",
-        "operator": "Dispatcher",
-        "status": "Rejected",
+    audit_entry = {
+        "t"         : suggestion["rejected_at"],
+        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source"    : f"AI_{suggestion['target_train_id']}",
+        "action"    : f"Dispatch Rejected: {suggestion['proposed_action']}",
+        "operator"  : "Dispatcher",
+        "status"    : "Rejected",
         "statusType": "warning",
-        "id": str(uuid.uuid4())
-    })
+        "id"        : str(uuid.uuid4())
+    }
+    AUDIT_LOGS.append(audit_entry)
+    _persist_audit_log(audit_entry)
 
     print(f"[ORBIT] ❌ Rejected: {req.recommendation_id[:8]}… reason='{req.reason}'")
 
     return {
-        "status": "rejected",
-        "recommendation_id": req.recommendation_id,
-        "reason": req.reason,
-        "timestamp": suggestion["rejected_at"],
+        "status"            : "rejected",
+        "recommendation_id" : req.recommendation_id,
+        "reason"            : req.reason,
+        "timestamp"         : suggestion["rejected_at"],
     }
 
 
@@ -1656,6 +1782,48 @@ async def get_suggestions(status: Optional[str] = None):
 # ---------------------------------------------------------------------------
 # ORBIT Maintenance Management System (MMS) Endpoints
 # ---------------------------------------------------------------------------
+# [raw-proposal endpoint inserted above MMS section]
+
+@app.get("/api/v1/copilot/raw-proposal", tags=["ORBIT Co-pilot"])
+async def get_raw_proposal():
+    """Return the model's full per-train action proposal — the unfiltered advisory output.
+
+    The Co-Pilot panel surfaces at most 3 curated cards per cycle.
+    This endpoint exposes the complete picture: what the model proposes for every
+    active train, with confidence scores and current override state.
+
+    Intended for: audit reviews, operator 'expand all' views, incident analysis.
+    """
+    action_labels = {0: "STOP", 1: "MAIN", 2: "DIVERT"}
+    proposals = []
+    for i, t_id in enumerate(_INFERENCE_TRAIN_IDS):
+        model_action = LATEST_MODEL_PROPOSAL.get(t_id)
+        sticky       = STICKY_ACTIONS.get(t_id)
+        is_sticky    = bool(sticky and sticky[1] > _SIM_TICK)
+        proposals.append({
+            "train_id"                   : t_id,
+            "model_action"               : model_action,
+            "action_label"               : action_labels.get(model_action, "UNKNOWN"),
+            "confidence"                 : (
+                float(_INFERENCE_ACTION_PROBS[i])
+                if _INFERENCE_ACTION_PROBS and i < len(_INFERENCE_ACTION_PROBS)
+                else None
+            ),
+            "has_pending_operator_action": t_id in PENDING_OPERATOR_ACTIONS,
+            "has_sticky_action"          : is_sticky,
+            "sticky_action"              : action_labels.get(sticky[0], "UNKNOWN") if is_sticky else None,
+            "sticky_expires_tick"        : sticky[1] if is_sticky else None,
+            "ticks_until_sticky_expires" : (sticky[1] - _SIM_TICK) if is_sticky else None,
+            "current_train_status"       : TRAIN_STATES.get(t_id, {}).get("status"),
+            "current_edge"               : TRAIN_STATES.get(t_id, {}).get("edge_id"),
+        })
+    return {
+        "tick"            : _SIM_TICK,
+        "autopilot_mode"  : AUTOPILOT_MODE,
+        "inference_active": INFERENCE_ACTIVE,
+        "total_trains"    : len(_INFERENCE_TRAIN_IDS),
+        "proposals"       : proposals,
+    }
 
 @app.get("/api/v1/maintenance/blocks", tags=["MMS"])
 async def list_blocks():

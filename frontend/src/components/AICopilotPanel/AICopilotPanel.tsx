@@ -153,14 +153,28 @@ const DecisionCard: React.FC<{
       exit={{ opacity: 0, x: -60, scale: 0.95 }}
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
     >
-      {/* TTL Bar */}
-      <div style={{ height: '3px', background: '#e2e8f0', width: '100%', marginBottom: '6px', borderRadius: '2px', overflow: 'hidden' }}>
-        <div style={{
-          height: '100%',
-          background: isExpired ? '#dc2626' : '#8B5CF6',
-          width: `${Math.max(0, 100 - (age / TTL) * 100)}%`,
-          transition: 'width 0.5s linear'
-        }} />
+      {/* TTL Bar + tick countdown */}
+      <div style={{ marginBottom: '6px' }}>
+        <div style={{ height: '3px', background: '#e2e8f0', width: '100%', borderRadius: '2px', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            background: isExpired ? '#dc2626' : '#8B5CF6',
+            width: `${Math.max(0, 100 - (age / TTL) * 100)}%`,
+            transition: 'width 0.5s linear'
+          }} />
+        </div>
+        {/* Secondary: server-reported tick countdown for drift visibility */}
+        {suggestion.expires_in_ticks !== undefined && !isExpired && (
+          <div style={{
+            fontSize: '9px',
+            color: suggestion.expires_in_ticks <= 3 ? '#dc2626' : '#94a3b8',
+            textAlign: 'right',
+            marginTop: '2px',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {suggestion.expires_in_ticks}t remaining
+          </div>
+        )}
       </div>
 
       {/* Card Header */}
