@@ -63,7 +63,7 @@ class SmartOptimizer:
         track_map: dict,
         ghat_token=None,           # GhatTokenSystem | None
         node_km: dict = None,      # node_id → km, for direction resolution
-    ) -> np.ndarray:
+    ) -> tuple:
         """
         Apply heuristic safety rules on top of RL action proposals.
 
@@ -82,6 +82,7 @@ class SmartOptimizer:
         import numpy as np
         safe_actions = np.array(ai_actions).copy().astype(int)
         node_km      = node_km or {}
+        decision_meta = {}
 
         # ── Snapshot current occupancy ────────────────────────────────────
         # Format: current_occ[node_id][direction] = count
@@ -138,6 +139,15 @@ class SmartOptimizer:
             )
             loop_targets = [n for n in next_opts if n != main_target]
 
+            main_cap = track_map.get(main_target, {}).get('capacity', 1)
+            dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+            main_occ = current_occ[main_target][direction] + claimed_occ[main_target][direction]
+
+            token_blocked = False
+            if main_target in self._get_token_set(ghat_token):
+                if ghat_token and not ghat_token.can_enter(train['id'], direction):
+                    token_blocked = True
+
             # ── Layer 1: Anti-loitering ───────────────────────────────────
             # Only override HOLD → PROCEED when the RL agent did NOT
             # explicitly choose HOLD. If rl_original_action == 0 the agent
@@ -146,16 +156,6 @@ class SmartOptimizer:
             # else (dwell logic, env guard) forced the current act to 0
             # while the agent actually wanted to move.
             if act == 0 and node_type in MAINLINE_TYPES and rl_original_action != 0:
-                main_cap = track_map.get(main_target, {}).get('capacity', 1)
-                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
-                main_occ = current_occ[main_target][direction] + claimed_occ[main_target][direction]
-
-                # Don't force into token block if opposing direction holds it
-                token_blocked = False
-                if main_target in self._get_token_set(ghat_token):
-                    if ghat_token and not ghat_token.can_enter(train['id'], direction):
-                        token_blocked = True
-
                 if main_occ < main_cap and not token_blocked:
                     act = 1
                     safe_actions[i] = 1
@@ -169,9 +169,6 @@ class SmartOptimizer:
             # sitting in a loop after dwell is done should always exit when
             # the main line is free — there is no strategic reason to stay.
             elif act == 0 and node_type in HOLDING_TYPES:
-                main_cap = track_map.get(main_target, {}).get('capacity', 1)
-                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
-                main_occ = current_occ[main_target][direction] + claimed_occ[main_target][direction]
                 # Only wake up if dwell is done (dwell_rem == 0)
                 if (main_occ < dir_cap
                         and train.get('dwell_rem', 0) == 0
@@ -231,7 +228,16 @@ class SmartOptimizer:
             # Update claim tracker
             claimed_occ[target_pos][direction] += 1
 
-        return safe_actions
+            # Populate decision meta
+            final_act = int(safe_actions[i])
+            decision_meta[train['id']] = {
+                "contested": main_occ > 0 or token_blocked or (final_act != rl_original_action),
+                "reason": "capacity contention" if main_occ > 0 else
+                          "token block" if token_blocked else
+                          "shield override" if final_act != rl_original_action else "clear",
+            }
+
+        return safe_actions, decision_meta
 
     def _resolve_main_target(
         self,

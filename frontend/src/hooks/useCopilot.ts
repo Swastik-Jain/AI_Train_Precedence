@@ -35,24 +35,24 @@ export function useCopilot() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // executeAction — POST /api/v1/dispatch/commit
-  // Performs the "Verifying with OR-Tools…" wait then commits.
+  // overrideAction — POST /api/v1/dispatch/override
+  // Performs the "Applying Override…" wait then commits.
   // ---------------------------------------------------------------------------
-  const executeAction = useCallback(
+  const overrideAction = useCallback(
     async (
       recommendation_id: string,
-      modified_action?: number,
-      modified_edge?: string
+      new_action?: number,
+      new_edge?: string
     ): Promise<ActionResult> => {
       try {
-        // Small artificial delay to show the "Verifying with OR-Tools…" micro-animation
+        // Small artificial delay to show the "Applying Override…" micro-animation
         await new Promise((r) => setTimeout(r, 1500));
 
         const bodyPayload: any = { recommendation_id };
-        if (modified_action !== undefined) bodyPayload.modified_action = modified_action;
-        if (modified_edge !== undefined) bodyPayload.modified_edge = modified_edge;
+        if (new_action !== undefined) bodyPayload.new_action = new_action;
+        if (new_edge !== undefined) bodyPayload.new_edge = new_edge;
 
-        const res = await fetch('/api/v1/dispatch/commit', {
+        const res = await fetch('/api/v1/dispatch/override', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bodyPayload),
@@ -75,14 +75,10 @@ export function useCopilot() {
 
         const body = await res.json();
 
-        // Update Zustand — transition ghost → actual path
-        commitSuggestion(recommendation_id);
-
-        addToast(
-          'success',
-          `✅ Committed: "${body.proposed_action}" for ${body.target_train_id} at ${body.timestamp}`
-        );
-
+        // Update Zustand
+        // (Handled by WSSCHEDULE_UPDATED but we can also update locally)
+        // No need to commitSuggestion to remove it, we just mark it as overridden.
+        
         return { ok: true, timestamp: body.timestamp };
       } catch (err) {
         const msg = 'Network error — backend may be offline.';
@@ -94,23 +90,11 @@ export function useCopilot() {
   );
 
   // ---------------------------------------------------------------------------
-  // rejectAction — POST /api/v1/dispatch/reject
-  // ---------------------------------------------------------------------------
+  // rejectAction — (now just a local dismiss/acknowledge)
   const rejectAction = useCallback(
-    async (recommendation_id: string, reason = 'controller_dismissed'): Promise<void> => {
+    async (recommendation_id: string): Promise<void> => {
       // Optimistically remove from UI immediately
       rejectSuggestion(recommendation_id);
-
-      try {
-        await fetch('/api/v1/dispatch/reject', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recommendation_id, reason }),
-        });
-      } catch {
-        // Fire-and-forget; rejection signal for RL fine-tuning
-        console.warn('[ORBIT] Reject signal failed to reach backend — will retry on reconnect');
-      }
     },
     [rejectSuggestion]
   );
@@ -138,7 +122,7 @@ export function useCopilot() {
     globalSchedule,
     toasts,
     isConnected,
-    executeAction,
+    overrideAction,
     rejectAction,
     previewAction,
     clearPreview,
