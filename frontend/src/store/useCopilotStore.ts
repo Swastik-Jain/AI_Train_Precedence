@@ -20,7 +20,10 @@ export interface AISuggestion {
   urgency: 'CRITICAL' | 'ADVISORY' | 'INFO';
   suggested_at_edge: string;
   suggested_at_tick: number;
+  /** Ticks remaining until backend expires this suggestion (populated by server). */
+  expires_in_ticks?: number;
 }
+
 
 export interface ScheduleEntry {
   train_id: string;
@@ -101,22 +104,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
 
 
   return {
-    activeSuggestions: [{
-      recommendation_id: 'test-123',
-      type: 'AI_RECOMMENDATION',
-      priority_level: 1,
-      target_train_id: 'TEST_001',
-      proposed_action: 'Test rendering UI',
-      impact_analysis: 5,
-      confidence_score: 0.99,
-      reasoning: 'Testing UI rendering',
-      affected_edges: ['edge_1'],
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-      urgency: 'CRITICAL',
-      suggested_at_edge: 'edge_1',
-      suggested_at_tick: 0
-    }],
+    activeSuggestions: [],
     previewState: null,
     globalSchedule: [],
     scheduleMaxTime: 120,
