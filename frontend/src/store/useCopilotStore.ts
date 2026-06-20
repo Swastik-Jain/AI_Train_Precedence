@@ -5,10 +5,10 @@ import { create } from 'zustand';
 // ---------------------------------------------------------------------------
 export interface AISuggestion {
   recommendation_id: string;
-  type: 'AI_RECOMMENDATION';
+  type: 'AI_DECISION';
   priority_level: 1 | 2 | 3 | 4 | 5;
   target_train_id: string;
-  proposed_action: string;
+  decided_action: string;
   /** Minutes: positive = time saved, negative = time lost */
   impact_analysis: number;
   /** 0.0 – 1.0 */
@@ -16,10 +16,11 @@ export interface AISuggestion {
   reasoning: string;
   affected_edges: string[];
   timestamp: string; // ISO-8601
-  status: 'pending' | 'committed' | 'rejected' | 'expired';
+  status: 'executed' | 'overridden' | 'expired' | 'rejected';
+  override_state: 'none' | 'overridden';
   urgency: 'CRITICAL' | 'ADVISORY' | 'INFO';
-  suggested_at_edge: string;
-  suggested_at_tick: number;
+  decided_at_edge: string;
+  decided_at_tick: number;
   /** Ticks remaining until backend expires this suggestion (populated by server). */
   expires_in_ticks?: number;
 }
@@ -257,23 +258,22 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
 
           const data = JSON.parse(event.data);
 
-          if (data.type === 'AI_RECOMMENDATION') {
+          if (data.type === 'AI_DECISION') {
             get().addSuggestion(data as AISuggestion);
           } else if (data.type === 'SCHEDULE_UPDATED') {
             // Backend confirmed commit — update UI accordingly
             const rid         = data.recommendation_id as string;
             const trainId     = data.target_train_id    as string;
-            const action      = data.proposed_action    as string;
+            const action      = data.decided_action    as string;
             const newEdge     = data.new_edge_id        as string | null;
-            const affEdges    = (data.affected_edges    as string[]) ?? [];
 
-            // 1. Remove card from active suggestions queue
-            get().commitSuggestion(rid);
+            // 1. Update card status in active suggestions queue
+            get().updateSuggestionStatus(rid, 'overridden');
 
             // 2. Toast with action text + new edge (if advanced)
             get().addToast(
-              'success',
-              `✅ Applied: "${action}" → ${trainId}` +
+              'warning',
+              `⚠️ Overridden: "${action}" → ${trainId}` +
               (newEdge ? ` (→ ${newEdge})` : '')
             );
 

@@ -40,8 +40,8 @@ COPILOT_WEBSOCKETS: set = set()         # AI Co-pilot broadcast sockets
 # System Overrides
 SYSTEM_LOCKDOWN = False
 OR_SHIELD_ENABLED = True
-AI_AUTO_COMMIT = False      # kept for backward-compat reads; logic uses AUTOPILOT_MODE
-AUTOPILOT_MODE = False      # True → execution stage uses model proposal; False → documented MAIN default
+AI_AUTO_COMMIT = False      # kept for backward-compat reads
+EXPLAIN_BEFORE_ACT_MODE = False  # when True: contested decisions HOLD pending override-or-confirm
 SIM_SPEED_FACTOR = 0.4
 TICK_INTERVAL_S = 1.0
 
@@ -91,6 +91,7 @@ INFERENCE_ACTIVE = False
 _INFERENCE_OBS = None
 _INFERENCE_ACTIONS = None  # raw numpy array from model.predict (shape: [n_trains])
 _INFERENCE_RAW_ACTIONS = None # original RL actions before dispatcher overrides
+_INFERENCE_DECISION_META = {} # meta info for contested decisions
 
 # ---------------------------------------------------------------------------
 # Simulation tick counter — incremented once per simulate_trains_bg iteration.
@@ -444,6 +445,11 @@ def _make_suggestion() -> list:
         if not state or state.get("status") in _INACTIVE_STATUSES:
             continue
 
+        meta = _INFERENCE_DECISION_META.get(tid, {})
+        is_contested = meta.get("contested", False)
+        if not is_contested:
+            continue
+
         edge_id = state.get("edge_id", "edge-0-1")
 
         # Guard 2: train is still on a staging edge (status may lag by one tick)
@@ -482,22 +488,23 @@ def _make_suggestion() -> list:
             )
             suggestions.append({
                 "recommendation_id" : str(uuid.uuid4()),
-                "type"              : "AI_RECOMMENDATION",
+                "type"              : "AI_DECISION",
                 "priority_level"    : priority,
                 "urgency"           : urgency,
                 "target_train_id"   : tid,
-                "proposed_action"   : action_str,
+                "decided_action"    : action_str,
                 "impact_analysis"   : _compute_impact_minutes(tid, act),
                 "confidence_score"  : round(prob, 2),
                 "reasoning"         : reasoning,
                 "affected_edges"    : [edge_id],
                 "timestamp"         : _now_iso(),
-                "status"            : "pending",
+                "status"            : "executed",
+                "override_state"    : "none",
                 "is_maintenance_reroute": False,
                 "source"            : "RL_MODEL",
                 "rl_action"         : int(act),
-                "suggested_at_edge" : edge_id,
-                "suggested_at_tick" : _SIM_TICK,
+                "decided_at_edge"   : edge_id,
+                "decided_at_tick"   : _SIM_TICK,
                 "obs_snapshot"      : {
                     "edge_id"            : edge_id,
                     "position_percentage": state.get("position_percentage", 0),
@@ -518,22 +525,23 @@ def _make_suggestion() -> list:
             )
             suggestions.append({
                 "recommendation_id" : str(uuid.uuid4()),
-                "type"              : "AI_RECOMMENDATION",
+                "type"              : "AI_DECISION",
                 "priority_level"    : priority,
                 "urgency"           : urgency,
                 "target_train_id"   : tid,
-                "proposed_action"   : action_str,
+                "decided_action"    : action_str,
                 "impact_analysis"   : _compute_impact_minutes(tid, act),
                 "confidence_score"  : round(prob, 2),
                 "reasoning"         : reasoning,
                 "affected_edges"    : [edge_id],
                 "timestamp"         : _now_iso(),
-                "status"            : "pending",
+                "status"            : "executed",
+                "override_state"    : "none",
                 "is_maintenance_reroute": False,
                 "source"            : "RL_MODEL",
                 "rl_action"         : int(act),
-                "suggested_at_edge" : edge_id,
-                "suggested_at_tick" : _SIM_TICK,
+                "decided_at_edge"   : edge_id,
+                "decided_at_tick"   : _SIM_TICK,
                 "obs_snapshot"      : {
                     "edge_id"            : edge_id,
                     "position_percentage": state.get("position_percentage", 0),
@@ -558,22 +566,23 @@ def _make_suggestion() -> list:
             reasoning = "Path ahead is clear. Train should resume normal operating speed."
             suggestions.append({
                 "recommendation_id" : str(uuid.uuid4()),
-                "type"              : "AI_RECOMMENDATION",
+                "type"              : "AI_DECISION",
                 "priority_level"    : priority,
                 "urgency"           : urgency,
                 "target_train_id"   : tid,
-                "proposed_action"   : action_str,
+                "decided_action"    : action_str,
                 "impact_analysis"   : _compute_impact_minutes(tid, act),
                 "confidence_score"  : round(prob, 2),
                 "reasoning"         : reasoning,
                 "affected_edges"    : [edge_id],
                 "timestamp"         : _now_iso(),
-                "status"            : "pending",
+                "status"            : "executed",
+                "override_state"    : "none",
                 "is_maintenance_reroute": False,
                 "source"            : "RL_MODEL",
                 "rl_action"         : int(act),
-                "suggested_at_edge" : edge_id,
-                "suggested_at_tick" : _SIM_TICK,
+                "decided_at_edge"   : edge_id,
+                "decided_at_tick"   : _SIM_TICK,
                 "obs_snapshot"      : {
                     "edge_id"            : edge_id,
                     "position_percentage": state.get("position_percentage", 0),
@@ -583,9 +592,8 @@ def _make_suggestion() -> list:
                 },
             })
 
-    # Cap total suggestions per batch to 3 — prioritise STOP > DIVERT > INFO
     suggestions.sort(key=lambda x: x["priority_level"])
-    return suggestions[:3]
+    return suggestions
 
 
 
@@ -697,39 +705,37 @@ async def simulate_trains_bg():
                             if _i < len(raw_actions):
                                 LATEST_MODEL_PROPOSAL[_t_id] = int(raw_actions[_i])
 
-                        # ── Execution stage: clean 4-level priority chain ─────
-                        # Priority order (highest → lowest):
-                        #   1. STICKY_ACTIONS   — operator committed hold (e.g. STOP for N ticks)
-                        #   2. PENDING_OPERATOR_ACTIONS — operator one-shot (consumed after this step)
-                        #   3. AUTOPILOT_MODE   — model proposal applied explicitly under autopilot
-                        #   4. Default MAIN (1) — documented "normal proceed" default
-                        #
-                        # No action is ever applied silently: every train's action
-                        # this tick is attributable to one of these four sources.
+                        # ── Execution stage: autonomous-by-default, override-on-top ─────
+                        #   1. STICKY_ACTIONS            — controller override, persists N ticks
+                        #   2. PENDING_OPERATOR_ACTIONS  — controller override, one-shot
+                        #   3. raw_actions[i]            — the model's own decision (DEFAULT — always active)
                         desired_actions = []
                         for i in range(len(raw_actions)):
                             t_id = _INFERENCE_TRAIN_IDS[i] if i < len(_INFERENCE_TRAIN_IDS) else ""
                             sticky = STICKY_ACTIONS.get(t_id)
                             if sticky and sticky[1] > _SIM_TICK:
-                                # 1. Operator sticky hold still active
                                 desired_actions.append(sticky[0])
                             elif t_id in PENDING_OPERATOR_ACTIONS:
-                                # 2. One-shot operator action — consume it now
                                 desired_actions.append(PENDING_OPERATOR_ACTIONS.pop(t_id))
-                            elif AUTOPILOT_MODE:
-                                # 3. Explicit autopilot: apply model's advisory proposal
-                                desired_actions.append(raw_actions[i])
                             else:
-                                # 4. Documented default: normal proceed on main line
-                                desired_actions.append(1)
+                                desired_actions.append(raw_actions[i])   # model's decision
 
                         # Step 2: OR-Shield validates the intent to prevent crashes
-                        safe_actions = _OR_SHIELD.optimize_decision(
+                        safe_actions, decision_meta = _OR_SHIELD.optimize_decision(
                             trains=inner_env.trains,
                             ai_actions=desired_actions,
                             track_map=inner_env.track_map,
                         )
+                        
+                        # EXPLAIN_BEFORE_ACT_MODE logic
+                        if EXPLAIN_BEFORE_ACT_MODE:
+                            for i, t in enumerate(inner_env.trains):
+                                if decision_meta.get(t['id'], {}).get('contested', False):
+                                    safe_actions[i] = 0  # Hold contested decisions
+                                    
                         _INFERENCE_ACTIONS = safe_actions
+                        global _INFERENCE_DECISION_META
+                        _INFERENCE_DECISION_META = decision_meta
 
                         # Step 3: Execute safe actions in physics engine
                         step_actions = np.array([safe_actions])
@@ -1563,21 +1569,21 @@ def _write_feedback(
     except Exception as e:
         print(f"[ORBIT] Warning: failed to write feedback: {e}")
 
-class CommitRequest(BaseModel):
+class OverrideRequest(BaseModel):
     recommendation_id: str
-    modified_action: Optional[int] = None
-    modified_edge: Optional[str] = None
+    new_action: Optional[int] = None
+    new_edge: Optional[str] = None
 
-@app.post("/api/v1/dispatch/commit", tags=["ORBIT Co-pilot"])
-async def commit_suggestion(req: CommitRequest):
+@app.post("/api/v1/dispatch/override", tags=["ORBIT Co-pilot"])
+async def override_decision(req: OverrideRequest):
     suggestion = COPILOT_SUGGESTIONS.get(req.recommendation_id)
     if not suggestion:
-        raise HTTPException(status_code=404, detail="Recommendation not found or already expired.")
+        raise HTTPException(status_code=404, detail="Decision not found or already expired.")
 
-    if suggestion["status"] != "pending":
+    if suggestion["status"] != "executed":
         raise HTTPException(
             status_code=409,
-            detail=f"Recommendation is already '{suggestion['status']}'."
+            detail=f"Decision is already '{suggestion['status']}'."
         )
 
     # Capture original values BEFORE applying operator modifications.
@@ -1585,10 +1591,10 @@ async def commit_suggestion(req: CommitRequest):
     original_action: Optional[int] = suggestion.get("rl_action")
     original_edge: Optional[str]   = (suggestion.get("affected_edges") or [None])[0]
 
-    if req.modified_action is not None:
-        suggestion["rl_action"] = req.modified_action
-    if req.modified_edge is not None:
-        suggestion["affected_edges"] = [req.modified_edge]
+    if req.new_action is not None:
+        suggestion["rl_action"] = req.new_action
+    if req.new_edge is not None:
+        suggestion["affected_edges"] = [req.new_edge]
 
     train_id = suggestion["target_train_id"]
     current_state = TRAIN_STATES.get(train_id)
@@ -1631,19 +1637,20 @@ async def commit_suggestion(req: CommitRequest):
             detail=f"SafetyConflict: {reason}. Dispatch blocked by OR-Shield."
         )
 
-    # 4. Mark committed
-    committed_at = _now_iso()
-    suggestion["status"] = "committed"
-    suggestion["committed_at"] = committed_at
+    # 4. Mark overridden
+    overridden_at = _now_iso()
+    suggestion["status"] = "overridden"
+    suggestion["override_state"] = "overridden"
+    suggestion["overridden_at"] = overridden_at
 
     audit_entry = {
-        "t"         : committed_at,
+        "t"         : overridden_at,
         "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
         "source"    : f"AI_{suggestion['target_train_id']}",
-        "action"    : f"Dispatch: {suggestion['proposed_action']} ({suggestion.get('reasoning', 'No reason provided')})",
+        "action"    : f"Dispatch Override: {req.new_action} ({suggestion.get('reasoning', 'No reason provided')})",
         "operator"  : "Dispatcher",
-        "status"    : "Committed",
-        "statusType": "success",
+        "status"    : "Overridden",
+        "statusType": "warning",
         "id"        : str(uuid.uuid4())
     }
     AUDIT_LOGS.append(audit_entry)
@@ -1691,8 +1698,8 @@ async def commit_suggestion(req: CommitRequest):
     # 5b. Write RLHF feedback with modification diff
     _write_feedback(
         suggestion,
-        "committed",
-        "Operator committed",
+        "overridden",
+        "Operator overridden",
         original_action=original_action,
         original_edge=original_edge,
     )
@@ -1702,70 +1709,30 @@ async def commit_suggestion(req: CommitRequest):
         "type"              : "SCHEDULE_UPDATED",
         "recommendation_id" : req.recommendation_id,
         "target_train_id"   : target_id,
-        "proposed_action"   : suggestion["proposed_action"],
+        "decided_action"    : suggestion.get("decided_action", ""),
         "affected_edges"    : suggestion["affected_edges"],
         "new_edge_id"       : new_edge_id,
         "rl_action"         : rl_action,
-        "committed_at"      : committed_at,
-        "timestamp"         : committed_at,
+        "overridden_at"     : overridden_at,
+        "timestamp"         : overridden_at,
     }
     await _broadcast_topology(schedule_update)
     await _broadcast_copilot(schedule_update)
 
     print(
-        f"[ORBIT] ✅ Committed: {req.recommendation_id[:8]}… → "
+        f"[ORBIT] ✅ Overridden: {req.recommendation_id[:8]}… → "
         f"train {target_id} action={rl_action} "
         + (f"→ edge {new_edge_id}" if new_edge_id else "(queued for env.step)")
     )
 
     # 7. Return
     return {
-        "status"            : "committed",
+        "status"            : "overridden",
         "recommendation_id" : req.recommendation_id,
         "target_train_id"   : target_id,
-        "proposed_action"   : suggestion["proposed_action"],
+        "decided_action"    : suggestion.get("decided_action", ""),
         "new_edge_id"       : new_edge_id,
-        "timestamp"         : committed_at,
-    }
-
-
-
-@app.post("/api/v1/dispatch/reject", tags=["ORBIT Co-pilot"])
-async def reject_suggestion(req: RejectRequest):
-    """
-    Human-dismissed: mark a recommendation as rejected for RL model fine-tuning.
-    The backend records the dismissal signal so the RL agent can learn from it.
-    """
-    suggestion = COPILOT_SUGGESTIONS.get(req.recommendation_id)
-    if not suggestion:
-        raise HTTPException(status_code=404, detail="Recommendation not found.")
-
-    suggestion["status"] = "rejected"
-    suggestion["rejected_at"] = _now_iso()
-    suggestion["reject_reason"] = req.reason
-    
-    _write_feedback(suggestion, "rejected", req.reason)
-
-    audit_entry = {
-        "t"         : suggestion["rejected_at"],
-        "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
-        "source"    : f"AI_{suggestion['target_train_id']}",
-        "action"    : f"Dispatch Rejected: {suggestion['proposed_action']}",
-        "operator"  : "Dispatcher",
-        "status"    : "Rejected",
-        "statusType": "warning",
-        "id"        : str(uuid.uuid4())
-    }
-    AUDIT_LOGS.append(audit_entry)
-    _persist_audit_log(audit_entry)
-
-    print(f"[ORBIT] ❌ Rejected: {req.recommendation_id[:8]}… reason='{req.reason}'")
-
-    return {
-        "status"            : "rejected",
-        "recommendation_id" : req.recommendation_id,
-        "reason"            : req.reason,
-        "timestamp"         : suggestion["rejected_at"],
+        "timestamp"         : overridden_at,
     }
 
 

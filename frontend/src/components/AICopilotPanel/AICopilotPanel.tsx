@@ -107,11 +107,11 @@ const WhyTooltip: React.FC<{ reasoning: string }> = ({ reasoning }) => {
 // ---------------------------------------------------------------------------
 const DecisionCard: React.FC<{
   suggestion: AISuggestion;
-  onApprove: (id: string, modAct?: number, modEdge?: string) => Promise<void>;
+  onOverride: (id: string, modAct?: number, modEdge?: string) => Promise<void>;
   onDismiss: (id: string) => void;
   onHoverStart: (s: AISuggestion) => void;
   onHoverEnd: () => void;
-}> = ({ suggestion, onApprove, onDismiss, onHoverStart, onHoverEnd }) => {
+}> = ({ suggestion, onOverride, onDismiss, onHoverStart, onHoverEnd }) => {
   const [approveState, setApproveState] = useState<'idle' | 'verifying' | 'success' | 'conflict'>('idle');
   const [isModifying, setIsModifying] = useState(false);
   const [modAct, setModAct] = useState<number>((suggestion as any).rl_action ?? 1);
@@ -128,10 +128,10 @@ const DecisionCard: React.FC<{
       : `${suggestion.impact_analysis}min delay`;
   const impactColor = suggestion.impact_analysis >= 0 ? '#16a34a' : '#dc2626';
 
-  const handleApprove = useCallback(async () => {
+  const handleOverride = useCallback(async () => {
     if (approveState !== 'idle' || isExpired) return;
     setApproveState('verifying');
-    const result = await onApprove(suggestion.recommendation_id, isModifying ? modAct : undefined, isModifying ? modEdge : undefined);
+    const result = await onOverride(suggestion.recommendation_id, isModifying ? modAct : undefined, isModifying ? modEdge : undefined);
     // @ts-ignore — result type from parent
     if (result?.ok === false && result?.safetyConflict) {
       setApproveState('conflict');
@@ -140,7 +140,7 @@ const DecisionCard: React.FC<{
       setApproveState('idle');
     }
     // On success the card is removed from the list by the store
-  }, [approveState, isExpired, onApprove, suggestion.recommendation_id, isModifying, modAct, modEdge]);
+  }, [approveState, isExpired, onOverride, suggestion.recommendation_id, isModifying, modAct, modEdge]);
 
   return (
     <motion.div
@@ -183,6 +183,9 @@ const DecisionCard: React.FC<{
           <span className="copilot-priority-badge" style={{ color: pm.color, backgroundColor: pm.bg }}>
             {pm.label}
           </span>
+          <span className="copilot-priority-badge" style={{ color: '#fff', backgroundColor: suggestion.override_state === 'overridden' ? '#ea580c' : '#16a34a', padding: '2px 6px', fontSize: '10px' }}>
+            {suggestion.override_state === 'overridden' ? 'OVERRIDDEN' : 'EXECUTED'}
+          </span>
           {suggestion.urgency === 'CRITICAL' && (
             <span className="copilot-priority-badge" style={{ color: '#fff', backgroundColor: '#dc2626', padding: '2px 6px', fontSize: '10px' }}>
               AUTO-ACT
@@ -196,7 +199,7 @@ const DecisionCard: React.FC<{
       </div>
 
       {/* Action Description */}
-      <p className="copilot-action">{suggestion.proposed_action}</p>
+      <p className="copilot-action">{suggestion.decided_action}</p>
 
       {/* Gauge + Impact Row */}
       <div className="copilot-data-row">
@@ -241,11 +244,11 @@ const DecisionCard: React.FC<{
 
       {/* Action Buttons */}
       <div className="copilot-actions">
-        {/* Approve */}
+        {/* Override */}
         <motion.button
-          id={`approve-${suggestion.recommendation_id}`}
+          id={`override-${suggestion.recommendation_id}`}
           className="copilot-btn copilot-btn-approve"
-          onClick={handleApprove}
+          onClick={handleOverride}
           disabled={approveState === 'verifying' || isExpired}
           animate={
             approveState === 'conflict'
@@ -263,7 +266,7 @@ const DecisionCard: React.FC<{
           {approveState === 'verifying' ? (
             <span className="copilot-verifying">
               <span className="copilot-spinner" />
-              Verifying with OR-Tools…
+              Applying Override…
             </span>
           ) : approveState === 'conflict' ? (
             <>
@@ -277,7 +280,7 @@ const DecisionCard: React.FC<{
           ) : (
             <>
               <CheckCircle2 size={13} />
-              Approve
+              Apply Override
             </>
           )}
         </motion.button>
@@ -312,18 +315,18 @@ export const AICopilotPanel: React.FC = () => {
   const {
     activeSuggestions,
     isConnected,
-    executeAction,
+    overrideAction,
     rejectAction,
     previewAction,
     clearPreview,
   } = useCopilot();
 
-  const handleApprove = useCallback(
+  const handleOverride = useCallback(
     async (id: string, modAct?: number, modEdge?: string) => {
-      const result = await executeAction(id, modAct, modEdge);
+      const result = await overrideAction(id, modAct, modEdge);
       return result;
     },
-    [executeAction]
+    [overrideAction]
   );
 
   return (
@@ -364,14 +367,14 @@ export const AICopilotPanel: React.FC = () => {
                 <Zap size={20} />
               </div>
               <p className="copilot-empty-title">Monitoring Network</p>
-              <p className="copilot-empty-sub">AI suggestions will appear here as the RL agent identifies optimisation opportunities.</p>
+              <p className="copilot-empty-sub">Contested AI decisions will appear here as the RL agent re-optimises the network.</p>
             </motion.div>
           ) : (
             activeSuggestions.map((s) => (
               <DecisionCard
                 key={s.recommendation_id}
                 suggestion={s}
-                onApprove={handleApprove}
+                onOverride={handleOverride}
                 onDismiss={(id) => rejectAction(id)}
                 onHoverStart={previewAction}
                 onHoverEnd={clearPreview}
