@@ -182,8 +182,6 @@ PRIORITY_MAP = {
 # ---------------------------------------------------------------------------
 # Pydantic Models
 # ---------------------------------------------------------------------------
-class CommitRequest(BaseModel):
-    recommendation_id: str
 
 class RejectRequest(BaseModel):
     recommendation_id: str
@@ -1685,8 +1683,9 @@ async def commit_suggestion(req: CommitRequest):
         print(f"[COMMIT] 🔀 DIVERT one-shot queued for {target_id}")
 
     else:
-        # MAIN — one-shot proceed
+        # MAIN — one-shot proceed, explicitly clears any sticky holds
         PENDING_OPERATOR_ACTIONS[target_id] = 1
+        STICKY_ACTIONS.pop(target_id, None)
         print(f"[COMMIT] ▶️  MAIN one-shot queued for {target_id}")
 
     # 5b. Write RLHF feedback with modification diff
