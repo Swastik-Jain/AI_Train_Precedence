@@ -981,6 +981,7 @@ async def simulate_trains_bg():
 
         payload = {
             "type": "topology_update",
+            "sim_time": _SIM_TICK,
             "trains": list(TRAIN_STATES.values()),
             "conflicts": list(conflicts),
             "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
