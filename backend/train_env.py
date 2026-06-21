@@ -849,6 +849,7 @@ class TrainDispatchEnv(gym.Env):
         self.sim_time += 1
         reward      = 0.0
         terminated  = False
+        term_reason = ""
 
         # Traffic tax — penalise congestion per active train
         num_active = sum(1 for t in self.trains
@@ -1210,6 +1211,7 @@ class TrainDispatchEnv(gym.Env):
             projected_penalty = steps_remaining * len(deadlocked) * 0.1
             reward    -= min(projected_penalty, 500.0)   # cap: never causes gradient shock
             terminated = True
+            term_reason = "Deadlock Detected"
 
         # ── Collision detection ───────────────────────────────────────────
         pos_counts = Counter(
@@ -1228,6 +1230,7 @@ class TrainDispatchEnv(gym.Env):
                 # exploit route. Hierarchy: Collision(-600) > Deadlock(-500).
                 reward    -= 600.0
                 terminated = True
+                term_reason = "Collision Detected"
 
         # ── Episode termination ───────────────────────────────────────────
         # All spawned trains finished
@@ -1235,6 +1238,7 @@ class TrainDispatchEnv(gym.Env):
         if spawned and all(p == 999 for p in spawned):
             reward    += 40.0
             terminated = True
+            term_reason = "Success"
 
         # Timeout
         last_spawn      = max(s['start_time'] for s in self.schedule.values())
@@ -1242,6 +1246,7 @@ class TrainDispatchEnv(gym.Env):
         if self.sim_time > max_allowed:
             _log.warning(f"[TIMEOUT] sim_time={self.sim_time} max={max_allowed}")
             terminated = True
+            term_reason = "Timeout Exceeded"
 
         # FIX 7: Normalise reward by √n_trains so reward magnitude stays
         # proportional across curriculum levels (L1→L6 would otherwise grow
@@ -1249,7 +1254,8 @@ class TrainDispatchEnv(gym.Env):
         n_trains = max(len(self.trains), 1)
         reward = reward / (n_trains ** 0.5)
 
-        return self._get_observation(), reward, terminated, False, {}
+        info = {"termination_reason": term_reason} if terminated else {}
+        return self._get_observation(), reward, terminated, False, info
 
     # ─────────────────────────────────────────────────────────────────────────
     # CHAOS MONKEY

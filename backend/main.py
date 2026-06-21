@@ -742,7 +742,10 @@ async def simulate_trains_bg():
 
                         # Step 3: Execute safe actions in physics engine
                         step_actions = np.array([safe_actions])
-                        _INFERENCE_OBS, _, terminated, _ = env.step(step_actions)[:4]
+                        step_result = env.step(step_actions)
+                        _INFERENCE_OBS = step_result[0]
+                        terminated = step_result[2]
+                        infos = step_result[3] if len(step_result) > 3 else [{}]
 
                         # ── Detect removed trains (finished/deadlocked) ────────
                         # The physics engine removes finished trains from its active list.
@@ -833,9 +836,24 @@ async def simulate_trains_bg():
 
                         if bool(terminated[0]) if hasattr(terminated, '__getitem__') else bool(terminated):
                             # Auto-reset the RL env to keep inference running continuously.
-                            # The internal RL episode ends when all trains arrive, but the
-                            # live dashboard keeps going with newly scheduled trains.
-                            print("[ORBIT] 🔄 RL episode complete — auto-resetting for continuous inference.")
+                            reason = infos[0].get("termination_reason", "Unknown") if hasattr(infos, '__getitem__') and isinstance(infos[0], dict) else "Unknown"
+                            print(f"[ORBIT] 🔄 RL episode complete ({reason}) — auto-resetting for continuous inference.")
+                            
+                            if reason != "Success":
+                                audit_entry = {
+                                    "t"         : _now_iso(),
+                                    "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
+                                    "source"    : "INFERENCE_ENGINE",
+                                    "action"    : f"Auto-Reset: {reason}",
+                                    "operator"  : "System",
+                                    "details"   : f"Simulation was reset due to: {reason}",
+                                }
+                                AUDIT_LOGS.append(audit_entry)
+                                asyncio.create_task(_broadcast_copilot({
+                                    "type": "audit_log",
+                                    "log": audit_entry
+                                }))
+
                             _INFERENCE_OBS = env.reset()
                             _INFERENCE_RAW_ACTIONS = None
 
