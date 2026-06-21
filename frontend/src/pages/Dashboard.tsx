@@ -327,7 +327,7 @@ const Dashboard: React.FC = () => {
               <div className="flex items-center justify-between mt-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sim Speed</span>
                 <div className="flex gap-1">
-                  {[0.2, 0.4, 1.0].map((speed) => (
+                  {[0.3, 0.6, 1.0].map((speed) => (
                     <button
                       key={speed}
                       onClick={async () => {
