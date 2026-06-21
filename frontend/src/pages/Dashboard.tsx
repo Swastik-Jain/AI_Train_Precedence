@@ -22,8 +22,8 @@ const GhatMonitor = () => {
 
   const ghatTrains = trainStates.filter(t => t.edge_id && isGhat(t.edge_id));
   const activeInGhat = ghatTrains;
-  const queuedAtKSR = trainStates.filter(t => t.status === 'Halted' && t.train_id && t.train_id.includes('UP') && t.edge_id && isKSR(t.edge_id));
-  const queuedAtIGP = trainStates.filter(t => t.status === 'Halted' && t.train_id && t.train_id.includes('DOWN') && t.edge_id && isIGP(t.edge_id));
+  const queuedAtKSR = trainStates.filter(t => t.status === 'Halted' && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isKSR(t.edge_id));
+  const queuedAtIGP = trainStates.filter(t => t.status === 'Halted' && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isIGP(t.edge_id));
 
   return (
     <div className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-slate-100 flex-shrink-0 relative overflow-hidden">
@@ -43,7 +43,7 @@ const GhatMonitor = () => {
                 <div className="relative h-2 bg-slate-100 rounded-full flex items-center justify-center">
                     <div className="absolute w-full h-[1px] bg-amber-200"></div>
                     <div className="bg-amber-100 border border-amber-300 text-amber-700 px-2 py-0.5 rounded text-[8px] font-bold z-10">
-                        TOKEN: {activeInGhat.length > 0 ? (activeInGhat[0].train_id.includes('UP') ? 'UP' : 'DOWN') : 'IDLE'}
+                        TOKEN: {activeInGhat.length > 0 ? ((activeInGhat[0].direction === 'UP' || activeInGhat[0].direction === 1) ? 'UP' : 'DOWN') : 'IDLE'}
                     </div>
                 </div>
             </div>

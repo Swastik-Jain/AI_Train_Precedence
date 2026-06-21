@@ -752,7 +752,8 @@ async def simulate_trains_bg():
                                 live['finish_time'] = _SIM_TICK
                                 live['speed_kmh'] = 0
                                 # Move off-screen visually
-                                if "UP" in t_id:
+                                dir_val = live.get('direction', 'DOWN')
+                                if dir_val == "UP" or dir_val == 1:
                                     live['edge_id'] = "edge-0-1"
                                     live['position_percentage'] = 0.0
                                 else:
@@ -1394,8 +1395,12 @@ async def get_telemetry():
             
         active_trains += 1
         
-        # Determine direction based on ID
-        if "UP" in t_id:
+        # Determine direction based on state
+        dir_val = state.get("direction")
+        if dir_val is None:
+            dir_val = FLEET_REGISTRY.get(t_id, {}).get("direction", "DOWN")
+            
+        if dir_val == "UP" or dir_val == 1:
             incoming_trains += 1
         else:
             outgoing_trains += 1
@@ -2371,6 +2376,7 @@ async def get_fleet():
             "edge_id"            : live.get("edge_id", "—"),
             "position_percentage": live.get("position_percentage", 0),
             "status"             : live.get("status", "Scheduled"),
+            "speed_kmh"          : live.get("speed_kmh", 0),
         })
 
     # Also include any live trains not yet in FLEET_REGISTRY
@@ -2383,12 +2389,13 @@ async def get_fleet():
                 "priority"           : 6,
                 "start_time"         : 0,
                 "deadline"           : 120,
-                "direction"          : 1,
+                "direction"          : live.get("direction", "UP" if "UP" in t_id else "DOWN"),
                 "path"               : live.get("path", []),
                 "added_at"           : _now_iso(),
                 "edge_id"            : live.get("edge_id", "—"),
                 "position_percentage": live.get("position_percentage", 0),
                 "status"             : live.get("status", "Moving"),
+                "speed_kmh"          : live.get("speed_kmh", 0),
             })
 
     return {"fleet": result, "count": len(result), "timestamp": _now_iso()}
@@ -2422,6 +2429,7 @@ async def add_train(req: NewTrainRequest):
     all_edges = [e["id"] for e in NETWORK_TOPOLOGY.get("edges", [])]
     default_path = all_edges[:8] if len(all_edges) >= 8 else all_edges  # first 8 edges as path
 
+    dir_str = "UP" if req.direction == 1 else "DOWN"
     cfg = {
         "train_id"  : req.train_id,
         "train_type": req.train_type,
@@ -2429,7 +2437,7 @@ async def add_train(req: NewTrainRequest):
         "priority"  : priority,
         "start_time": req.start_time,
         "deadline"  : req.deadline,
-        "direction" : req.direction,
+        "direction" : dir_str,
         "path"      : default_path,
         "added_at"  : _now_iso(),
     }
@@ -2442,6 +2450,7 @@ async def add_train(req: NewTrainRequest):
         "position_percentage": 0.0,
         "status"             : "Moving",
         "path"               : default_path,
+        "direction"          : dir_str,
     }
 
     # Broadcast updated train list to all topology WS clients
@@ -2515,7 +2524,32 @@ async def generate_schedule():
     from ai.map_generator import STATIONS, generate_realistic_section
     from ai.config import generate_daily_schedule, ARCHETYPE_BY_NAME
 
-    if not FLEET_REGISTRY:
+    if len(FLEET_REGISTRY) < 25:
+        # Auto-pad missing trains instead of breaking the model
+        needed = 25 - len(FLEET_REGISTRY)
+        fleet, schedule_map = generate_daily_schedule(num_trains=needed)
+        for t in fleet:
+            t_sched = schedule_map.get(t['id'], {})
+            
+            base_id = t['id']
+            unique_id = base_id
+            counter = 1
+            while unique_id in FLEET_REGISTRY:
+                unique_id = f"{base_id}-{counter}"
+                counter += 1
+                
+            t['id'] = unique_id
+            t['train_id'] = unique_id
+            t['path'] = []
+            t['train_type'] = t.get('archetype', 'Express')
+            t['start_time'] = t_sched.get('start_time', 0)
+            t['deadline'] = t_sched.get('deadline', 100)
+            
+            dir_str = "UP" if "UP" in unique_id else "DOWN"
+            t['direction'] = t.get('direction', dir_str)
+            
+            FLEET_REGISTRY[t['id']] = t
+    elif not FLEET_REGISTRY:
         fleet, schedule_map = generate_daily_schedule(num_trains=25)
         for t in fleet:
             # Map Python simulator archetype/schedule back to the API/Frontend schema
