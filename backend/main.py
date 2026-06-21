@@ -206,6 +206,9 @@ class NewTrainRequest(BaseModel):
     deadline: int   = 120                 # minutes from session start
     direction: int  = 1                   # 1 = forward
 
+class SimSpeedRequest(BaseModel):
+    factor: float
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1050,7 +1053,7 @@ async def copilot_suggestion_bg():
                         f"expires in {ticks_remaining} ticks)"
                     )
 
-        await asyncio.sleep(8)
+        await asyncio.sleep(8 * TICK_INTERVAL_S)
 
 
 
@@ -1186,6 +1189,16 @@ async def get_inference_status():
         "autopilot_mode": AUTOPILOT_MODE,
         "lockdown": SYSTEM_LOCKDOWN
     }
+
+@app.post("/api/v1/system/sim-speed", tags=["System Controls"])
+async def set_sim_speed(req: SimSpeedRequest):
+    """
+    Adjust simulation speed by updating the global sleep interval.
+    The UI sends the literal interval in seconds (e.g. 0.2 for 5x speed).
+    """
+    global TICK_INTERVAL_S
+    TICK_INTERVAL_S = max(0.05, min(req.factor, 5.0))
+    return {"status": "success", "sim_speed": TICK_INTERVAL_S}
 
 @app.post("/api/v1/system/lockdown", tags=["System Override"])
 async def toggle_lockdown(req: OverrideRequest):
