@@ -6,6 +6,7 @@ export interface Node {
   x: number;
   y: number;
   type: string;
+  km: number;
 }
 
 export interface Edge {

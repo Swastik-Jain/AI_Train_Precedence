@@ -6,18 +6,26 @@ import { useMapStore } from '../store/useMapStore';
 
 const GhatMonitor = () => {
   const trainStates = useMapStore(s => s.trainStates);
+  const topology = useMapStore(s => s.topology);
   
+  const getKm = (edgeId: string) => {
+    if (!topology) return 0;
+    const sourceNodeId = edgeId.split('-')[1];
+    const node = topology.nodes.find(n => n.id === sourceNodeId);
+    return node ? node.km : 0;
+  };
+
   const isGhat = (id: string) => {
-    const node = parseInt(id.split('-')[1] || '0');
-    return node >= 41 && node <= 48;
+    const km = getKm(id);
+    return km > 121 && km < 136;
   };
   const isKSR = (id: string) => {
-    const node = parseInt(id.split('-')[1] || '0');
-    return node === 39 || node === 40 || (node >= 1026 && node <= 1032) || (node >= 34 && node <= 38); // Also include Atgaon-Kasara blocks just in case they are queued outside KSR
+    const km = getKm(id);
+    return km >= 115 && km <= 121;
   };
   const isIGP = (id: string) => {
-    const node = parseInt(id.split('-')[1] || '0');
-    return node === 49 || node === 50 || (node >= 1033 && node <= 1042) || (node >= 51 && node <= 59); // Include blocks after IGP where trains might queue waiting to go DOWN
+    const km = getKm(id);
+    return km >= 136 && km <= 142;
   };
 
   const ghatTrains = trainStates.filter(t => t.edge_id && isGhat(t.edge_id));

@@ -41,9 +41,9 @@ function getTrainColor(trainId: string): string {
 // Component
 // ---------------------------------------------------------------------------
 export const MareyTimeline: React.FC = () => {
-  const { fetchBaseSchedule, previewState, globalSchedule, scheduleMaxTime } = useCopilotStore();
+  const { fetchBaseSchedule, globalSchedule, scheduleMaxTime } = useCopilotStore();
   const { activeBlocks } = useMaintenanceStore();
-  const { trainStates } = useMapStore();
+  const { trainStates, conflicts } = useMapStore();
 
   const currentSimTime = useMapStore(s => s.simTime) || 0;
 
@@ -56,8 +56,7 @@ export const MareyTimeline: React.FC = () => {
     fetchBaseSchedule();
   }, [fetchBaseSchedule]);
 
-  // We no longer render a dummy ghost path since we don't have projected times
-  const ghostD = '';
+
 
   // MMS hatch bands: map block index to an X position across the timeline
   const maintenanceBands = useMemo(() => {
@@ -83,14 +82,7 @@ export const MareyTimeline: React.FC = () => {
             <div className="marey-legend-dot solid" />
             <span>ACTIVE</span>
           </div>
-          <div className="marey-legend-item">
-            <div className="marey-legend-dot ghost" />
-            <span>AI PROPOSED</span>
-          </div>
-          <div className="marey-legend-item">
-            <div className="marey-legend-dot projected" />
-            <span>PROJECTED</span>
-          </div>
+
           <div className="marey-legend-item">
             <div className="marey-legend-dot maintenance" />
             <span>MAINTENANCE</span>
@@ -165,26 +157,6 @@ export const MareyTimeline: React.FC = () => {
               </g>
             );
           })}
-
-          {/* Ghost / AI Proposed Path */}
-          <AnimatePresence>
-            {previewState && ghostD && (
-              <motion.path
-                key={`ghost-${previewState.recommendation_id}`}
-                d={ghostD}
-                fill="none"
-                stroke="#8B5CF6"
-                strokeWidth="2.5"
-                strokeDasharray="8 5"
-                strokeLinecap="round"
-                opacity={0.65}
-                initial={{ opacity: 0, pathLength: 0 }}
-                animate={{ opacity: 0.65, pathLength: 1 }}
-                exit={{ opacity: 0, pathLength: 0 }}
-                transition={{ duration: 0.5, ease: 'easeOut' }}
-              />
-            )}
-          </AnimatePresence>
 
 
           <AnimatePresence>
@@ -262,41 +234,44 @@ export const MareyTimeline: React.FC = () => {
           </div>
         )}
 
-        {/* Ghost label overlay */}
-        <AnimatePresence>
-          {previewState && (
-            <motion.div
-              className="marey-ghost-label"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.25 }}
-            >
-              <span className="marey-ghost-badge">AI PROPOSED PATH</span>
-              <span className="marey-ghost-action">{previewState.proposed_action}</span>
-              <span className="marey-ghost-train">{previewState.target_train_id}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+
       </div>
 
       {/* Summary chips */}
       <div className="marey-chips">
         <div className="marey-chip marey-chip-purple">
-          <p className="marey-chip-label">Next Departure</p>
-          <p className="marey-chip-value">14:20 · PLATFORM 2</p>
+          <p className="marey-chip-label">Active Trains</p>
+          <p className="marey-chip-value">
+            {trainStates.length > 0 ? `${trainStates.length} ON NETWORK` : 'NO TRAINS'}
+          </p>
         </div>
         <div className="marey-chip marey-chip-green">
-          <p className="marey-chip-label">Arrival Sync</p>
-          <p className="marey-chip-value">IN 12 MINS</p>
+          <p className="marey-chip-label">Fleet Status</p>
+          <p className="marey-chip-value">
+            {(() => {
+              const moving = trainStates.filter(t => t.status === 'Moving').length;
+              return `${moving} MOVING · ${trainStates.length - moving} HALTED`;
+            })()}
+          </p>
         </div>
         <div className="marey-chip marey-chip-slate">
           <p className="marey-chip-label">Risk Factor</p>
-          <p className="marey-chip-value">LOW (0.02)</p>
+          <p className="marey-chip-value">
+            {(() => {
+              const riskScore = 0.02 + (conflicts.length * 0.25) + (activeBlocks.size * 0.1);
+              const label = riskScore >= 0.6 ? 'HIGH' : riskScore >= 0.2 ? 'MEDIUM' : 'LOW';
+              return `${label} (${riskScore.toFixed(2)})`;
+            })()}
+          </p>
         </div>
         <div className="marey-chip marey-chip-slate">
           <p className="marey-chip-label">Energy Mode</p>
-          <p className="marey-chip-value">ECONOMY+</p>
+          <p className="marey-chip-value">
+            {(() => {
+              const moving = trainStates.filter(t => t.status === 'Moving').length;
+              return moving > 15 ? 'MAX DRAW' : moving > 7 ? 'DYNAMIC' : 'ECONOMY+';
+            })()}
+          </p>
         </div>
       </div>
     </div>

@@ -287,3 +287,91 @@
   color: #f1f5f9;
   font-family: 'JetBrains Mono', monospace;
 }
+
+/* ── Train Detail Panel ─────────────────────────────────────────────── */
+.sch-train-detail-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+  width: 260px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  animation: sch-panel-in 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes sch-panel-in {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.sch-td-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #334155;
+}
+
+.sch-td-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+}
+
+.sch-td-close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.sch-td-close:hover {
+  color: #f8fafc;
+}
+
+.sch-td-content {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sch-td-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sch-td-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.sch-td-value {
+  font-size: 11px;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.sch-td-status--moving {
+  color: #22c55e;
+}
+.sch-td-status--halted {
+  color: #f59e0b;
+}
+.sch-td-status--conflict {
+  color: #ef4444;
+}
