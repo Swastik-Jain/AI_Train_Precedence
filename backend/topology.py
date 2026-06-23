@@ -35,7 +35,6 @@ def get_network_topology():
         }
         
         next_nodes = info.get('next', [])
-        
         if len(next_nodes) == 1:
             queue.append((next_nodes[0], x + 150, y))
         elif len(next_nodes) > 1:

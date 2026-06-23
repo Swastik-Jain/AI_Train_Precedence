@@ -253,9 +253,6 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
 
       socket.onmessage = (event) => {
         try {
-          // DEBUG TRACE
-          fetch('/api/v1/telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ debug_ws: event.data.substring(0, 100) }) }).catch(() => {});
-
           const data = JSON.parse(event.data);
 
           if (data.type === 'AI_DECISION') {

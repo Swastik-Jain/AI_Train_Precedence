@@ -502,7 +502,24 @@ class TrainDispatchEnv(gym.Env):
             if not next_opts:
                 break
 
-            target = next_opts[0]
+            # Look for an available path instead of blindly taking the first one
+            target = None
+            for opt in next_opts:
+                cap = self.track_map.get(opt, {}).get('capacity', 1)
+                dir_cap = max(1, cap // 2) if cap > 1 else cap
+                occ = self.get_node_occupancy(opt, direction)
+                # If the path is a token block, check if opposing holds it
+                if self._is_in_token_block(opt):
+                    tok = self.ghat_token.status()
+                    if tok['direction'] is not None and tok['direction'] != direction:
+                        continue # Opposing holds token, this path is blocked
+                if occ < dir_cap:
+                    target = opt
+                    break
+            
+            if target is None:
+                # All options occupied, default to first to trigger danger logic
+                target = next_opts[0]
 
             target_km  = self.get_node_km(target)
             gap_km     = abs(target_km - my_km)
@@ -510,8 +527,9 @@ class TrainDispatchEnv(gym.Env):
             if gap_km > DANGER_HORIZON_KM:
                 break
 
-            occ = self.get_node_occupancy(target)
             cap = self.track_map.get(target, {}).get('capacity', 1)
+            dir_cap = max(1, cap // 2) if cap > 1 else cap
+            occ = self.get_node_occupancy(target, direction)
 
             # Token block: treat as danger if opposing direction holds token
             if self._is_in_token_block(target):
@@ -522,12 +540,12 @@ class TrainDispatchEnv(gym.Env):
                         dist_km    = gap_km
                     break
 
-            if occ >= cap:
+            if occ >= dir_cap:
                 if danger_val < 2.0:
                     danger_val = 2.0
                     dist_km    = gap_km
                 break
-            elif occ >= cap - 1 and danger_val < 1.0:
+            elif occ >= dir_cap - 1 and danger_val < 1.0:
                 danger_val = 1.0
                 dist_km    = gap_km
 
@@ -1085,7 +1103,8 @@ class TrainDispatchEnv(gym.Env):
                         train['target_speed'] = 0
                         self._train_speeds[i] = 0
                         reward -= 0.5   # severe: dispatcher sent train into blocked ghat
-                        train['idle_time'] += 1
+                        # DO NOT increment idle_time — waiting for the Ghat token is a legitimate
+                        # signal hold, not a deadlock. Incrementing here kills the episode prematurely.
                         current_positions.append(pos)
                         continue
                 else:
@@ -1101,7 +1120,7 @@ class TrainDispatchEnv(gym.Env):
                             train['speed'] = 0
                             train['target_speed'] = 0
                             self._train_speeds[i] = 0
-                            train['idle_time'] += 1
+                            # DO NOT increment idle_time — this is a legitimate Ghat approach hold.
                             current_positions.append(pos)
                             continue
 
@@ -1200,18 +1219,35 @@ class TrainDispatchEnv(gym.Env):
         # FIX 2: Projected penalty replaces flat -100.
         # Projects the cost of sitting frozen for all remaining steps so the
         # agent can never profit by choosing deadlock over lateness.
-        deadlocked = [t['id'] for t in self.trains if t.get('idle_time', 0) > 120]
+        # Threshold raised 120→300: only trains that are truly stuck (not at a signal/loop)
+        # should trigger a deadlock. Token-block waits no longer count toward idle_time.
+        deadlocked = [t for t in self.trains if t.get('idle_time', 0) > 300]
         if deadlocked:
             print(f"\n{'!'*50}")
-            print(f"🛑 DEADLOCK DETECTED @ step {self.sim_time}")
-            print(f"   Trains stuck: {deadlocked}")
+            print(f"🛑 DEADLOCK @ step {self.sim_time} — rescuing {[t['id'] for t in deadlocked]}")
             print(f"{'!'*50}\n")
-            last_spawn       = max(s['start_time'] for s in self.schedule.values())
-            steps_remaining  = max(0, (last_spawn + 1500) - self.sim_time)
-            projected_penalty = steps_remaining * len(deadlocked) * 0.1
-            reward    -= min(projected_penalty, 500.0)   # cap: never causes gradient shock
-            terminated = True
-            term_reason = "Deadlock Detected"
+            for t in deadlocked:
+                # Heavy penalty for each rescued train
+                reward -= 50.0
+                # Teleport: advance to the next free node so the jam breaks
+                direction = t.get('direction', 'DOWN')
+                pos = t['position']
+                next_opts = (self.track_map.get(pos, {}).get('prev', []) if direction == 'UP'
+                             else self.track_map.get(pos, {}).get('next', []))
+                rescued = False
+                for nxt in next_opts:
+                    if (self.get_node_occupancy(nxt) <
+                            self.track_map.get(nxt, {}).get('capacity', 1)):
+                        self._move_train(t, pos, nxt)
+                        t['position'] = nxt
+                        rescued = True
+                        break
+                t['idle_time'] = 0   # reset so it doesn't re-trigger immediately
+                if not rescued:
+                    # Truly no escape — mark finished to unblock others
+                    t['finished'] = True
+                    reward -= 20.0
+
 
         # ── Collision detection ───────────────────────────────────────────
         pos_counts = Counter(

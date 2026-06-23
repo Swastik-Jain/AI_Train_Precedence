@@ -637,6 +637,15 @@ async def simulate_trains_bg():
 
     while True:
         if not INFERENCE_ACTIVE:
+            # Broadcast a clear payload so the frontend doesn't show stale/ghost trains
+            await _broadcast_topology({
+                "type": "topology_update",
+                "sim_time": _SIM_TICK,
+                "trains": [t for t in TRAIN_STATES.values()
+                           if t.get("status") not in ("Scheduled", "Finished")],
+                "conflicts": [],
+                "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
+            })
             await asyncio.sleep(1.0)
             continue
             
@@ -725,14 +734,17 @@ async def simulate_trains_bg():
                                 desired_actions.append(raw_actions[i])   # model's decision
 
                         # Step 2: OR-Shield validates the intent to prevent crashes
-                        safe_actions, decision_meta = _OR_SHIELD.optimize_decision(
-                            trains=inner_env.trains,
-                            ai_actions=desired_actions,
-                            track_map=inner_env.track_map,
-                        )
+                        if OR_SHIELD_ENABLED:
+                            safe_actions, decision_meta = _OR_SHIELD.optimize_decision(
+                                trains=inner_env.trains,
+                                ai_actions=desired_actions,
+                                track_map=inner_env.track_map,
+                            )
+                        else:
+                            safe_actions, decision_meta = desired_actions.copy(), {}
                         
-                        # EXPLAIN_BEFORE_ACT_MODE logic
-                        if EXPLAIN_BEFORE_ACT_MODE:
+                        # If Auto-Commit is OFF (AUTOPILOT_MODE is False), hold contested decisions
+                        if not AUTOPILOT_MODE:
                             for i, t in enumerate(inner_env.trains):
                                 if decision_meta.get(t['id'], {}).get('contested', False):
                                     safe_actions[i] = 0  # Hold contested decisions
@@ -835,18 +847,18 @@ async def simulate_trains_bg():
                                 live['status'] = 'Moving'
 
                         if bool(terminated[0]) if hasattr(terminated, '__getitem__') else bool(terminated):
-                            # Auto-reset the RL env to keep inference running continuously.
+                            # Complete one cycle and stop
                             reason = infos[0].get("termination_reason", "Unknown") if hasattr(infos, '__getitem__') and isinstance(infos[0], dict) else "Unknown"
-                            print(f"[ORBIT] 🔄 RL episode complete ({reason}) — auto-resetting for continuous inference.")
+                            print(f"[ORBIT] 🛑 RL episode complete ({reason}) — stopping inference after one cycle.")
                             
                             if reason != "Success":
                                 audit_entry = {
                                     "t"         : _now_iso(),
                                     "timestamp" : int(datetime.now(timezone.utc).timestamp() * 1000),
                                     "source"    : "INFERENCE_ENGINE",
-                                    "action"    : f"Auto-Reset: {reason}",
+                                    "action"    : f"Reset: {reason}",
                                     "operator"  : "System",
-                                    "details"   : f"Simulation was reset due to: {reason}",
+                                    "details"   : f"Simulation finished due to: {reason}",
                                 }
                                 AUDIT_LOGS.append(audit_entry)
                                 asyncio.create_task(_broadcast_copilot({
@@ -856,6 +868,11 @@ async def simulate_trains_bg():
 
                             _INFERENCE_OBS = env.reset()
                             _INFERENCE_RAW_ACTIONS = None
+                            
+                            # Let this tick finish processing normally to prevent the fallback physics 
+                            # engine from destroying train statuses mid-tick. Turn it off at the end.
+                            global _SHUTDOWN_INFERENCE_FLAG
+                            _SHUTDOWN_INFERENCE_FLAG = True
 
                 except Exception as e:
                     import traceback
@@ -904,30 +921,7 @@ async def simulate_trains_bg():
                     # RL says: 0=STOP, 1=MAIN (move), 2=DIVERT (move to loop, treated as move)
                     rl_act = _INFERENCE_ACTIONS[idx] if idx < len(_INFERENCE_ACTIONS) else 1
 
-                    # ── Auto-Intervention (Fix 7) ─────────────────────────────
-                    if rl_act == 0 and state.get('override_expires', 0) <= _SIM_TICK and state.get('status') not in ('Finished', 'Scheduled'):
-                        edge_id = state.get("edge_id")
-                        next_edge_occupied = any(
-                            s.get("edge_id") == edge_id and s.get("train_id") != t_id
-                            for s in TRAIN_STATES.values()
-                            if s.get("status") not in ("Finished", "Scheduled")
-                        )
-                        if next_edge_occupied:
-                            state['override_action'] = 0
-                            state['override_expires'] = _SIM_TICK + 8
-                            asyncio.create_task(_broadcast_copilot({
-                                "type": "AUTO_INTERVENTION",
-                                "target_train_id": t_id,
-                                "message": f"Critical intervention: Auto-applying STOP for {t_id} to prevent collision."
-                            }))
-                            AUDIT_LOGS.insert(0, {
-                                "t": _now_iso(),
-                                "source": "OR-SHIELD",
-                                "action": f"Auto-applied STOP for {t_id}",
-                                "operator": "SYSTEM",
-                                "status": "Committed",
-                                "statusType": "warning"
-                            })
+
 
                     # ── Committed override takes priority over live RL ────────
                     # A controller commit writes override_action + override_expires
@@ -945,9 +939,8 @@ async def simulate_trains_bg():
                     should_move = (state['status'] in ('Moving', 'Blocked'))
 
                 if should_move:
-                    state['status'] = 'Moving'
-                    # Only apply manual fallback movement if inference is not driving the positions
-                    if not INFERENCE_ACTIVE:
+                    if not INFERENCE_ACTIVE and state.get('status') not in ('Scheduled', 'Finished'):
+                        state['status'] = 'Moving'
                         spd = state.get('speed_kmh', 0)
                         mx = state.get('max_speed', 130)
                         state['position_percentage'] = state.get('position_percentage', 0) + (spd / mx) * 0.05 * SIM_SPEED_FACTOR
@@ -963,12 +956,15 @@ async def simulate_trains_bg():
                             except ValueError:
                                 pass
                 else:
-                    state['status'] = 'Halted'
+                    if state.get('status') not in ('Scheduled', 'Finished', 'Boarding', 'Banker Ops'):
+                        # If inference is active and assigned 'Waiting at Signal', preserve it unless overridden
+                        if not (INFERENCE_ACTIVE and state.get('status') == 'Waiting at Signal' and state.get('override_action') is None):
+                            state['status'] = 'Halted'
 
 
         edges_occupied: Dict[str, list] = {}
         for t_id, state in TRAIN_STATES.items():
-            if state.get('status') != 'Finished':
+            if state.get('status') not in ('Finished', 'Scheduled'):
                 edges_occupied.setdefault(state['edge_id'], []).append(state)
 
         conflicts: set = set()
@@ -994,7 +990,9 @@ async def simulate_trains_bg():
         for e_id, trains in edges_occupied.items():
             if e_id not in conflicts:
                 for t in trains:
-                    if t['status'] not in ('Blocked',):
+                    # If they were Halted due to a physical conflict, they can now resume moving.
+                    # We do NOT overwrite 'Waiting at Signal' or 'Boarding' or 'Scheduled'.
+                    if t['status'] == 'Halted':
                         t['status'] = 'Moving'
 
         payload = {
@@ -1005,7 +1003,24 @@ async def simulate_trains_bg():
             "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
         }
         await _broadcast_topology(payload)
+        
+        if globals().get("_SHUTDOWN_INFERENCE_FLAG"):
+            INFERENCE_ACTIVE = False
+            globals()["_SHUTDOWN_INFERENCE_FLAG"] = False
+            # Clear all train positions from the map immediately
+            for state in TRAIN_STATES.values():
+                if state.get("status") not in ("Finished", "Scheduled"):
+                    state["status"] = "Finished"
+            await _broadcast_topology({
+                "type": "topology_update",
+                "sim_time": _SIM_TICK,
+                "trains": [],
+                "conflicts": [],
+                "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
+            })
+
         await asyncio.sleep(TICK_INTERVAL_S)
+
 
 
 async def copilot_suggestion_bg():
@@ -1228,7 +1243,13 @@ async def toggle_lockdown(req: OverrideRequest):
         # Resume all trains that were halted by lockdown, unless they are blocked by an edge block
         for t_id, state in TRAIN_STATES.items():
             if state.get("status") == "Halted":
-                state["status"] = "Moving"
+                edge_id = state.get("edge_id")
+                is_blocked = False
+                if edge_id in ACTIVE_BLOCKS and ACTIVE_BLOCKS[edge_id].get("severity") == "TOTAL_BLOCK":
+                    is_blocked = True
+                
+                if not is_blocked:
+                    state["status"] = "Moving"
                 
     status_text = "ACTIVATED" if SYSTEM_LOCKDOWN else "DEACTIVATED"
     entry = {
@@ -1421,6 +1442,8 @@ async def get_telemetry():
     halted_trains = 0
 
     for t_id, state in TRAIN_STATES.items():
+        if state.get("status") == "Scheduled":
+            continue
         if state.get("status") == "Finished":
             terminal_trains += 1
             continue
@@ -1445,8 +1468,12 @@ async def get_telemetry():
     evaluated_trains = 0
 
     for t_id, state in TRAIN_STATES.items():
+        if state.get("status") == "Scheduled":
+            continue
+            
         reg = FLEET_REGISTRY.get(t_id, {})
         deadline = reg.get("deadline", 120)
+        start_time = reg.get("start_time", 0)
 
         delay = 0.0
         if state.get("status") == "Finished":
@@ -1461,9 +1488,19 @@ async def get_telemetry():
                 edge_pct = state.get("position_percentage", 0.0)
                 completion = (curr_idx + edge_pct) / path_len
                 
-                if completion > 0.01:
-                    eta = _SIM_TICK / completion
-                    delay = max(0.0, eta - deadline)
+                # Calculate expected completion based on travel time elapsed vs total travel budget
+                train_sim_time = state.get("sim_time", 0)
+                travel_time_elapsed = max(0, train_sim_time - start_time)
+                total_travel_budget = deadline - start_time
+                
+                if total_travel_budget > 0:
+                    expected_completion = min(1.0, travel_time_elapsed / total_travel_budget)
+                else:
+                    expected_completion = 1.0
+                
+                if completion < expected_completion:
+                    # Delay is the time equivalent of the completion shortfall
+                    delay = (expected_completion - completion) * total_travel_budget
                 else:
                     delay = 0.0
 
@@ -1479,14 +1516,13 @@ async def get_telemetry():
 
     halted_pct = (halted_trains / active_trains * 100) if active_trains > 0 else 0
     blocks_active = len(ACTIVE_BLOCKS) > 0
-    
+
     if halted_pct > 20:
         network_fluidity = "Degraded"
     elif blocks_active or (10 <= halted_pct <= 20):
         network_fluidity = "Warning"
     else:
         network_fluidity = "Nominal"
-
     ai_load = 40 + (active_trains * 5) + (len(ACTIVE_BLOCKS) * 15)
     ai_load = max(0, min(100, ai_load))
 
