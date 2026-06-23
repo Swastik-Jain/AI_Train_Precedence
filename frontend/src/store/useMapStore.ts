@@ -6,6 +6,7 @@ export interface Node {
   x: number;
   y: number;
   type: string;
+  km: number;
 }
 
 export interface Edge {
@@ -46,6 +47,7 @@ interface MapState {
   /** The RL action that was committed: 0=STOP, 2=DIVERT, 1=MAIN */
   committedAction: number | null;
   zoomLevel: number;
+  simTime: number;
   
   setTopology: (topology: TopologyData) => void;
   updateLiveState: (trains: TrainState[], conflicts: string[]) => void;
@@ -71,6 +73,7 @@ export const useMapStore = create<MapState>((set) => {
     committedTrainId: null,
     committedAction: null,
     zoomLevel: 1.2,
+    simTime: 0,
 
 
     setTopology: (topology) => set({ topology }),
@@ -105,10 +108,11 @@ export const useMapStore = create<MapState>((set) => {
         if (data.type === 'topology_init') {
           set({ topology: data.topology });
         } else if (data.type === 'topology_update') {
-          set({ 
+          set((state) => ({ 
             trainStates: data.trains || [],
-            conflicts: data.conflicts || []
-          });
+            conflicts: data.conflicts || [],
+            simTime: data.sim_time !== undefined ? data.sim_time : state.simTime
+          }));
           
           if (data.maintenance_blocks) {
              useMaintenanceStore.setState((state) => {

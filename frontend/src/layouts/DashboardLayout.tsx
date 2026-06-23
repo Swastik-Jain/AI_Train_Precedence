@@ -12,6 +12,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useSystemStore } from '../store/useSystemStore';
+import { useMapStore } from '../store/useMapStore';
+import { useCopilotStore } from '../store/useCopilotStore';
 import '../pages/Dashboard.css';
 
 /* ────────────────────────────────────────────────────────────────
@@ -43,15 +45,35 @@ const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const clock = useLiveClock();
-  const { isLockdown, isSafetyShield, isAutoCommit, fetchStatus, setLockdown, setSafetyShield, setAutoCommit } = useSystemStore();
+  const { 
+    isLockdown, isSafetyShield, isAutoCommit, 
+    networkFluidity, haltedPct, activeTrains,
+    fetchStatus, setLockdown, setSafetyShield, setAutoCommit 
+  } = useSystemStore();
+  const mapConnected = useMapStore(state => state.isConnected);
+  const conflicts = useMapStore(state => state.conflicts);
+  const copilotConnected = useCopilotStore(state => state.isConnected);
 
   useEffect(() => {
     fetchStatus();
+    const id = setInterval(fetchStatus, 3000);
+    return () => clearInterval(id);
   }, [fetchStatus]);
 
   // Determine current page name for top bar breadcrumb
   const currentNav = NAV_ITEMS.find(n => n.route === location.pathname);
   const pageTitle = currentNav ? currentNav.label : 'Dashboard';
+
+  const deriveSystemStatus = () => {
+    if (isLockdown) return { label: 'Emergency Lockdown', style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: true };
+    if (!mapConnected) return { label: 'Backend Offline', style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: false };
+    if (networkFluidity === 'Degraded') return { label: `Network Degraded · ${haltedPct.toFixed(0)}% halted`, style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: true };
+    if (conflicts && conflicts.length > 0) return { label: `Conflict Detected · ${conflicts.length} edge${conflicts.length > 1 ? 's' : ''}`, style: 'text-amber-600 bg-amber-50', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', pulsing: true };
+    if (networkFluidity === 'Warning') return { label: `Network Warning · ${haltedPct.toFixed(0)}% halted`, style: 'text-amber-600 bg-amber-50', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', pulsing: false };
+    if (!copilotConnected) return { label: 'Co-Pilot Offline', style: 'text-amber-600 bg-amber-50', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', pulsing: false };
+    return { label: 'All Systems Nominal', style: 'text-emerald-600 bg-emerald-50', dot: 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]', pulsing: false };
+  };
+  const statusInfo = deriveSystemStatus();
 
   return (
     <div className="dash">
@@ -71,7 +93,7 @@ const DashboardLayout: React.FC = () => {
           <p className="dash__sidebar-title" style={{ whiteSpace: 'nowrap' }}>Control Center</p>
           <span className="dash__sidebar-badge">
             <span className="dash__sidebar-badge-dot" />
-            Active Ops: 42
+            {mapConnected ? `Active Ops: ${activeTrains}` : 'Offline'}
           </span>
         </div>
 
@@ -148,9 +170,9 @@ const DashboardLayout: React.FC = () => {
               </button>
             </div>
             <p className="dash__topbar-clock">{clock} · IST</p>
-            <div className="dash__topbar-status">
-              <span className="dash__topbar-status-dot" />
-              All Systems Nominal
+            <div className={`dash__topbar-status ${statusInfo.style} ${statusInfo.pulsing ? 'animate-pulse' : ''}`}>
+              <span className={`dash__topbar-status-dot ${statusInfo.dot}`} style={statusInfo.pulsing ? undefined : { animation: 'none' }} />
+              {statusInfo.label}
             </div>
           </div>
         </motion.div>
@@ -166,3 +188,4 @@ const DashboardLayout: React.FC = () => {
 };
 
 export default DashboardLayout;
+

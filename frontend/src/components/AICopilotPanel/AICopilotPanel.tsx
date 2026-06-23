@@ -250,7 +250,7 @@ const DecisionCard: React.FC<{
         {/* Override */}
         <motion.button
           id={`override-${suggestion.recommendation_id}`}
-          className="copilot-btn copilot-btn-approve"
+          className={`copilot-btn copilot-btn-approve ${approveState === 'verifying' ? 'is-verifying' : ''}`}
           onClick={handleOverride}
           disabled={approveState === 'verifying' || isExpired}
           animate={

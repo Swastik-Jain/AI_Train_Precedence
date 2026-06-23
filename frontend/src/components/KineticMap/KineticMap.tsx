@@ -178,6 +178,10 @@ export const KineticMap: React.FC = () => {
 
   const [hoveredTrain, setHoveredTrain] = useState<string | null>(null);
 
+  const selectedTrain = useMemo(() => 
+    trainStates.find(t => t.train_id === selectedTrainId),
+  [trainStates, selectedTrainId]);
+
   useEffect(() => { connectWebSocket(); }, [connectWebSocket]);
 
   // ── Node → schematic position ──────────────────────────────────────────────
@@ -645,6 +649,7 @@ export const KineticMap: React.FC = () => {
           viewBox={`0 0 ${SVG_W} ${SVG_H}`}
           preserveAspectRatio="xMinYMid meet"
           overflow="visible"
+          onClick={() => setSelectedTrain(null)}
         >
           {/* Zones (segments → switches → stations) */}
           {zoneElems}
@@ -673,7 +678,7 @@ export const KineticMap: React.FC = () => {
             return (
               <g
                 key={train.train_id}
-                onClick={() => setSelectedTrain(train.train_id)}
+                onClick={(e) => { e.stopPropagation(); setSelectedTrain(train.train_id); }}
                 onMouseEnter={() => setHoveredTrain(train.train_id)}
                 onMouseLeave={() => setHoveredTrain(null)}
                 style={{ cursor: 'pointer' }}
@@ -781,6 +786,42 @@ export const KineticMap: React.FC = () => {
               {committedAction === 0 ? 'STOP' : committedAction === 2 ? 'DIVERT' : 'PROCEED'}
             </div>
             <div className="sch-committed-train">{committedTrainId}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TRAIN DETAIL PANEL ────────────────────────────────────────── */}
+      {selectedTrain && (
+        <div className="sch-train-detail-panel">
+          <div className="sch-td-header">
+            <span className="sch-td-title">TRAIN {selectedTrain.train_id}</span>
+            <button className="sch-td-close" onClick={() => setSelectedTrain(null)}>×</button>
+          </div>
+          <div className="sch-td-content">
+            <div className="sch-td-row">
+              <span className="sch-td-label">Status</span>
+              <span className={`sch-td-value sch-td-status--${selectedTrain.status.toLowerCase()}`}>{selectedTrain.status}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Direction</span>
+              <span className="sch-td-value">{selectedTrain.direction || 'N/A'}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Position</span>
+              <span className="sch-td-value">{Math.round(selectedTrain.position_percentage * 100)}% on edge</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Edge ID</span>
+              <span className="sch-td-value" title={selectedTrain.edge_id}>
+                {selectedTrain.edge_id.length > 15 ? selectedTrain.edge_id.substring(0, 15) + '...' : selectedTrain.edge_id}
+              </span>
+            </div>
+            {selectedTrain.path && selectedTrain.path.length > 0 && (
+              <div className="sch-td-row">
+                <span className="sch-td-label">Path Length</span>
+                <span className="sch-td-value">{selectedTrain.path.length} segments left</span>
+              </div>
+            )}
           </div>
         </div>
       )}

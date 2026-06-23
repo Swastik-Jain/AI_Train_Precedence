@@ -12,7 +12,8 @@ interface FleetTrain {
   priority: number;
   start_time: number;
   deadline: number;
-  direction: number;
+  direction: string;
+  speed_kmh?: number;
   edge_id: string;
   position_percentage: number;
   status: 'Moving' | 'Halted' | 'Blocked' | 'Scheduled' | string;
@@ -286,9 +287,9 @@ const FleetStatus: React.FC = () => {
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const moving  = fleet.filter(t => t.status === 'Moving').length;
-  const halted  = fleet.filter(t => t.status === 'Halted' || t.status === 'Blocked').length;
+  const halted  = fleet.filter(t => t.status === 'Halted' || t.status === 'Blocked' || t.status === 'Waiting at Signal').length;
   const avgSpeed = fleet.length
-    ? Math.round(fleet.reduce((s, t) => s + t.max_speed * (t.status === 'Moving' ? 1 : 0), 0) / Math.max(moving, 1))
+    ? Math.round(fleet.reduce((s, t) => s + (t.speed_kmh || 0) * (t.status === 'Moving' ? 1 : 0), 0) / Math.max(moving, 1))
     : 0;
 
   return (
