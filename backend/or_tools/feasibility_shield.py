@@ -26,7 +26,6 @@ from ortools.sat.python import cp_model
 from ai.config import (
     MAX_TRAINS_CAPACITY,
     SECTION_LENGTH_KM,
-    BANKER_ATTACH_TIME,
 )
 from ai.map_generator import GhatTokenSystem
 
@@ -338,7 +337,6 @@ class FeasibilityShield:
             solver.parameters.max_time_in_seconds = SOLVER_TIMEOUT_SECONDS
 
             train_id   = train['id']
-            direction  = train['direction']
             deadline   = schedule.get(train_id, {}).get('deadline', 99999)
             priority   = train['priority']
 

@@ -582,7 +582,7 @@ if __name__ == '__main__':
     track_map, loop_sections, end_node, station_nodes, token_blocks = generate_realistic_section()
 
     print(f"\n{'='*60}")
-    print(f"CSMT–Manmad Corridor Map — Validation Report")
+    print("CSMT–Manmad Corridor Map — Validation Report")
     print(f"{'='*60}")
     print(f"Total nodes      : {len(track_map)}")
     print(f"Loop/platform    : {len(loop_sections)}")
@@ -590,7 +590,7 @@ if __name__ == '__main__':
     print(f"End node         : {end_node}")
 
     print(f"\n{'─'*60}")
-    print(f"Station Anchors:")
+    print("Station Anchors:")
     for name, data in station_nodes.items():
         km = data['km']
         n_pf = len(data['platforms'])
@@ -603,14 +603,14 @@ if __name__ == '__main__':
               f"platforms={n_pf}  loops={n_lp}  {banker} {ghat}")
 
     print(f"\n{'─'*60}")
-    print(f"Ghat Token Blocks (Kasara→Igatpuri):")
+    print("Ghat Token Blocks (Kasara→Igatpuri):")
     for tid in token_blocks:
         node = track_map[tid]
         print(f"  node {tid:>4} | km={node['km']:>6.1f} | cap={node['capacity']} | "
               f"speed={node['speed']}kmph | next={node['next']}")
 
     print(f"\n{'─'*60}")
-    print(f"Capacity Distribution:")
+    print("Capacity Distribution:")
     cap_counts = Counter(v['capacity'] for v in track_map.values() if v['type'] not in ['ORIGIN', 'DESTINATION'])
     for cap, count in sorted(cap_counts.items()):
         label = {1: 'Single/Ghat', 2: 'Double line', 4: 'Quadruple line'}.get(cap, f'cap={cap}')
@@ -622,7 +622,7 @@ if __name__ == '__main__':
     if broken:
         print(f"\n⚠️  BROKEN CONNECTIVITY: nodes with empty next → {broken}")
     else:
-        print(f"\n✅ Connectivity OK — all nodes have outgoing edges")
+        print("\n✅ Connectivity OK — all nodes have outgoing edges")
 
     # Token system smoke test
     token_sys = GhatTokenSystem(token_blocks)
@@ -632,5 +632,5 @@ if __name__ == '__main__':
     assert token_sys.can_enter('T3', 'DOWN') == False  # opposing blocked
     token_sys.train_exited('T1')
     assert token_sys.token_direction is None            # block free
-    print(f"✅ GhatTokenSystem smoke test passed")
+    print("✅ GhatTokenSystem smoke test passed")
     print(f"{'='*60}\n")

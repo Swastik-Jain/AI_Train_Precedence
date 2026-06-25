@@ -636,7 +636,6 @@ async def _broadcast_topology(payload: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 async def simulate_trains_bg():
     global TRAIN_STATES, INFERENCE_ACTIVE, _INFERENCE_OBS, _INFERENCE_ACTIONS, _SIM_TICK, _INFERENCE_DECISION_META
-    from ai.config import generate_daily_schedule
 
     TRAIN_STATES = {}
     _spawned = False
@@ -696,7 +695,7 @@ async def simulate_trains_bg():
             AUDIT_LOGS.insert(0, {
                 "t": _now_iso(),
                 "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-                "source": f"SIMULATION_ENGINE",
+                "source": "SIMULATION_ENGINE",
                 "action": f"Maintenance Auto-Cleared: {blk.get('severity')} on {b_id}",
                 "operator": "SYSTEM",
                 "status": "Cleared",

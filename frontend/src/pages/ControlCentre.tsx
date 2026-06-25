@@ -24,13 +24,8 @@ const fadeUp = {
   visible: (d: number = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1], delay: d },
+    transition: { duration: 0.55, ease: "easeOut", delay: d },
   }),
-};
-
-const stagger = {
-  hidden:  {},
-  visible: { transition: { staggerChildren: 0.07 } },
 };
 
 const ControlCentre: React.FC = () => {
@@ -45,7 +40,6 @@ const ControlCentre: React.FC = () => {
   const [delayTrainId, setDelayTrainId] = useState(trainStates[0]?.train_id || '');
   const [latencies, setLatencies] = useState<Record<string, number>>({});
   const [isRecalculating, setIsRecalculating] = useState(false);
-  const [recalculatedForTrain, setRecalculatedForTrain] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
   const [scenarioLabel, setScenarioLabel] = useState('Scenario A');
   const [forcedActions, setForcedActions] = useState<Record<string, number>>({});
@@ -116,7 +110,6 @@ const ControlCentre: React.FC = () => {
             setScenarioLabel(`Scenario ${String.fromCharCode(65 + updated.length)}`);
             return updated;
         });
-        setRecalculatedForTrain(delayTrainId);
     } catch (err) {
         console.error('[Sandbox] Analysis failed:', err);
     } finally {
@@ -201,7 +194,7 @@ const ControlCentre: React.FC = () => {
   // Priority Alerts
   const alerts = [];
   trainStates.forEach(t => {
-    if (t.status === 'Halted' || t.status === 'Blocked') {
+    if (t.status === 'Halted') {
       alerts.push({ id: `train-${t.train_id}`, type: 'critical', icon: 'warning', title: `Train ${t.status}`, desc: `Train ${t.train_id} is currently ${t.status.toLowerCase()} on edge ${t.edge_id}.`, time: 'Live' });
     }
   });

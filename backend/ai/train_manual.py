@@ -44,7 +44,6 @@ from stable_baselines3.common.callbacks import (
 )
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
-from sb3_contrib.common.maskable.evaluation import evaluate_policy
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from train_env import TrainDispatchEnv
@@ -361,7 +360,7 @@ def train_manual(
     # ── Model: load or create ─────────────────────────────────────────────
     if load_path and os.path.exists(load_path):
         print(f"🔄 Loading model from: {load_path}")
-        print(f"⚠️  Starting FRESH VecNormalize (new level — don't reuse old stats)")
+        print("⚠️  Starting FRESH VecNormalize (new level — don't reuse old stats)")
 
         model = MaskablePPO.load(
             load_path,
@@ -457,10 +456,10 @@ def train_manual(
     model.save(save_path)
     train_env.save(stats_path)
 
-    print(f"\n✅ Training complete")
+    print("\n✅ Training complete")
     print(f"   Model  → {save_path}")
     print(f"   Stats  → {stats_path}")
-    print(f"\n   To continue to next level:")
+    print("\n   To continue to next level:")
 
     next_level  = int(level) + 1 if str(level).isdigit() else 2
     next_trains = {1: 5, 2: 7, 3: 10, 4: 15, 5: 25, 6: 25}.get(int(level), num_trains + 2)

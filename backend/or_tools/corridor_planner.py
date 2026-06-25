@@ -22,12 +22,9 @@ Usage:
 """
 
 import logging
-import numpy as np
-from collections import defaultdict
 from ortools.sat.python import cp_model
 
-from ai.config import SECTION_LENGTH_KM
-from ai.map_generator import STATIONS, STATION_ORDER
+from ai.map_generator import STATION_ORDER
 
 _log = logging.getLogger("CorridorPlanner")
 
@@ -394,7 +391,6 @@ class CorridorPlanner:
 
         for train in active:
             tid       = train['id']
-            direction = train['direction']
             stops     = train.get('_ordered_stops', [])
 
             if tid not in schedule or not stops:

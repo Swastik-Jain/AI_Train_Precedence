@@ -26,7 +26,6 @@ from ortools.sat.python import cp_model
 from ai.config import (
     MAX_TRAINS_CAPACITY,
     SECTION_LENGTH_KM,
-    BANKER_ATTACH_TIME,
 )
 from ai.map_generator import GhatTokenSystem
 

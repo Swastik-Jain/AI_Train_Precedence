@@ -26,7 +26,6 @@ Fix applied (2026-05-21):
 
 import logging
 from collections import defaultdict
-from typing import Optional
 import numpy as np
 
 _log = logging.getLogger("SmartOptimizer")
@@ -128,7 +127,6 @@ class SmartOptimizer:
             node_type  = node_data.get('type', 'MAIN_BLOCK')
 
             next_opts = track_map.get(pos, {}).get('prev', []) if direction == 'UP' else track_map.get(pos, {}).get('next', [])
-            is_token   = node_data.get('token_block', False)
 
             if not next_opts:
                 claimed_occ[pos][direction] += 1

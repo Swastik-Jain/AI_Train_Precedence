@@ -30,7 +30,7 @@ export interface ScheduleEntry {
   train_id: string;
   /** SVG path points for Marey chart */
   path: { x: number; y: number }[];
-  type: 'actual' | 'ghost';
+  type: 'actual' | 'ghost' | 'projected';
 }
 
 export interface ToastNotification {

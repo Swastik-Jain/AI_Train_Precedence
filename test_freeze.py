@@ -1,7 +1,7 @@
 import sys
-sys.path.append('.')
+sys.path.append('backend')
 import copy
-from main import _get_sim_brain
+from backend.main import _get_sim_brain
 
 model, env = _get_sim_brain()
 try:

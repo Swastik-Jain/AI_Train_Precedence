@@ -1,0 +1,16 @@
+1435:async def get_telemetry():
+1436-    """Returns real-time telemetry calculated from the current simulation state."""
+1437-    active_trains = 0
+1438-    incoming_trains = 0
+1439-    outgoing_trains = 0
+1440-    terminal_trains = 0
+1441-    halted_trains = 0
+1442-
+1443-    for t_id, state in TRAIN_STATES.items():
+1444-        if state.get("status") == "Scheduled":
+1445-            continue
+1446-        if state.get("status") == "Finished":
+1447-            terminal_trains += 1
+1448-            continue
+1449-            
+1450-        active_trains += 1

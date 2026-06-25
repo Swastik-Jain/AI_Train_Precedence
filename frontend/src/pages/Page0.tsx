@@ -1,14 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useInView } from 'framer-motion';
 import {
   ArrowRight,
   Code2,
-  Link2,
-  FileText,
-  Globe,
-  BookOpen,
-  Lock,
 } from 'lucide-react';
 import './LandingPage.css';
 

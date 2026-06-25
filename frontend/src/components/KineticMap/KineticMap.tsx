@@ -764,7 +764,6 @@ export const KineticMap: React.FC = () => {
             ) ?? false;
 
             const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
-            const txtCol = '#e2e8f0';
             const bW     = 50;   // train badge width
             const bH     = 14;   // train badge height
 

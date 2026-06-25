@@ -2,7 +2,6 @@
 import time
 import sys
 import os
-import numpy as np
 from stable_baselines3 import PPO
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

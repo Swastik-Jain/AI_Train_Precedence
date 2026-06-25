@@ -237,7 +237,7 @@ def run_rule_based(
         'avg_efficiency':  round(float(np.mean(efficiencies)), 3),
     }
 
-    print(f"\nRULE-BASED RESULTS:")
+    print("\nRULE-BASED RESULTS:")
     for k, v in summary.items():
         print(f"  {k}: {v}")
 

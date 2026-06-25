@@ -3,10 +3,8 @@ sys.path.insert(0, '.')
 from ai.train_env import TrainDispatchEnv
 from sb3_contrib.common.wrappers import ActionMasker
 from sb3_contrib import MaskablePPO
-from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 import numpy as np
-from collections import Counter
 
 def mask_fn(env): return env.get_action_mask()
 
@@ -75,7 +73,7 @@ for ep in range(20):
         timeout_count += 1
 
 print(f"\n{'='*55}")
-print(f"LEVEL 3 DIAGNOSTIC — 20 Episodes")
+print("LEVEL 3 DIAGNOSTIC — 20 Episodes")
 print(f"{'='*55}")
 print(f"Avg episode length : {np.mean(episode_lengths):.0f} steps")
 print(f"Avg reward         : {np.mean(episode_rewards):.0f}")

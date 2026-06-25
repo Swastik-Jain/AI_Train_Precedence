@@ -26,8 +26,6 @@ import os
 import sys
 import argparse
 import time
-import subprocess
-import math
 import json
 
 os.environ['TORCH_COMPILE_DISABLE'] = '1'
@@ -35,24 +33,20 @@ os.environ['TORCH_COMPILE_DISABLE'] = '1'
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-import gymnasium as gym
 
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
-from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from train_env import TrainDispatchEnv
 from ai.train_manual import (
     WarmupCosineDecayLR,
     PER_LEVEL_HPARAMS,
     N_STEPS, BATCH_SIZE, VF_COEF, MAX_GRAD_NORM, LR_MIN, LR_WARMUP_FRAC,
-    N_ENVS_TRAIN, N_ENVS_EVAL,
-    MODELS_DIR, LOGS_DIR,
-    mask_fn, make_env_fn,
-    mask_fn_with_shield, make_env_fn_with_shield,
+    N_ENVS_TRAIN, MODELS_DIR, LOGS_DIR,
+    mask_fn, make_env_fn_with_shield,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────

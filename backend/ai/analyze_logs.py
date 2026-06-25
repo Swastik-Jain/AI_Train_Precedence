@@ -1,5 +1,4 @@
 import os
-import sys
 import numpy as np
 from collections import defaultdict
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator

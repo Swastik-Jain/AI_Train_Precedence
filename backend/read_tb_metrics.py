@@ -2,7 +2,8 @@
 read_tb_metrics.py - Extract key training metrics from TensorBoard event files.
 Run from backend/: python read_tb_metrics.py
 """
-import sys, os, numpy as np
+import sys
+import os
 sys.path.insert(0, '.')
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 

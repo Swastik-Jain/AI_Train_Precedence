@@ -3,7 +3,6 @@ sys.path.insert(0, '.')
 from ai.train_env import TrainDispatchEnv
 from sb3_contrib.common.wrappers import ActionMasker
 from sb3_contrib import MaskablePPO
-import numpy as np
 
 def mask_fn(env): return env.get_action_mask()
 

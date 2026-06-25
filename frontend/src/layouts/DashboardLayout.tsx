@@ -4,10 +4,7 @@ import { motion } from 'framer-motion';
 import {
   LayoutDashboard,
   Gauge,
-  GitBranch,
   Wrench,
-  TrendingUp,
-  HelpCircle,
   LogOut,
   ChevronRight,
 } from 'lucide-react';

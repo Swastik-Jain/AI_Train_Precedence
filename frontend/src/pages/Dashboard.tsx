@@ -32,8 +32,8 @@ const GhatMonitor = () => {
 
   const ghatTrains = trainStates.filter(t => t.edge_id && isGhat(t.edge_id));
   const activeInGhat = ghatTrains;
-  const queuedAtKSR = trainStates.filter(t => (t.status === 'Halted' || t.status === 'Blocked') && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isKSR(t.edge_id));
-  const queuedAtIGP = trainStates.filter(t => (t.status === 'Halted' || t.status === 'Blocked') && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isIGP(t.edge_id));
+  const queuedAtKSR = trainStates.filter(t => t.status === 'Halted' && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isKSR(t.edge_id));
+  const queuedAtIGP = trainStates.filter(t => t.status === 'Halted' && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isIGP(t.edge_id));
 
   return (
     <div className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-slate-100 flex-shrink-0 relative overflow-hidden">
@@ -82,14 +82,11 @@ const Dashboard: React.FC = () => {
   const [scheduleReady, setScheduleReady] = useState(false);
   const [scheduleTrainCount, setScheduleTrainCount] = useState(0);
   const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false);
-  const [aiLoad, setAiLoad] = useState(0);
   const [isInferenceActive, setIsInferenceActive] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [isLockdown, setIsLockdown] = useState(false);
-  const [isBackendConnected, setIsBackendConnected] = useState(true);
   const [simSpeed, setSimSpeed] = useState(0.4);
   
-  const { zoomLevel, setZoomLevel } = useMapStore();
+  const { setZoomLevel } = useMapStore();
 
   useEffect(() => {
     const fetchTelemetry = async () => {
@@ -109,9 +106,6 @@ const Dashboard: React.FC = () => {
           setTerminalTrains(data.terminal_trains);
           setScheduleReady(data.schedule_ready ?? false);
           setScheduleTrainCount(data.schedule_train_count ?? 0);
-          setIsBackendConnected(true);
-          setAiLoad(data.ai_load);
-          setIsLockdown(data.lockdown);
         }
       } catch (error) {
         console.error("Failed to fetch telemetry:", error);

@@ -1,7 +1,6 @@
 import sys
 sys.path.insert(0, '.')
 from ai.train_env import TrainDispatchEnv
-from sb3_contrib.common.wrappers import ActionMasker
 import numpy as np
 
 def mask_fn(env): return env.get_action_mask()

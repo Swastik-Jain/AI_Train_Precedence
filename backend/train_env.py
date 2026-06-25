@@ -42,7 +42,6 @@ from ai.config import (
 from ai.map_generator import (
     generate_realistic_section,
     GhatTokenSystem,
-    SECTION_LENGTH_KM as MAP_SECTION_KM,
 )
 
 _log = logging.getLogger("TrainDispatchEnv")
@@ -748,7 +747,6 @@ class TrainDispatchEnv(gym.Env):
 
             lead_dist_norm  = min(dist_to_lead, SPACING_HORIZON_KM) / SPACING_HORIZON_KM
             lead_speed_norm = lead_speed / MAX_SPEED
-            lead_prio_norm  = lead_prio / 6.0
 
             # Opposing train (different direction, anywhere on section)
             opp_present  = 0.0

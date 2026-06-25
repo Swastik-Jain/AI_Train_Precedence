@@ -227,7 +227,7 @@ def run_fcfs(
         'avg_efficiency':  round(float(np.mean(efficiencies)), 3),
     }
 
-    print(f"\nFCFS RESULTS:")
+    print("\nFCFS RESULTS:")
     for k, v in summary.items():
         print(f"  {k}: {v}")
 

@@ -1,7 +1,6 @@
 import sys
 sys.path.insert(0, '.')
 from ai.train_env import TrainDispatchEnv
-from sb3_contrib.common.wrappers import ActionMasker
 import numpy as np
 
 def mask_fn(env): return env.get_action_mask()
@@ -33,7 +32,7 @@ for i, train in enumerate(env.trains):
     print(f"  node_type={node_data.get('type','?')} next={next_opts}")
     print(f"  mask: HOLD={mask[i,0]} PROCEED={can_proc} DIVERT={can_div}")
 
-print(f"\n=== AFTER 20 STEPS (random HOLD) ===")
+print("\n=== AFTER 20 STEPS (random HOLD) ===")
 for step in range(20):
     acts = np.zeros(10, dtype=int)  # all HOLD
     step_return = env.step(acts)

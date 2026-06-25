@@ -86,7 +86,6 @@ def _collect_episode_metrics(env, ep_len):
     are still counted as late rather than silently dropped.
     """
     finished = [t for t in env.trains if t['finished']]
-    total = len(env.trains)
 
     on_time_cnt = 0
     total_delay = 0

@@ -1,5 +1,4 @@
 import { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useCopilotStore, type AISuggestion } from '../store/useCopilotStore';
 
 // ---------------------------------------------------------------------------
@@ -10,10 +9,7 @@ export type ActionResult =
   | { ok: false; safetyConflict: boolean; message: string };
 
 // ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 export function useCopilot() {
-  const navigate = useNavigate();
   const {
     activeSuggestions,
     previewState,

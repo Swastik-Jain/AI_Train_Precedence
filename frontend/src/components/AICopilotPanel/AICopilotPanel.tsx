@@ -107,7 +107,7 @@ const WhyTooltip: React.FC<{ reasoning: string }> = ({ reasoning }) => {
 // ---------------------------------------------------------------------------
 const DecisionCard: React.FC<{
   suggestion: AISuggestion;
-  onOverride: (id: string, modAct?: number, modEdge?: string) => Promise<void>;
+  onOverride: (id: string, modAct?: number, modEdge?: string) => Promise<any>;
   onDismiss: (id: string) => void;
   onHoverStart: (s: AISuggestion) => void;
   onHoverEnd: () => void;

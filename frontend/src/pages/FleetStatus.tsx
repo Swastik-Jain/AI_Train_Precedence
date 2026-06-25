@@ -55,9 +55,9 @@ const ACTION_LABEL = (a: number) =>
 const ACTION_COLOR = (a: number) =>
   a === 0 ? '#ef4444' : a === 1 ? '#22c55e' : '#f59e0b';
 
-const fadeUp = {
+const fadeUp: any = {
   hidden : { opacity: 0, y: 16 },
-  visible: (d = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.45, delay: d, ease: [0.22,1,0.36,1] } }),
+  visible: (d = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.45, delay: d, ease: "easeOut" } }),
 };
 
 // ---------------------------------------------------------------------------
