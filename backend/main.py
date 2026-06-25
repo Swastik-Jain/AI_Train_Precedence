@@ -216,6 +216,16 @@ def _now_iso() -> str:
     """Return current UTC time as ISO-8601 string."""
     return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
+def is_block_active(block: Dict[str, Any]) -> bool:
+    """Check if the given maintenance block is currently active based on its scheduled time bounds."""
+    try:
+        now = datetime.now(timezone.utc)
+        start = datetime.fromisoformat(block.get("start_time", "").replace("Z", "+00:00"))
+        end = datetime.fromisoformat(block.get("end_time", "").replace("Z", "+00:00"))
+        return start <= now <= end
+    except Exception:
+        # Fallback to active if parsing fails
+        return True
 
 def _sync_blocks_to_rl_env() -> None:
     """
@@ -234,6 +244,8 @@ def _sync_blocks_to_rl_env() -> None:
         patched_map = copy.deepcopy(RAW_TRACK_MAP)
 
         for edge_id, block in ACTIVE_BLOCKS.items():
+            if not is_block_active(block):
+                continue
             if block.get("severity") != "TOTAL_BLOCK":
                 continue
             parts = edge_id.split("-")
@@ -663,6 +675,35 @@ async def simulate_trains_bg():
                 "status": "Expired",
                 "statusType": "info"
             })
+            
+        # Prune expired maintenance blocks
+        expired_blocks = []
+        now_dt = datetime.now(timezone.utc)
+        for b_id, block in list(ACTIVE_BLOCKS.items()):
+            try:
+                end = datetime.fromisoformat(block.get("end_time", "").replace("Z", "+00:00"))
+                if now_dt > end:
+                    expired_blocks.append(b_id)
+            except Exception:
+                pass # If it fails to parse, leave it until manually removed
+                
+        for b_id in expired_blocks:
+            blk = ACTIVE_BLOCKS.pop(b_id)
+            asyncio.create_task(_broadcast_topology({
+                "type": "MAINTENANCE_CLEARED",
+                "element_id": b_id,
+            }))
+            AUDIT_LOGS.insert(0, {
+                "t": _now_iso(),
+                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "source": f"SIMULATION_ENGINE",
+                "action": f"Maintenance Auto-Cleared: {blk.get('severity')} on {b_id}",
+                "operator": "SYSTEM",
+                "status": "Cleared",
+                "statusType": "success",
+                "id": str(uuid.uuid4())
+            })
+
         if SYSTEM_LOCKDOWN:
             for t_id, state in TRAIN_STATES.items():
                 state['status'] = 'Halted'
@@ -739,6 +780,7 @@ async def simulate_trains_bg():
                                 trains=inner_env.trains,
                                 ai_actions=desired_actions,
                                 track_map=inner_env.track_map,
+                                raw_actions=raw_actions,
                             )
                         else:
                             safe_actions, decision_meta = desired_actions.copy(), {}
@@ -892,8 +934,10 @@ async def simulate_trains_bg():
 
                 # ── MAINTENANCE BLOCK CHECK (current edge) ────────────────────
                 edge_block = ACTIVE_BLOCKS.get(curr_edge)
-                if edge_block and edge_block.get('severity') == 'TOTAL_BLOCK':
+                if edge_block and is_block_active(edge_block) and edge_block.get('severity') == 'TOTAL_BLOCK':
                     state['status'] = 'Blocked'
+                    if INFERENCE_ACTIVE:
+                        STICKY_ACTIONS[t_id] = (0, _SIM_TICK + 2)
                     continue
 
                 # ── LOOKAHEAD BLOCK CHECK (next edge in path) ─────────────────
@@ -904,9 +948,11 @@ async def simulate_trains_bg():
                     if curr_path_idx + 1 < len(path):
                         next_edge = path[curr_path_idx + 1]
                         next_block = ACTIVE_BLOCKS.get(next_edge)
-                        if next_block and next_block.get('severity') == 'TOTAL_BLOCK':
+                        if next_block and is_block_active(next_block) and next_block.get('severity') == 'TOTAL_BLOCK':
                             # Halt the train before it crosses into the blocked segment
                             state['status'] = 'Halted'
+                            if INFERENCE_ACTIVE:
+                                STICKY_ACTIONS[t_id] = (0, _SIM_TICK + 2)
                             continue
                 except (ValueError, IndexError):
                     pass
@@ -998,7 +1044,7 @@ async def simulate_trains_bg():
         payload = {
             "type": "topology_update",
             "sim_time": _SIM_TICK,
-            "trains": list(TRAIN_STATES.values()),
+            "trains": [t for t in TRAIN_STATES.values() if t.get("status") not in ("Scheduled", "Finished")],
             "conflicts": list(conflicts),
             "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
         }
@@ -1057,7 +1103,7 @@ async def copilot_suggestion_bg():
                     is_safe, reason = _OR_SHIELD.or_shield_check(
                         suggestion=candidate,
                         train_states=TRAIN_STATES,
-                        active_blocks=ACTIVE_BLOCKS,
+                        active_blocks={k: v for k, v in ACTIVE_BLOCKS.items() if is_block_active(v)},
                         dynamic_constraints=DYNAMIC_CONSTRAINTS,
                     )
                 else:
@@ -1115,8 +1161,7 @@ class OverrideRequest(BaseModel):
 
 class WhatIfScenarioRequest(BaseModel):
     label: Optional[str] = "Scenario"
-    delay_train_id: Optional[str] = ""
-    latency_minutes: Optional[int] = 15
+    latencies: Optional[Dict[str, int]] = {}        # train_id -> delay in minutes
     forced_actions: Optional[Dict[str, int]] = {}   # train_id -> 0=HOLD, 1=MAIN, 2=DIVERT
 
 @app.post("/api/v1/system/start-inference", tags=["System Override"])
@@ -1491,7 +1536,7 @@ async def get_telemetry():
                 # Calculate expected completion based on travel time elapsed vs total travel budget
                 train_sim_time = state.get("sim_time", 0)
                 travel_time_elapsed = max(0, train_sim_time - start_time)
-                total_travel_budget = deadline - start_time
+                total_travel_budget = max(1, deadline - start_time)
                 
                 if total_travel_budget > 0:
                     expected_completion = min(1.0, travel_time_elapsed / total_travel_budget)
@@ -1515,7 +1560,8 @@ async def get_telemetry():
         punctuality = 100.0
 
     halted_pct = (halted_trains / active_trains * 100) if active_trains > 0 else 0
-    blocks_active = len(ACTIVE_BLOCKS) > 0
+    active_blocks_count = sum(1 for b in ACTIVE_BLOCKS.values() if is_block_active(b))
+    blocks_active = active_blocks_count > 0
 
     if halted_pct > 20:
         network_fluidity = "Degraded"
@@ -1523,7 +1569,7 @@ async def get_telemetry():
         network_fluidity = "Warning"
     else:
         network_fluidity = "Nominal"
-    ai_load = 40 + (active_trains * 5) + (len(ACTIVE_BLOCKS) * 15)
+    ai_load = 40 + (active_trains * 5) + (active_blocks_count * 15)
     ai_load = max(0, min(100, ai_load))
 
     node_response_time = random.randint(8, 12)
@@ -1653,6 +1699,36 @@ class OverrideRequest(BaseModel):
     new_action: Optional[int] = None
     new_edge: Optional[str] = None
 
+class ForceActionRequest(BaseModel):
+    train_id: str
+    action: int
+    duration_ticks: int = 50
+
+@app.post("/api/v1/dispatch/force-action", tags=["System Override"])
+async def force_action(req: ForceActionRequest):
+    global TRAIN_STATES, _SIM_TICK, STICKY_ACTIONS
+    if req.train_id not in TRAIN_STATES:
+        raise HTTPException(status_code=404, detail="Train not found")
+        
+    STICKY_ACTIONS[req.train_id] = (req.action, _SIM_TICK + req.duration_ticks)
+    
+    # Audit log
+    action_str = "STOP" if req.action == 0 else "PROCEED" if req.action == 1 else f"ACTION_{req.action}"
+    entry = {
+        "t": _now_iso(),
+        "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "source": "OPERATOR",
+        "action": f"Forced action {action_str} on Train {req.train_id}",
+        "operator": "Dispatcher",
+        "status": "Applied",
+        "statusType": "warning",
+        "id": str(uuid.uuid4())
+    }
+    AUDIT_LOGS.insert(0, entry)
+    _persist_audit_log(entry)
+    
+    return {"status": "success", "train_id": req.train_id, "action": req.action, "expires_at": _SIM_TICK + req.duration_ticks}
+
 @app.post("/api/v1/dispatch/override", tags=["ORBIT Co-pilot"])
 async def override_decision(req: OverrideRequest):
     suggestion = COPILOT_SUGGESTIONS.get(req.recommendation_id)
@@ -1695,14 +1771,14 @@ async def override_decision(req: OverrideRequest):
     is_safe, reason = _OR_SHIELD.or_shield_check(
         suggestion=suggestion,
         train_states=TRAIN_STATES,
-        active_blocks=ACTIVE_BLOCKS,
+        active_blocks={k: v for k, v in ACTIVE_BLOCKS.items() if is_block_active(v)},
         dynamic_constraints=DYNAMIC_CONSTRAINTS,
     )
 
     if is_safe:
         for edge_id in suggestion.get("affected_edges", []):
             blk = ACTIVE_BLOCKS.get(edge_id)
-            if blk and blk.get("severity") == "TOTAL_BLOCK":
+            if blk and is_block_active(blk) and blk.get("severity") == "TOTAL_BLOCK":
                 is_safe = False
                 reason = (
                     f"MaintenanceBlock: edge '{edge_id}' is under an active "
@@ -2043,235 +2119,187 @@ async def remove_block(element_id: str):
     }
 
 
+def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict) -> dict:
+    """
+    Clone current live state into a throwaway env copy.
+    Run N ticks. Return outcome metrics.
+    Does NOT touch TRAIN_STATES or live env.
+    """
+    model, live_vec_env = _get_sim_brain()
+    if live_vec_env is None:
+        return None
+
+    import copy
+    import numpy as np
+    
+    sandbox_inner = copy.deepcopy(live_vec_env.venv.envs[0])
+
+    # Inject the delay
+    if latencies:
+        for t in sandbox_inner.trains:
+            t_id = t.get('id')
+            if t_id in latencies:
+                t['speed'] = max(0, t['speed'] * 0.3)
+                t['delay'] = t.get('delay', 0) + latencies[t_id]
+
+    outcomes = {'finished': 0, 'total_delay_min': 0.0, 'holds': 0, 'diverts': 0, 'adjustments': [], 'projected_schedule': {}}
+    for t in sandbox_inner.trains:
+        outcomes['projected_schedule'][t.get('id')] = {}
+    
+    for tick in range(n_ticks):
+        obs = sandbox_inner._get_observation()
+        if model:
+            # Normalize single observation
+            obs_batch = np.expand_dims(obs, axis=0)
+            norm_obs_batch = live_vec_env.normalize_obs(obs_batch)
+            actions_batch, _ = model.predict(norm_obs_batch, deterministic=True)
+            actions = actions_batch[0]
+        else:
+            actions = np.ones(sandbox_inner.observation_space.shape[0], dtype=np.int64)
+
+        # Apply forced actions
+        for idx, t in enumerate(sandbox_inner.trains):
+            t_id = t.get('id')
+            if t_id in forced_actions and forced_actions[t_id] in (0, 1, 2):
+                actions[idx] = forced_actions[t_id]
+                
+            # Log holds/diverts for the first tick only for adjustments
+            if tick == 0 and not t.get('finished', False) and t.get('position', 0) not in (0, 998, 999):
+                act = actions[idx]
+                if act == 0:
+                    outcomes['holds'] += 1
+                    outcomes['adjustments'].append({
+                        "id": len(outcomes['adjustments'])+1,
+                        "type": "Signal Hold",
+                        "desc": f"{t_id} held by simulation at its current block.",
+                        "train_id": t_id,
+                        "edge_id": "unknown",  # We can refine this if needed
+                        "constraint_type": "SPEED_LIMIT",
+                        "value": 0
+                    })
+                elif act == 2:
+                    outcomes['diverts'] += 1
+                    outcomes['adjustments'].append({
+                        "id": len(outcomes['adjustments'])+1,
+                        "type": "Spatial Reroute",
+                        "desc": f"{t_id} diverted to loop.",
+                        "train_id": t_id,
+                        "edge_id": "unknown",
+                        "constraint_type": "REROUTE",
+                        "value": 2
+                    })
+
+        _, _, terminated, truncated, _ = sandbox_inner.step(actions)
+        
+        # Track projected positions
+        sim_tick_offset = _SIM_TICK
+        for t in sandbox_inner.trains:
+            t_id = t.get('id')
+            pos = t.get('position', 0)
+            node_name = f"node-{pos}"
+            if t_id in outcomes['projected_schedule']:
+                if node_name not in outcomes['projected_schedule'][t_id]:
+                    outcomes['projected_schedule'][t_id][node_name] = {"arrival": sim_tick_offset + tick, "departure": sim_tick_offset + tick}
+                else:
+                    outcomes['projected_schedule'][t_id][node_name]["departure"] = sim_tick_offset + tick
+
+        if terminated or truncated:
+            break
+
+    for t in sandbox_inner.trains:
+        if t.get('finished', False):
+            outcomes['finished'] += 1
+        outcomes['total_delay_min'] += max(0, t.get('delay', 0))
+
+    return outcomes
+
 @app.post("/api/v1/simulation/analyze", tags=["Simulation Sandbox"])
 async def analyze_simulation(req: WhatIfScenarioRequest):
     """
-    Core two-stage simulation pipeline:
-      1. RL Model  — proposes optimal adaptive actions for the current scenario.
-      2. Operator forced_actions — override specific trains' proposed actions
-         (models "what if I hold/divert this train" rather than only "what if delayed").
-      3. OR-Tools  — validates and overrides any unsafe proposals (forced actions
-         are NOT exempt from safety validation — an operator's hypothetical
-         override can still be vetoed if it's unsafe, same as live override).
-    Returns deterministic impact scores and human-readable network adjustments,
-    tagged with the scenario label for client-side comparison.
+    True forward simulation: clones the live environment, injects delays/forces,
+    runs for N ticks, and compares outcomes against a baseline clone.
     """
-    delay_train_id = req.delay_train_id or ""
-    latency_minutes = req.latency_minutes or 15
+    latencies = req.latencies or {}
     forced_actions = req.forced_actions or {}
 
-    # ── Step 1: Snapshot live network state ──────────────────────────────
-    live_trains = list(TRAIN_STATES.values())
-    n_live = len(live_trains)
-    if n_live == 0:
+    if not TRAIN_STATES:
         raise HTTPException(status_code=503, detail="No live train data available.")
 
-    # ── Step 2: Inject delay into a working copy ──────────────────────────
-    # We represent the network as an array the RL observation builder can consume.
-    # Each train slot: [position_pct, priority, status_flag, delay_flag]
-    from ai.config import MAX_TRAINS_CAPACITY, MAX_SPEED
-
-    obs = np.zeros((MAX_TRAINS_CAPACITY, 10), dtype=np.float32)
-    train_meta = []  # (train_id, edge_id, status, is_delayed)
-
-    STATUS_SCORE = {"Moving": 0.8, "Waiting": 0.4, "Delayed": 0.2, "Scheduled": 0.1}
-    PRIORITY_MAP_LOCAL = {
-        "Vande Bharat": 10, "Rajdhani": 10, "Superfast": 8,
-        "Express": 6, "Local": 5, "Suburban": 5,
-        "Passenger": 3, "Freight (WAG-9)": 2,
-    }
-
-    for idx, t in enumerate(live_trains[:MAX_TRAINS_CAPACITY]):
-        t_id      = t.get("train_id", "")
-        pos_pct   = float(t.get("position_percentage", 0.0))
-        status    = t.get("status", "Moving")
-        is_delayed = (t_id == delay_train_id)
-
-        # Derive priority from fleet registry or default
-        fleet_cfg = FLEET_REGISTRY.get(t_id, {})
-        train_type = fleet_cfg.get("train_type", "Express")
-        priority = PRIORITY_MAP_LOCAL.get(train_type, 6)
-
-        # Effective speed factor (degraded if delayed)
-        speed_factor = 0.4 if is_delayed else STATUS_SCORE.get(status, 0.5)
-        delay_flag   = min(latency_minutes, 60) / 60.0 if is_delayed else 0.0
-
-        # Signal value: red (2.0 == danger) if delayed train blocks the segment
-        signal_val = 2.0 if is_delayed else 0.0
-
-        obs[idx] = [
-            speed_factor,                   # normalised speed
-            priority / 10.0,               # normalised priority
-            signal_val / 2.0,              # signal (0=clear, 1=danger)
-            0.5,                           # dist_to_danger (mid-range)
-            0.5 - delay_flag * 0.3,        # dist_to_lead (shrinks under delay)
-            speed_factor * 0.8,            # lead_speed proxy
-            priority / 10.0,               # lead_priority proxy
-            0.8,                           # dist_to_switch
-            0.0,                           # dwell_rem
-            max(0.0, 1.0 - delay_flag),    # deadline_rem (tighter under delay)
-        ]
-        train_meta.append((t_id, t.get("edge_id", "?"), status, is_delayed))
-
-    # Pad remaining slots as ghost trains (already zeros)
-
-    # ── Step 3: RL Model proposes actions ────────────────────────────────
-    model, env = _get_sim_brain()
-    if model is not None:
-        # MaskablePPO expects obs shape (100, 10) — same as the env's observation_space
-        proposed_actions, _ = model.predict(obs, deterministic=True)
-        source = "RL+OR-Tools"
-    else:
-        # Fallback: greedy — every train wants to move (action=1)
-        proposed_actions = np.ones(MAX_TRAINS_CAPACITY, dtype=np.int64)
-        source = "OR-Tools only (model unavailable)"
-
-    # ── Step 3b: Apply operator's hypothetical overrides ─────────────────
-    # This is what makes the sandbox testable for "what if I hold/route this
-    # train", not just "what if this train is late". Forced actions still
-    # pass through the OR-Shield below — a hypothetical override that's
-    # unsafe gets vetoed in the sandbox exactly like it would in production.
-    forced_override_applied = []
-    for idx, (t_id, edge_id, status, is_delayed) in enumerate(train_meta):
-        if t_id in forced_actions and forced_actions[t_id] in (0, 1, 2):
-            proposed_actions[idx] = forced_actions[t_id]
-            forced_override_applied.append(t_id)
-
-    # ── Step 4: OR-Tools safety validation ───────────────────────────────
-    # Build a lightweight train list compatible with SmartOptimizer
-    edge_to_pos = {}   # edge_id -> rough integer position
-    for idx, (t_id, edge_id, status, _) in enumerate(train_meta):
-        parts = edge_id.replace("edge-", "").split("-")
-        try:
-            pos = int(parts[0])
-        except (ValueError, IndexError):
-            pos = idx + 1
-        edge_to_pos[t_id] = pos
-
-    # Build a minimal track_map from the real NETWORK_TOPOLOGY edges
-    topo_edges = NETWORK_TOPOLOGY.get("edges", [])
-    topo_nodes = NETWORK_TOPOLOGY.get("nodes", [])
-    node_ids   = [n["id"] for n in topo_nodes]
-    track_map  = {}
-    for edge in topo_edges:
-        src_id = edge["source"]
-        tgt_id = edge["target"]
-        if src_id not in track_map:
-            track_map[src_id] = {"next": [], "capacity": 2}
-        track_map[src_id]["next"].append(tgt_id)
-
-    or_trains = []
-    for idx, (t_id, edge_id, status, is_delayed) in enumerate(train_meta):
-        parts = edge_id.replace("edge-", "").split("-")
-        try:
-            src_node = parts[0]
-        except IndexError:
-            src_node = node_ids[0] if node_ids else "0"
-        or_trains.append({
-            "id":       t_id,
-            "position": src_node,
-            "speed":    50 if status == "Moving" else 0,
-            "priority": PRIORITY_MAP_LOCAL.get(
-                FLEET_REGISTRY.get(t_id, {}).get("train_type", "Express"), 6
-            ),
-        })
-
-    safe_actions, _ = _OR_SHIELD.optimize_decision(
-        or_trains,
-        list(proposed_actions[:len(train_meta)]),
-        track_map
-    )
-
-    # ── Step 5: Translate actions → human-readable adjustments ───────────
-    ACTION_LABELS = {0: "HOLD", 1: "MAIN_LINE", 2: "DIVERT"}
-    adjustments = []
-    n_holds  = 0
-    n_diverts = 0
-
-    for idx, (t_id, edge_id, status, is_delayed) in enumerate(train_meta):
-        ai_act   = int(proposed_actions[idx]) if idx < len(proposed_actions) else 1
-        safe_act = int(safe_actions[idx])     if idx < len(safe_actions)     else ai_act
-        vetoed   = (ai_act != 0 and safe_act == 0)  # OR-Tools overrode move → hold
-
-        if safe_act == 0:
-            n_holds += 1
-            adj_type = "Signal Hold"
-            if is_delayed:
-                desc = (
-                    f"{t_id} held at {edge_id} — primary delay source "
-                    f"(+{latency_minutes} min). Adjacent trains cleared."
-                )
-            else:
-                desc = (
-                    f"{t_id} held at {edge_id} due to cascading delay from "
-                    f"{delay_train_id}. OR-Shield veto: {'Yes' if vetoed else 'No'}."
-                )
-            adjustments.append({
-                "id": len(adjustments)+1, 
-                "type": adj_type, 
-                "desc": desc,
-                "train_id": t_id,
-                "edge_id": edge_id,
-                "constraint_type": "SPEED_LIMIT",
-                "value": 0
-            })
-
-        elif safe_act == 2:
-            n_diverts += 1
-            adj_type = "Spatial Reroute"
-            desc = f"{t_id} diverted off main line to loop to recover headway."
-            adjustments.append({
-                "id": len(adjustments)+1, 
-                "type": adj_type, 
-                "desc": desc,
-                "train_id": t_id,
-                "edge_id": edge_id,
-                "constraint_type": "REROUTE",
-                "value": 2
-            })
-
-    # Always add a speed-cap proposal for the delayed train itself
-    if delay_train_id:
-        speed_cap = max(20, 90 - latency_minutes * 2)
-        delay_edge_id = next((e for t, e, _, _ in train_meta if t == delay_train_id), "edge-1-2")
+    # Run baseline (no delay)
+    baseline_outcomes = _run_forward_simulation(60, {}, {})
+    
+    # Run scenario
+    scenario_outcomes = _run_forward_simulation(60, latencies, forced_actions)
+    
+    if baseline_outcomes is None or scenario_outcomes is None:
+        raise HTTPException(status_code=503, detail="Simulation unavailable (model missing?).")
+        
+    adjustments = scenario_outcomes['adjustments']
+    
+    # Always add a speed-cap proposal for the delayed trains if applicable
+    for d_tid, l_min in latencies.items():
+        speed_cap = max(20, 90 - l_min * 2)
+        # get edge from live state
+        edge_id = "edge-1-2"
+        for t in TRAIN_STATES.values():
+            if t.get("train_id") == d_tid:
+                edge_id = t.get("edge_id", "edge-1-2")
+                break
+                
         adjustments.insert(0, {
-            "id": 0,
+            "id": len(adjustments),
             "type": "Dynamic Speed Cap",
             "desc": (
-                f"{delay_train_id} speed capped to {speed_cap} km/h to prevent "
-                f"rear-end risk. Latency: +{latency_minutes} min."
+                f"{d_tid} speed capped to {speed_cap} km/h to prevent "
+                f"rear-end risk. Latency: +{l_min} min."
             ),
-            "train_id": delay_train_id,
-            "edge_id": delay_edge_id,
+            "train_id": d_tid,
+            "edge_id": edge_id,
             "constraint_type": "SPEED_LIMIT",
             "value": speed_cap
         })
+        
+    # Set proper edge_ids on the adjustments using live data
+    for adj in adjustments:
+        if adj["edge_id"] == "unknown":
+            for t in TRAIN_STATES.values():
+                if t.get("train_id") == adj["train_id"]:
+                    adj["edge_id"] = t.get("edge_id", "unknown")
+                    break
 
-    # ── Step 6: Compute real impact metrics ──────────────────────────────
-    # Reliability degradation: proportional to delay severity + cascading holds
-    base_reliability_hit = -(latency_minutes * 0.6 + n_holds * 2.5)
-    reliability_pct = f"{max(base_reliability_hit, -95.0):.1f}%"
-
-    # Congestion index: increases with latency and inversely with diversions
-    congestion_base = 30 + latency_minutes * 1.8 + n_holds * 5 - n_diverts * 3
-    congestion_pct  = f"+{min(congestion_base, 200):.0f}%"
+    delay_diff = scenario_outcomes['total_delay_min'] - baseline_outcomes['total_delay_min']
+    holds_diff = scenario_outcomes['holds'] - baseline_outcomes['holds']
+    diverts_diff = scenario_outcomes['diverts'] - baseline_outcomes['diverts']
+    finished_diff = baseline_outcomes['finished'] - scenario_outcomes['finished'] # positive means fewer finished
+    
+    # Reliability: drops heavily if trains fail to finish, and drops slightly per minute of extra delay
+    rel_hit = -(finished_diff * 5.0) - (delay_diff * 0.1)
+    # Cap reliability drop to sensible bounds
+    rel_hit = min(100.0, max(rel_hit, -100.0))
+    rel_sign = "+" if rel_hit > 0 else ""
+    reliability_pct = f"{rel_sign}{rel_hit:.1f}%"
+    
+    # Congestion: spikes immediately when trains are held or diverted, plus minor delay penalty
+    cong_base = (holds_diff * 4.0) + (diverts_diff * 2.0) + (delay_diff * 0.15)
+    cong_base = min(200.0, max(cong_base, -100.0))
+    cong_sign = "+" if cong_base > 0 else ""
+    congestion_pct = f"{cong_sign}{cong_base:.1f}%"
 
     result = {
         "label": req.label,
-        "source": source,
-        "delay_train_id": delay_train_id,
-        "latency_minutes": latency_minutes,
-        "forced_actions_applied": forced_override_applied,
+        "source": "True Forward-Simulation (60 ticks)",
+        "latencies_applied": latencies,
+        "forced_actions_applied": list(forced_actions.keys()),
         "impact": {
             "reliability": reliability_pct,
-            "congestion":  congestion_pct,
-            "trains_held":    n_holds,
-            "trains_diverted": n_diverts,
+            "congestion": congestion_pct,
+            "baseline_finished": baseline_outcomes['finished'],
+            "scenario_finished": scenario_outcomes['finished'],
+            "baseline_delay": round(baseline_outcomes['total_delay_min'], 1),
+            "scenario_delay": round(scenario_outcomes['total_delay_min'], 1)
         },
-        "adjustments": adjustments,
-        "timestamp": _now_iso(),
+        "adjustments": adjustments
     }
-    print(f"[SIM-ANALYZE] ✅ Analysis complete | source={source} | holds={n_holds} diversions={n_diverts}")
     return result
 
 

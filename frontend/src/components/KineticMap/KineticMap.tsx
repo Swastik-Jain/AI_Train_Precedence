@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
+import { useMaintenanceStore } from '../../store/useMaintenanceStore';
 import type { TrainState } from '../../store/useMapStore';
 import './KineticMap.css';
 
@@ -8,8 +9,8 @@ import './KineticMap.css';
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 const SVG_W     = 4200;
-const SVG_H     = 560;
-const MAIN_Y    = 220;
+const SVG_H     = 400;
+const MAIN_Y    = 200;
 const TRACK_GAP = 22;   // px between parallel track centres
 const LOOP_OFF  = TRACK_GAP * 2;  // 44 px — how far into segment the loop arch extends
 const CP_OFF    = LOOP_OFF  / 2;  // 22 px — bezier S-curve control point
@@ -175,14 +176,31 @@ export const KineticMap: React.FC = () => {
 
   const previewState    = useCopilotStore(s => s.previewState);
   const aiAffectedEdges = useMemo(() => new Set(previewState?.affected_edges ?? []), [previewState]);
+  const activeBlocks    = useMaintenanceStore(s => s.activeBlocks);
 
   const [hoveredTrain, setHoveredTrain] = useState<string | null>(null);
+  const [selectedZone, setSelectedZone] = useState<Zone | null>(null);
 
   const selectedTrain = useMemo(() => 
     trainStates.find(t => t.train_id === selectedTrainId),
   [trainStates, selectedTrainId]);
 
   useEffect(() => { connectWebSocket(); }, [connectWebSocket]);
+
+  const handleForceAction = async (trainId: string, action: number) => {
+    try {
+      const resp = await fetch('/api/v1/dispatch/force-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ train_id: trainId, action, duration_ticks: 50 })
+      });
+      if (!resp.ok) {
+        console.error('Failed to force action');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // ── Node → schematic position ──────────────────────────────────────────────
   const nodePos = useMemo(() => {
@@ -321,7 +339,19 @@ export const KineticMap: React.FC = () => {
       );
     }
 
-    return <g key={`seg-${key}`}>{elems}</g>;
+    const yMin = trackY(0, z.cap) - 30;
+    const yMax = trackY(z.cap - 1, z.cap) + 30;
+
+    return (
+      <g 
+        key={`seg-${key}`}
+        style={{ cursor: 'pointer' }}
+        onClick={(e) => { e.stopPropagation(); setSelectedZone(z); setSelectedTrain(null); }}
+      >
+        <rect x={z.x1} y={yMin} width={Math.max(1, z.x2 - z.x1)} height={yMax - yMin} fill="transparent" />
+        {elems}
+      </g>
+    );
   };
 
   // ── Render: SWITCH ──────────────────────────────────────────────────────────
@@ -386,7 +416,16 @@ export const KineticMap: React.FC = () => {
       }
     }
 
-    return <g key={`sw-${key}`}>{elems}</g>;
+    return (
+      <g 
+        key={`sw-${key}`}
+        style={{ cursor: 'pointer' }}
+        onClick={(e) => { e.stopPropagation(); setSelectedZone(z); setSelectedTrain(null); }}
+      >
+        <rect x={z.x1} y={MAIN_Y - 40} width={Math.max(1, z.x2 - z.x1)} height={80} fill="transparent" />
+        {elems}
+      </g>
+    );
   };
 
   // ── Render: STATION ─────────────────────────────────────────────────────────
@@ -603,7 +642,17 @@ export const KineticMap: React.FC = () => {
       }
     }
 
-    return <g key={`st-${zKey}`}>{elems}</g>;
+    return (
+      <g 
+        key={`st-${zKey}`}
+        style={{ cursor: 'pointer' }}
+        onClick={(e) => { e.stopPropagation(); setSelectedZone(z); setSelectedTrain(null); }}
+      >
+        {/* The station background box is already enough for clicking, but a transparent rect ensures it */}
+        <rect x={visualX1} y={boxTop - 10} width={Math.max(1, visualX2 - visualX1)} height={boxBot - boxTop + 20} fill="transparent" />
+        {elems}
+      </g>
+    );
   };
 
   // ── Zone elements (computed once per topology state) ───────────────────────
@@ -649,12 +698,56 @@ export const KineticMap: React.FC = () => {
           viewBox={`0 0 ${SVG_W} ${SVG_H}`}
           preserveAspectRatio="xMinYMid meet"
           overflow="visible"
-          onClick={() => setSelectedTrain(null)}
+          onClick={() => { setSelectedTrain(null); setSelectedZone(null); }}
         >
+          <defs>
+            <pattern id="maint-hatch-red" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+              <rect width="4" height="8" fill="#ef4444" opacity="0.3" />
+            </pattern>
+            <pattern id="maint-hatch-amber" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+              <rect width="4" height="8" fill="#f59e0b" opacity="0.3" />
+            </pattern>
+          </defs>
+
           {/* Zones (segments → switches → stations) */}
           {zoneElems}
 
           {/* Block section boundaries are shown as 3 px gaps within each SEG zone */}
+
+          {/* ── MAINTENANCE BLOCKS HIGHLIGHT ────────────────────────────── */}
+          {Array.from(activeBlocks.values()).map(blk => {
+            if (!topology) return null;
+            const edge = topology.edges.find(e => e.id === blk.element_id);
+            if (!edge) return null;
+            const src = nodePos.get(edge.source);
+            const tgt = nodePos.get(edge.target);
+            if (!src || !tgt) return null;
+
+            const isTotal = blk.severity === 'TOTAL_BLOCK';
+            const color = isTotal ? '#ef4444' : '#f59e0b';
+            const bgFill = isTotal ? 'url(#maint-hatch-red)' : 'url(#maint-hatch-amber)';
+            
+            // Determine cap for the zone this block is in to set height
+            const midX = (src.x + tgt.x) / 2;
+            let cap = 2;
+            const zone = ZONES.find(z => midX >= z.x1 && midX <= z.x2);
+            if (zone && (zone.type === 'SEG' || zone.type === 'ST')) cap = zone.cap;
+            
+            const boxH = cap * TRACK_GAP + 10;
+            const boxY = MAIN_Y - boxH / 2;
+            
+            return (
+              <g key={`maint-${blk.blockId}`}>
+                <rect
+                  x={src.x} y={boxY}
+                  width={tgt.x - src.x} height={boxH}
+                  fill={bgFill}
+                  stroke={color} strokeWidth={1}
+                  rx={2}
+                />
+              </g>
+            );
+          })}
 
           {/* ── TRAINS ────────────────────────────────────────────────── */}
           {trainStates.map(train => {
@@ -672,8 +765,13 @@ export const KineticMap: React.FC = () => {
 
             const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
             const txtCol = '#e2e8f0';
-            const bW     = 32;   // train badge width
+            const bW     = 50;   // train badge width
             const bH     = 14;   // train badge height
+
+            // Draw train trailing from its head position so it doesn't visually bleed into the next segment
+            const isUp = train.direction === "UP" || train.direction === -1;
+            const trainX = isUp ? pos.x : pos.x - bW;
+            const tCx = trainX + bW / 2;
 
             return (
               <g
@@ -686,7 +784,7 @@ export const KineticMap: React.FC = () => {
                 {/* Conflict flash ring */}
                 {isConflict && (
                   <rect
-                    x={pos.x - bW / 2 - 4} y={pos.y - bH / 2 - 4}
+                    x={trainX - 4} y={pos.y - bH / 2 - 4}
                     width={bW + 8} height={bH + 8}
                     fill="none" stroke="#ef4444" strokeWidth={1}
                     strokeDasharray="3 2" rx={2}
@@ -697,7 +795,7 @@ export const KineticMap: React.FC = () => {
                 {/* Committed ring */}
                 {isCommit && (
                   <rect
-                    x={pos.x - bW / 2 - 5} y={pos.y - bH / 2 - 5}
+                    x={trainX - 5} y={pos.y - bH / 2 - 5}
                     width={bW + 10} height={bH + 10}
                     fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3}
                     className="sch-commit-anim"
@@ -706,7 +804,7 @@ export const KineticMap: React.FC = () => {
 
                 {/* Train badge */}
                 <rect
-                  x={pos.x - bW / 2} y={pos.y - bH / 2}
+                  x={trainX} y={pos.y - bH / 2}
                   width={bW} height={bH}
                   fill={`${fill}22`}
                   stroke={fill}
@@ -715,7 +813,7 @@ export const KineticMap: React.FC = () => {
                 />
 
                 {/* Train ID */}
-                <text x={pos.x} y={pos.y + 4}
+                <text x={tCx} y={pos.y + 4}
                   textAnchor="middle"
                   fill={fill}
                   className="sch-train-id"
@@ -727,10 +825,10 @@ export const KineticMap: React.FC = () => {
                 {isCommit && (
                   <>
                     <rect
-                      x={pos.x - 22} y={pos.y - bH / 2 - 15}
+                      x={tCx - 22} y={pos.y - bH / 2 - 15}
                       width={44} height={12}
                       fill="#22c55e" rx={2} />
-                    <text x={pos.x} y={pos.y - bH / 2 - 5}
+                    <text x={tCx} y={pos.y - bH / 2 - 5}
                       textAnchor="middle" className="sch-commit-tag">
                       {actionLabel}
                     </text>
@@ -790,6 +888,61 @@ export const KineticMap: React.FC = () => {
         </div>
       )}
 
+      {/* ── ZONE DETAIL PANEL ────────────────────────────────────────── */}
+      {selectedZone && (
+        <div className="sch-train-detail-panel" style={{ bottom: '20px', left: '20px', right: 'auto', top: 'auto', width: '280px' }}>
+          <div className="sch-td-header">
+            <span className="sch-td-title">
+              {selectedZone.type === 'ST' ? `STATION: ${(selectedZone as StationZone).stId}` : 
+               selectedZone.type === 'SEG' ? 'TRACK SEGMENT' : 'SWITCH'}
+            </span>
+            <button className="sch-td-close" onClick={() => setSelectedZone(null)}>×</button>
+          </div>
+          <div className="sch-td-content">
+            <div className="sch-td-row">
+              <span className="sch-td-label">Type</span>
+              <span className="sch-td-value">{selectedZone.type === 'ST' ? 'Station' : selectedZone.type === 'SEG' ? 'Mainline Segment' : 'Crossover / Switch'}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Tracks</span>
+              <span className="sch-td-value">
+                {selectedZone.type === 'SW' ? `${(selectedZone as SwitchZone).fromCap} ➔ ${(selectedZone as SwitchZone).toCap}` : (selectedZone as SegZone | StationZone).cap}
+              </span>
+            </div>
+            {selectedZone.type === 'SEG' && (selectedZone as SegZone).km && (
+              <div className="sch-td-row">
+                <span className="sch-td-label">Distance</span>
+                <span className="sch-td-value">{(selectedZone as SegZone).km} km</span>
+              </div>
+            )}
+            {selectedZone.type === 'SEG' && (selectedZone as SegZone).speed && (
+              <div className="sch-td-row">
+                <span className="sch-td-label">Max Speed</span>
+                <span className="sch-td-value">{(selectedZone as SegZone).speed} km/h</span>
+              </div>
+            )}
+            {selectedZone.type === 'SEG' && (selectedZone as SegZone).isGhat && (
+              <div className="sch-td-row">
+                <span className="sch-td-label">Notes</span>
+                <span className="sch-td-value" style={{ color: '#f59e0b' }}>Ghat Section (Token Block)</span>
+              </div>
+            )}
+            {selectedZone.type === 'ST' && STATION_META[(selectedZone as StationZone).stId] && (
+              <>
+                <div className="sch-td-row">
+                  <span className="sch-td-label">Km Mark</span>
+                  <span className="sch-td-value">{STATION_META[(selectedZone as StationZone).stId].km} km</span>
+                </div>
+                <div className="sch-td-row">
+                  <span className="sch-td-label">Loops</span>
+                  <span className="sch-td-value">{STATION_META[(selectedZone as StationZone).stId].loops}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── TRAIN DETAIL PANEL ────────────────────────────────────────── */}
       {selectedTrain && (
         <div className="sch-train-detail-panel">
@@ -822,6 +975,20 @@ export const KineticMap: React.FC = () => {
                 <span className="sch-td-value">{selectedTrain.path.length} segments left</span>
               </div>
             )}
+            <div className="sch-td-actions" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button 
+                onClick={() => handleForceAction(selectedTrain.train_id, 1)}
+                style={{ flex: 1, padding: '6px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Force Move
+              </button>
+              <button 
+                onClick={() => handleForceAction(selectedTrain.train_id, 0)}
+                style={{ flex: 1, padding: '6px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Force Stop
+              </button>
+            </div>
           </div>
         </div>
       )}

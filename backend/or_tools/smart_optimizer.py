@@ -63,6 +63,7 @@ class SmartOptimizer:
         track_map: dict,
         ghat_token=None,           # GhatTokenSystem | None
         node_km: dict = None,      # node_id → km, for direction resolution
+        raw_actions: list = None,
     ) -> tuple:
         """
         Apply heuristic safety rules on top of RL action proposals.
@@ -148,14 +149,15 @@ class SmartOptimizer:
                 if ghat_token and not ghat_token.can_enter(train['id'], direction):
                     token_blocked = True
 
+            # If the user or maintenance block explicitly forced a STOP, do not wake it up!
+            is_forced_stop = raw_actions is not None and int(ai_actions[i]) == 0 and int(raw_actions[i]) != 0
+
             # ── Layer 1: Anti-loitering ───────────────────────────────────
-            # Only override HOLD → PROCEED when the RL agent did NOT
-            # explicitly choose HOLD. If rl_original_action == 0 the agent
-            # made a deliberate decision to wait (strategic hold) and we
-            # must respect it. We only fire anti-loitering when something
-            # else (dwell logic, env guard) forced the current act to 0
-            # while the agent actually wanted to move.
-            if act == 0 and node_type in MAINLINE_TYPES and rl_original_action != 0:
+            # Wake up any train sitting on the mainline when the track ahead
+            # is clear, unless a user or maintenance block explicitly forced a STOP.
+            # Even if the RL agent chose HOLD (rl_original_action == 0), there
+            # is no strategic reason to wait on a mainline segment.
+            if act == 0 and node_type in MAINLINE_TYPES and not is_forced_stop:
                 if main_occ < main_cap and not token_blocked:
                     act = 1
                     safe_actions[i] = 1
@@ -168,7 +170,7 @@ class SmartOptimizer:
             # Loop wake-up is intentional even when RL chose HOLD: a train
             # sitting in a loop after dwell is done should always exit when
             # the main line is free — there is no strategic reason to stay.
-            elif act == 0 and node_type in HOLDING_TYPES:
+            elif act == 0 and node_type in HOLDING_TYPES and not is_forced_stop:
                 # Only wake up if dwell is done (dwell_rem == 0)
                 if (main_occ < dir_cap
                         and train.get('dwell_rem', 0) == 0
