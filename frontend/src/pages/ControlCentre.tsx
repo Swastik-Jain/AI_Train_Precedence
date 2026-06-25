@@ -9,11 +9,11 @@ import './ControlCentre.css';
 type ScenarioResult = {
   id: string;
   label: string;
-  delayTrainId: string;
-  latency: number;
+  latencies: Record<string, number>;
   forcedActions: Record<string, number>;
   impact: { reliability: string; congestion: string };
   adjustments: { id: number; type: string; desc: string; train_id?: string; edge_id?: string; constraint_type?: string; value?: number }[];
+  projected_schedule?: Record<string, Record<string, {arrival: number, departure: number}>>;
 };
 
 /* ────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ const ControlCentre: React.FC = () => {
 
   // Simulate Tab State
   const [delayTrainId, setDelayTrainId] = useState(trainStates[0]?.train_id || '');
-  const [latency, setLatency] = useState(15);
+  const [latencies, setLatencies] = useState<Record<string, number>>({});
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [recalculatedForTrain, setRecalculatedForTrain] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
@@ -89,32 +89,34 @@ const ControlCentre: React.FC = () => {
   const handleRecalculate = async () => {
     setIsRecalculating(true);
     try {
-        const res = await fetch('http://localhost:8000/api/v1/simulation/analyze', {
+        const res = await fetch('/api/v1/simulation/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 label: scenarioLabel,
-                delay_train_id: delayTrainId,
-                latency_minutes: latency,
+                latencies: latencies,
                 forced_actions: forcedActions,
             })
         });
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
-        setScenarios(prev => [
-            ...prev,
-            {
-                id: `${Date.now()}`,
-                label: data.label || scenarioLabel,
-                delayTrainId,
-                latency,
-                forcedActions,
-                impact: { reliability: data.impact.reliability, congestion: data.impact.congestion },
-                adjustments: data.adjustments || [],
-            },
-        ]);
+        
+        setScenarios(prev => {
+            const updated = [
+                ...prev,
+                {
+                    id: `${Date.now()}`,
+                    label: data.label || scenarioLabel,
+                    latencies,
+                    forcedActions,
+                    impact: { reliability: data.impact.reliability, congestion: data.impact.congestion },
+                    adjustments: data.adjustments || [],
+                },
+            ];
+            setScenarioLabel(`Scenario ${String.fromCharCode(65 + updated.length)}`);
+            return updated;
+        });
         setRecalculatedForTrain(delayTrainId);
-        setScenarioLabel(`Scenario ${String.fromCharCode(65 + scenarios.length + 1)}`); // auto-increment A, B, C...
     } catch (err) {
         console.error('[Sandbox] Analysis failed:', err);
     } finally {
@@ -134,7 +136,7 @@ const ControlCentre: React.FC = () => {
                 expires_at: Math.floor(Date.now() / 1000) + 3600 // 1 hour TTL
             }))
         };
-        const res = await fetch('http://localhost:8000/api/v1/simulation/deploy', {
+        const res = await fetch('/api/v1/simulation/deploy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -214,7 +216,7 @@ const ControlCentre: React.FC = () => {
     <div className="p-8 max-w-[1600px] mx-auto w-full space-y-6">
       
       {/* ── Top Shared Map Section ── */}
-      <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 relative flex flex-col h-[400px]">
+      <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 relative flex flex-col h-[560px]">
         <h3 className="text-lg font-bold text-on-surface mb-2 flex items-center justify-between pointer-events-none z-10 relative">
             <span className="flex items-center gap-2">
                 <span className="material-symbols-outlined">map</span>
@@ -298,11 +300,29 @@ const ControlCentre: React.FC = () => {
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Latency Duration (min)</label>
                             <input 
                                 className="w-full h-1.5 bg-surface-container rounded-lg appearance-none cursor-pointer accent-violet-500" 
-                                type="range" min="0" max="60" value={latency} onChange={e => setLatency(parseInt(e.target.value))}
+                                type="range" min="0" max="60" 
+                                value={delayTrainId ? (latencies[delayTrainId] || 0) : 0} 
+                                onChange={e => {
+                                    if (delayTrainId) {
+                                        const val = parseInt(e.target.value);
+                                        setLatencies(prev => ({...prev, [delayTrainId]: val}));
+                                    }
+                                }}
+                                disabled={!delayTrainId}
                             />
                             <div className="flex justify-between mt-2 text-xs font-medium text-on-surface-variant">
-                                <span>0</span><span className="text-violet-600 font-bold">{latency} min</span><span>60</span>
+                                <span>0</span><span className="text-violet-600 font-bold">{delayTrainId ? (latencies[delayTrainId] || 0) : 0} min</span><span>60</span>
                             </div>
+                            {Object.keys(latencies).length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {Object.entries(latencies).map(([tid, lat]) => (
+                                        <span key={tid} className="text-[10px] bg-rose-100 text-rose-700 px-2 py-1 rounded-full flex items-center gap-1">
+                                            {tid}: +{lat}m
+                                            <button onClick={() => setLatencies(prev => { const n = {...prev}; delete n[tid]; return n; })}>×</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Force Action (optional)</label>
@@ -354,11 +374,11 @@ const ControlCentre: React.FC = () => {
                                         <p className="text-xs font-bold text-violet-600 mb-1">{s.label}</p>
                                         <div className="grid grid-cols-2 gap-2">
                                             <div>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Reliability</p>
+                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Reliability Impact</p>
                                                 <p className="text-lg font-extrabold text-error">{s.impact.reliability}</p>
                                             </div>
                                             <div>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Congestion</p>
+                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Congestion Impact</p>
                                                 <p className="text-lg font-extrabold text-on-surface-variant">{s.impact.congestion}</p>
                                             </div>
                                         </div>
@@ -422,7 +442,7 @@ const ControlCentre: React.FC = () => {
                     </div>
                     <div className="flex-1 relative bg-surface-container-low rounded-xl overflow-hidden p-4">
                         <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: "radial-gradient(#8B5CF6 0.5px, transparent 0.5px)", backgroundSize: "24px 24px" }}></div>
-                        <MareyTimeline />
+                        <MareyTimeline scenarios={scenarios} hideHeader={true} hideTelemetry={true} />
                         <div className="absolute bottom-6 left-6 bg-white/70 backdrop-blur-md p-4 rounded-lg border border-white shadow-xl max-w-xs">
                             <p className="text-xs font-bold text-violet-600 mb-1">Impact Highlight</p>
                             <p className="text-sm text-on-surface leading-tight font-medium">
@@ -542,13 +562,13 @@ const ControlCentre: React.FC = () => {
                 <tbody className="divide-y divide-outline-variant/5">
                   {systemLogs.filter(log => {
                     if (logFilter === 'Critical Only') return log.statusType === 'error';
-                    if (logFilter === 'Manual Only') return log.operator === 'Dispatcher';
+                    if (logFilter === 'Manual Only') return log.operator !== 'System' && log.operator !== 'SYSTEM';
                     return true;
                   }).length === 0 ? (
                     <tr><td colSpan={5} className="py-6 text-center text-xs text-on-surface-variant">No system activity matches this filter.</td></tr>
                   ) : systemLogs.filter(log => {
                     if (logFilter === 'Critical Only') return log.statusType === 'error';
-                    if (logFilter === 'Manual Only') return log.operator === 'Dispatcher';
+                    if (logFilter === 'Manual Only') return log.operator !== 'System' && log.operator !== 'SYSTEM';
                     return true;
                   }).map((log, i) => (
                     <tr key={i} className="hover:bg-surface-container-low transition-colors">

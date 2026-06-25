@@ -2,20 +2,26 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Wrench, AlertTriangle, Clock, ShieldAlert } from 'lucide-react';
 import { useMaintenanceStore } from '../../store/useMaintenanceStore';
+import { useMapStore } from '../../store/useMapStore';
 import type { BlockSeverity, BlockType } from '../../store/useMaintenanceStore';
 import './MaintenanceDrawer.css';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function getLocalISOString(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 function nowISO(): string {
-  return new Date().toISOString().slice(0, 16); // for datetime-local input
+  return getLocalISOString(new Date());
 }
 
 function twoHoursLaterISO(): string {
   const d = new Date();
   d.setHours(d.getHours() + 2);
-  return d.toISOString().slice(0, 16);
+  return getLocalISOString(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -32,8 +38,11 @@ export const MaintenanceDrawer: React.FC = () => {
     removeBlockRemote,
   } = useMaintenanceStore();
 
-  const elementId = selectedEdgeForBlock ?? 'SEGMENT_UNKNOWN';
-  const existingBlock = activeBlocks.get(elementId);
+  const { topology } = useMapStore();
+  const edges = topology?.edges || [];
+
+  const [localElementId, setLocalElementId] = useState<string>(selectedEdgeForBlock ?? 'SEGMENT_UNKNOWN');
+  const existingBlock = activeBlocks.get(localElementId);
   const isEdit = !!existingBlock;
 
   const [type,      setType]      = useState<BlockType>('TRACK_SEGMENT');
@@ -43,6 +52,13 @@ export const MaintenanceDrawer: React.FC = () => {
   const [reason,    setReason]    = useState<string>('Scheduled maintenance');
   const [isWhatIf,  setIsWhatIf]  = useState<boolean>(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Sync localElementId when opening
+  useEffect(() => {
+    if (isDrawerOpen) {
+      setLocalElementId(selectedEdgeForBlock ?? 'SEGMENT_UNKNOWN');
+    }
+  }, [isDrawerOpen, selectedEdgeForBlock]);
 
   // Sync form with existing block
   useEffect(() => {
@@ -63,12 +79,12 @@ export const MaintenanceDrawer: React.FC = () => {
         setSeverity('TOTAL_BLOCK');
       }
     }
-  }, [isDrawerOpen, existingBlock]);
+  }, [isDrawerOpen, localElementId, existingBlock]);
 
   const handleConfirm = useCallback(async () => {
     setSubmitting(true);
     const block = {
-      element_id: elementId,
+      element_id: localElementId,
       type,
       severity,
       start_time: new Date(startTime).toISOString(),
@@ -86,17 +102,17 @@ export const MaintenanceDrawer: React.FC = () => {
 
     setSubmitting(false);
     closeDrawer();
-  }, [elementId, type, severity, startTime, endTime, reason, isWhatIf,
+  }, [localElementId, type, severity, startTime, endTime, reason, isWhatIf,
       applyBlockRemote, applyBlock, closeDrawer]);
 
   const handleRemove = useCallback(async () => {
     setSubmitting(true);
     if (!isWhatIf) {
-      await removeBlockRemote(elementId);
+      await removeBlockRemote(localElementId);
     }
     setSubmitting(false);
     closeDrawer();
-  }, [elementId, isWhatIf, removeBlockRemote, closeDrawer]);
+  }, [localElementId, isWhatIf, removeBlockRemote, closeDrawer]);
 
   return (
     <AnimatePresence>
@@ -130,7 +146,27 @@ export const MaintenanceDrawer: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="mms-title">{isEdit ? 'Edit Maintenance' : 'Schedule Maintenance'}</h2>
-                  <p className="mms-element-id">{elementId}</p>
+                  {!isEdit ? (
+                    <>
+                      <input
+                        list="edges-list"
+                        className="mms-element-id mms-select"
+                        value={localElementId === 'SEGMENT_UNKNOWN' ? '' : localElementId}
+                        onChange={(e) => setLocalElementId(e.target.value || 'SEGMENT_UNKNOWN')}
+                        placeholder="Search Area / Edge ID..."
+                        style={{ background: 'transparent', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '11px', padding: '2px 4px', borderRadius: '4px', marginTop: '2px', outline: 'none', width: '100%' }}
+                      />
+                      <datalist id="edges-list">
+                        {edges.map(e => (
+                          <option key={e.id} value={e.id}>
+                            {e.id} ({e.length}m)
+                          </option>
+                        ))}
+                      </datalist>
+                    </>
+                  ) : (
+                    <p className="mms-element-id">{localElementId}</p>
+                  )}
                 </div>
               </div>
               <button className="mms-close-btn" onClick={closeDrawer}>

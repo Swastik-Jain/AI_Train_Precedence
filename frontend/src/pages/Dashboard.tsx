@@ -21,11 +21,13 @@ const GhatMonitor = () => {
   };
   const isKSR = (id: string) => {
     const km = getKm(id);
-    return km >= 115 && km <= 121;
+    // Expand to cover the entire approach from Atgaon (98km) to Kasara (121km)
+    return km >= 98 && km <= 121;
   };
   const isIGP = (id: string) => {
     const km = getKm(id);
-    return km >= 136 && km <= 142;
+    // Expand to cover the entire approach from Devlali (182km) down to Igatpuri (136km)
+    return km >= 136 && km <= 182;
   };
 
   const ghatTrains = trainStates.filter(t => t.edge_id && isGhat(t.edge_id));

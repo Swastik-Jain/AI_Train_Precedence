@@ -38,9 +38,15 @@ function getTrainColor(trainId: string): string {
 }
 
 
+interface MareyTimelineProps {
+  scenarios?: any[];
+  hideHeader?: boolean;
+  hideTelemetry?: boolean;
+}
+
 // Component
 // ---------------------------------------------------------------------------
-export const MareyTimeline: React.FC = () => {
+export const MareyTimeline: React.FC<MareyTimelineProps> = ({ scenarios = [], hideHeader = false, hideTelemetry = false }) => {
   const { fetchBaseSchedule, globalSchedule, scheduleMaxTime } = useCopilotStore();
   const { activeBlocks } = useMaintenanceStore();
   const { trainStates, conflicts } = useMapStore();
@@ -55,6 +61,38 @@ export const MareyTimeline: React.FC = () => {
   React.useEffect(() => {
     fetchBaseSchedule();
   }, [fetchBaseSchedule]);
+
+  // Combine globalSchedule with projected schedules from scenarios
+  const combinedSchedule = useMemo(() => {
+    const base = [...globalSchedule];
+    if (scenarios.length > 0) {
+      const latest = scenarios[scenarios.length - 1];
+      if (latest.projected_schedule) {
+        const totalH = H - PAD_TOP - PAD_BTM;
+        
+        Object.entries(latest.projected_schedule).forEach(([trainId, nodesObj]) => {
+          const nodes = Object.entries(nodesObj as Record<string, {arrival: number, departure: number}>);
+          if (nodes.length > 0) {
+            nodes.sort((a, b) => a[1].arrival - b[1].arrival);
+            const path = nodes.map(([nodeName, times]) => {
+               const timeVal = times.arrival || times.departure;
+               const timePct = scheduleMaxTime > 0 ? Math.min(Math.max(timeVal / scheduleMaxTime, 0), 1) : 0;
+               const x = PAD_LEFT + (totalW * timePct);
+               const km = STATION_DISTANCES[nodeName] || 0;
+               const y = getSchematicY(km, totalH, PAD_TOP);
+               return { x, y };
+            });
+            base.push({
+              train_id: trainId,
+              type: 'projected',
+              path
+            });
+          }
+        });
+      }
+    }
+    return base;
+  }, [globalSchedule, scenarios, scheduleMaxTime, totalW]);
 
 
 
@@ -72,23 +110,25 @@ export const MareyTimeline: React.FC = () => {
   return (
     <div className="marey-container">
       {/* Header */}
-      <div className="marey-header">
-        <div>
-          <h2 className="marey-title">Marey Schedule Timeline</h2>
-          <p className="marey-subtitle">Spatio-temporal visualization of active corridors</p>
-        </div>
-        <div className="marey-legend">
-          <div className="marey-legend-item">
-            <div className="marey-legend-dot solid" />
-            <span>ACTIVE</span>
+      {!hideHeader && (
+        <div className="marey-header">
+          <div>
+            <h2 className="marey-title">Marey Schedule Timeline</h2>
+            <p className="marey-subtitle">Spatio-temporal visualization of active corridors</p>
           </div>
+          <div className="marey-legend">
+            <div className="marey-legend-item">
+              <div className="marey-legend-dot solid" />
+              <span>ACTIVE</span>
+            </div>
 
-          <div className="marey-legend-item">
-            <div className="marey-legend-dot maintenance" />
-            <span>MAINTENANCE</span>
+            <div className="marey-legend-item">
+              <div className="marey-legend-dot maintenance" />
+              <span>MAINTENANCE</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Canvas */}
       <div className="marey-canvas-wrapper">
@@ -138,7 +178,7 @@ export const MareyTimeline: React.FC = () => {
           })}
 
           {/* Active schedule paths */}
-          {globalSchedule.map((entry: ScheduleEntry, i: number) => {
+          {combinedSchedule.map((entry: ScheduleEntry, i: number) => {
             const color = getTrainColor(entry.train_id);
             return (
               <g key={`${entry.train_id}-${entry.type}-${i}`}>
@@ -149,6 +189,7 @@ export const MareyTimeline: React.FC = () => {
                   strokeWidth={entry.type === 'actual' ? 3.5 : 2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  strokeDasharray={entry.type === 'projected' ? "6 6" : "none"}
                   opacity={entry.type === 'actual' ? 1 : 0.9}
                   initial={{ pathLength: 0, opacity: 0 }}
                   animate={{ pathLength: 1, opacity: entry.type === 'actual' ? 1 : 0.9 }}
@@ -238,42 +279,44 @@ export const MareyTimeline: React.FC = () => {
       </div>
 
       {/* Summary chips */}
-      <div className="marey-chips">
-        <div className="marey-chip marey-chip-purple">
-          <p className="marey-chip-label">Active Trains</p>
-          <p className="marey-chip-value">
-            {trainStates.length > 0 ? `${trainStates.length} ON NETWORK` : 'NO TRAINS'}
-          </p>
+      {!hideTelemetry && (
+        <div className="marey-chips">
+          <div className="marey-chip marey-chip-purple">
+            <p className="marey-chip-label">Active Trains</p>
+            <p className="marey-chip-value">
+              {trainStates.length > 0 ? `${trainStates.length} ON NETWORK` : 'NO TRAINS'}
+            </p>
+          </div>
+          <div className="marey-chip marey-chip-green">
+            <p className="marey-chip-label">Fleet Status</p>
+            <p className="marey-chip-value">
+              {(() => {
+                const moving = trainStates.filter(t => t.status === 'Moving').length;
+                return `${moving} MOVING · ${trainStates.length - moving} HALTED`;
+              })()}
+            </p>
+          </div>
+          <div className="marey-chip marey-chip-slate">
+            <p className="marey-chip-label">Risk Factor</p>
+            <p className="marey-chip-value">
+              {(() => {
+                const riskScore = 0.02 + (conflicts.length * 0.25) + (activeBlocks.size * 0.1);
+                const label = riskScore >= 0.6 ? 'HIGH' : riskScore >= 0.2 ? 'MEDIUM' : 'LOW';
+                return `${label} (${riskScore.toFixed(2)})`;
+              })()}
+            </p>
+          </div>
+          <div className="marey-chip marey-chip-slate">
+            <p className="marey-chip-label">Energy Mode</p>
+            <p className="marey-chip-value">
+              {(() => {
+                const moving = trainStates.filter(t => t.status === 'Moving').length;
+                return moving > 15 ? 'MAX DRAW' : moving > 7 ? 'DYNAMIC' : 'ECONOMY+';
+              })()}
+            </p>
+          </div>
         </div>
-        <div className="marey-chip marey-chip-green">
-          <p className="marey-chip-label">Fleet Status</p>
-          <p className="marey-chip-value">
-            {(() => {
-              const moving = trainStates.filter(t => t.status === 'Moving').length;
-              return `${moving} MOVING · ${trainStates.length - moving} HALTED`;
-            })()}
-          </p>
-        </div>
-        <div className="marey-chip marey-chip-slate">
-          <p className="marey-chip-label">Risk Factor</p>
-          <p className="marey-chip-value">
-            {(() => {
-              const riskScore = 0.02 + (conflicts.length * 0.25) + (activeBlocks.size * 0.1);
-              const label = riskScore >= 0.6 ? 'HIGH' : riskScore >= 0.2 ? 'MEDIUM' : 'LOW';
-              return `${label} (${riskScore.toFixed(2)})`;
-            })()}
-          </p>
-        </div>
-        <div className="marey-chip marey-chip-slate">
-          <p className="marey-chip-label">Energy Mode</p>
-          <p className="marey-chip-value">
-            {(() => {
-              const moving = trainStates.filter(t => t.status === 'Moving').length;
-              return moving > 15 ? 'MAX DRAW' : moving > 7 ? 'DYNAMIC' : 'ECONOMY+';
-            })()}
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 };
