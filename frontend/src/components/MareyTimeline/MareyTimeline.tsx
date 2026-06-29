@@ -49,7 +49,7 @@ interface MareyTimelineProps {
 export const MareyTimeline: React.FC<MareyTimelineProps> = ({ scenarios = [], hideHeader = false, hideTelemetry = false }) => {
   const { fetchBaseSchedule, globalSchedule, scheduleMaxTime } = useCopilotStore();
   const { activeBlocks } = useMaintenanceStore();
-  const { trainStates, conflicts } = useMapStore();
+  const { trainStates } = useMapStore();
 
   const currentSimTime = useMapStore(s => s.simTime) || 0;
 
@@ -293,25 +293,6 @@ export const MareyTimeline: React.FC<MareyTimelineProps> = ({ scenarios = [], hi
               {(() => {
                 const moving = trainStates.filter(t => t.status === 'Moving').length;
                 return `${moving} MOVING · ${trainStates.length - moving} HALTED`;
-              })()}
-            </p>
-          </div>
-          <div className="marey-chip marey-chip-slate">
-            <p className="marey-chip-label">Risk Factor</p>
-            <p className="marey-chip-value">
-              {(() => {
-                const riskScore = 0.02 + (conflicts.length * 0.25) + (activeBlocks.size * 0.1);
-                const label = riskScore >= 0.6 ? 'HIGH' : riskScore >= 0.2 ? 'MEDIUM' : 'LOW';
-                return `${label} (${riskScore.toFixed(2)})`;
-              })()}
-            </p>
-          </div>
-          <div className="marey-chip marey-chip-slate">
-            <p className="marey-chip-label">Energy Mode</p>
-            <p className="marey-chip-value">
-              {(() => {
-                const moving = trainStates.filter(t => t.status === 'Moving').length;
-                return moving > 15 ? 'MAX DRAW' : moving > 7 ? 'DYNAMIC' : 'ECONOMY+';
               })()}
             </p>
           </div>

@@ -991,13 +991,14 @@ class TrainDispatchEnv(gym.Env):
 
             # ── HOLD ──────────────────────────────────────────────────────
             if act == 0:
+                priority_ratio = train['priority'] / 6.0
                 node_type = node_data.get('type', '')
                 if 'MAIN' in node_type or 'GHAT' in node_type:
                     if sig_val == 0.0 and train['speed'] == 0:
-                        reward -= 0.02   # idle on main line — bad
+                        reward -= 0.02 * priority_ratio  # idle on main line — bad
                 else:
                     if train.get('dwell_rem', 0) == 0:
-                        reward -= 0.01   # loitering in loop/switch after dwell done
+                        reward -= 0.01 * priority_ratio  # loitering in loop/switch after dwell done
                     else:
                         reward -= 0.0005
 
@@ -1008,7 +1009,7 @@ class TrainDispatchEnv(gym.Env):
                     train['idle_time'] += 1
                     idle = train['idle_time']
                     if idle > 10:
-                        idle_penalty = min((idle - 10) / 220.0, 0.5)  # ramps to 0.5 at idle=120
+                        idle_penalty = min((idle - 10) / 220.0, 0.5) * priority_ratio  # Scale by priority
                         reward -= idle_penalty
 
                 current_positions.append(pos)
@@ -1209,9 +1210,16 @@ class TrainDispatchEnv(gym.Env):
             # Max bleed is now 2.0 per step per train (predictable & bounded).
             delay = max(0, self.sim_time - sched['deadline'])
             if delay > 0:
-                # Doubled from 0.01 to 0.02 to punish delay more strictly
-                penalty_rate = delay * (train['priority'] / 6.0) * 0.02
-                reward -= min(penalty_rate, 2.0)
+                # Exponential multiplier: Base 1.5, centered around priority 6 (Express)
+                # Goods (P2) gets ~0.2x penalty, Rajdhani (P10) gets ~5.0x penalty
+                pri_multiplier = 1.5 ** (train['priority'] - 6)
+                
+                penalty_rate = delay * pri_multiplier * 0.02
+                
+                # Scale the cap as well, so high-priority trains can bleed significantly more
+                # reward when delayed than low-priority trains.
+                max_cap = 2.0 * pri_multiplier
+                reward -= min(penalty_rate, max_cap)
 
         # ── Deadlock detection ────────────────────────────────────────────
         # FIX 9: Raised threshold 80 → 120 (Fix 5 graduated penalty handles
@@ -1262,9 +1270,9 @@ class TrainDispatchEnv(gym.Env):
                 print(f"   Trains: {crashers}")
                 print(f"{'X'*50}\n")
                 # FIX 3: Collision is the absolute worst outcome — must exceed
-                # max deadlock penalty (-500) to close the 'ram trains to exit'
-                # exploit route. Hierarchy: Collision(-600) > Deadlock(-500).
-                reward    -= 600.0
+                # max deadlock and max cumulative delay penalties to close the 
+                # 'ram trains to exit' exploit route. 
+                reward    -= 10000.0
                 terminated = True
                 term_reason = "Collision Detected"
 
@@ -1281,6 +1289,7 @@ class TrainDispatchEnv(gym.Env):
         max_allowed     = last_spawn + 1500
         if self.sim_time > max_allowed:
             _log.warning(f"[TIMEOUT] sim_time={self.sim_time} max={max_allowed}")
+            reward -= 5000.0  # Massive penalty to prevent 'stall until timeout' exploit
             terminated = True
             term_reason = "Timeout Exceeded"
 

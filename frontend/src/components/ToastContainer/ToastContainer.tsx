@@ -44,7 +44,7 @@ export const ToastContainer: React.FC = () => {
 
   return (
     <div className="orbit-toast-container" aria-live="polite">
-      <AnimatePresence mode="popLayout">
+      <AnimatePresence>
         {toasts.map((t) => (
           <Toast key={t.id} toast={t} />
         ))}
