@@ -191,7 +191,7 @@ const DecisionCard: React.FC<{
           </span>
           {suggestion.urgency === 'CRITICAL' && (
             <span className="copilot-priority-badge" style={{ color: '#fff', backgroundColor: '#dc2626', padding: '2px 6px', fontSize: '10px' }}>
-              AUTO-ACT
+              SAFETY OVERRIDE
             </span>
           )}
         </div>
@@ -364,7 +364,7 @@ export const AICopilotPanel: React.FC = () => {
 
       {/* Cards */}
       <div className="copilot-card-list">
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence mode="wait">
           {activeSuggestions.length === 0 ? (
             <motion.div
               key="empty"

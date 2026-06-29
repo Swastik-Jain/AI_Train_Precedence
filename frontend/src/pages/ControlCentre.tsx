@@ -38,12 +38,13 @@ const ControlCentre: React.FC = () => {
   
   // Stores
   const { activeBlocks, fetchActiveBlocks, removeBlockRemote, openDrawer, impactReport } = useMaintenanceStore();
-  const { trainStates } = useMapStore();
+  const { trainStates, allTrains } = useMapStore();
   const blockList = Array.from(activeBlocks.values());
 
   // Simulate Tab State
   const [delayTrainId, setDelayTrainId] = useState(trainStates[0]?.train_id || '');
   const [latencies, setLatencies] = useState<Record<string, number>>({});
+  const [selectedDuration, setSelectedDuration] = useState(0);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [recalculatedForTrain, setRecalculatedForTrain] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
@@ -265,8 +266,9 @@ const ControlCentre: React.FC = () => {
       >
         {/* ================= SIMULATE TAB ================= */}
         {activeTab === 'simulate' && (
-          <div className="grid grid-cols-12 gap-8">
-            <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
+            <div className="grid grid-cols-12 gap-8">
+              <div className="col-span-12 lg:col-span-7 flex flex-col">
                 <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
@@ -282,37 +284,35 @@ const ControlCentre: React.FC = () => {
                     </div>
                     <div className="space-y-6">
                         <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Primary Delay Node</label>
-                            <div className="relative">
-                                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10">train</span>
-                                <select 
-                                    className="w-full pl-10 pr-10 py-3 bg-surface-container-low border-none rounded-sm font-mono text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface appearance-none cursor-pointer" 
-                                    value={delayTrainId}
-                                    onChange={e => setDelayTrainId(e.target.value)}
-                                >
-                                    <option value="">Select a train...</option>
-                                    {trainStates.map(t => <option key={t.train_id} value={t.train_id}>{t.train_id}</option>)}
-                                </select>
-                                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-                            </div>
-                        </div>
-                        <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Latency Duration (min)</label>
                             <input 
                                 className="w-full h-1.5 bg-surface-container rounded-lg appearance-none cursor-pointer accent-violet-500" 
                                 type="range" min="0" max="60" 
-                                value={delayTrainId ? (latencies[delayTrainId] || 0) : 0} 
-                                onChange={e => {
-                                    if (delayTrainId) {
-                                        const val = parseInt(e.target.value);
-                                        setLatencies(prev => ({...prev, [delayTrainId]: val}));
-                                    }
-                                }}
-                                disabled={!delayTrainId}
+                                value={selectedDuration} 
+                                onChange={e => setSelectedDuration(parseInt(e.target.value))}
                             />
-                            <div className="flex justify-between mt-2 text-xs font-medium text-on-surface-variant">
-                                <span>0</span><span className="text-violet-600 font-bold">{delayTrainId ? (latencies[delayTrainId] || 0) : 0} min</span><span>60</span>
+                            <div className="flex justify-between mt-2 text-xs font-medium text-on-surface-variant mb-3">
+                                <span>0</span><span className="text-violet-600 font-bold">{selectedDuration} min</span><span>60</span>
                             </div>
+                            
+                            <div className="flex gap-2">
+                                <select
+                                    className="flex-1 px-3 py-2 bg-surface-container-low border-none rounded-sm font-mono text-xs text-on-surface"
+                                    value=""
+                                    onChange={e => {
+                                        const tid = e.target.value;
+                                        setLatencies(prev => ({ ...prev, [tid]: selectedDuration }));
+                                    }}
+                                >
+                                    <option value="" disabled>Add {selectedDuration}m latency to train...</option>
+                                    {allTrains.map(t => (
+                                        <option key={t.train_id} value={t.train_id}>
+                                            {t.train_id} {t.status === 'Scheduled' ? '(Upcoming)' : '(Running)'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
                             {Object.keys(latencies).length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-2">
                                     {Object.entries(latencies).map(([tid, lat]) => (
@@ -323,6 +323,25 @@ const ControlCentre: React.FC = () => {
                                     ))}
                                 </div>
                             )}
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Primary Delay Node</label>
+                            <div className="relative">
+                                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10">train</span>
+                                <select 
+                                    className="w-full pl-10 pr-10 py-3 bg-surface-container-low border-none rounded-sm font-mono text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface appearance-none cursor-pointer" 
+                                    value={delayTrainId}
+                                    onChange={e => setDelayTrainId(e.target.value)}
+                                >
+                                    <option value="">Select a train...</option>
+                                    {allTrains.map(t => (
+                                        <option key={t.train_id} value={t.train_id}>
+                                            {t.train_id} {t.status === 'Scheduled' ? '(Upcoming)' : '(Running)'}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+                            </div>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Force Action (optional)</label>
@@ -393,8 +412,10 @@ const ControlCentre: React.FC = () => {
                         </div>
                     </div>
                 </section>
-                
-                <section className="sandbox-mms-panel rounded-lg shadow-sm h-full max-h-[300px] flex flex-col border border-outline-variant/10">
+            </div>
+            
+            <div className="col-span-12 lg:col-span-5 flex flex-col">
+                <section className="sandbox-mms-panel rounded-lg shadow-sm h-full flex flex-col border border-outline-variant/10">
                     <div className="sandbox-mms-header p-4">
                         <h3 className="sandbox-mms-title text-sm">
                             <span className="material-symbols-outlined text-amber-500 text-[16px]">construction</span>
@@ -430,9 +451,10 @@ const ControlCentre: React.FC = () => {
                     )}
                 </section>
             </div>
+            </div>
             
-            <div className="col-span-12 lg:col-span-8 flex flex-col">
-                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 h-full min-h-[400px] flex flex-col">
+            <div className="w-full flex flex-col">
+                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold text-on-surface">Interactive Marey Topology</h3>
                         <div className="flex gap-4">
@@ -440,7 +462,7 @@ const ControlCentre: React.FC = () => {
                             <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-300"></span> Historical</span>
                         </div>
                     </div>
-                    <div className="flex-1 relative bg-surface-container-low rounded-xl overflow-hidden p-4">
+                    <div className="relative bg-surface-container-low rounded-xl overflow-hidden p-4 [&_.marey-container]:!p-0 [&_.marey-canvas-wrapper]:!mb-0 [&_.marey-container]:border-0 [&_.marey-container]:shadow-none">
                         <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: "radial-gradient(#8B5CF6 0.5px, transparent 0.5px)", backgroundSize: "24px 24px" }}></div>
                         <MareyTimeline scenarios={scenarios} hideHeader={true} hideTelemetry={true} />
                         <div className="absolute bottom-6 left-6 bg-white/70 backdrop-blur-md p-4 rounded-lg border border-white shadow-xl max-w-xs">

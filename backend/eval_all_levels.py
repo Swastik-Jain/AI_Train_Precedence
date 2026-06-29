@@ -18,7 +18,7 @@ LEVELS = [
     {"name": "L3 –  7 Trains", "difficulty": 7,  "model": "ai/models/Phase3/L3_7Trains_Best/best_model"},
     {"name": "L4 – 10 Trains", "difficulty": 10, "model": "ai/models/Phase3/L4_10Trains_Best/best_model"},
     {"name": "L5 – 15 Trains", "difficulty": 15, "model": "ai/models/Phase3/L5_15Trains_Best_v2/best_model"},
-    {"name": "L6 – 25 Trains", "difficulty": 25, "model": "ai/models/Phase3/L6_25Trains_Best_v2/best_model"},
+    {"name": "L6 – 25 Trains", "difficulty": 25, "model": "ai/models/Phase3/L6_25Trains_Best_v5/best_model"},
 ]
 
 # Phase-4 pass criteria (post reward-normalisation)

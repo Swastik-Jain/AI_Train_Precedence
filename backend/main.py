@@ -118,7 +118,7 @@ def _get_sim_brain():
 
     # ── Level 6 checkpoint (Latest best) ──────────────────
     model_path = os.path.join(
-        os.path.dirname(__file__), "ai", "models", "Phase3", "L6_25Trains_Best_v4", "best_model.zip"
+        os.path.dirname(__file__), "ai", "models", "Phase3", "L6_25Trains_Best_v5", "best_model.zip"
     )
     stats_path = os.path.join(
         os.path.dirname(__file__), "ai", "models", "Phase3", "vec_normalize_L6_25Trains.pkl"
@@ -655,6 +655,7 @@ async def simulate_trains_bg():
                 "sim_time": _SIM_TICK,
                 "trains": [t for t in TRAIN_STATES.values()
                            if t.get("status") not in ("Scheduled", "Finished")],
+                "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in TRAIN_STATES.values() if t.get("status") != "Finished"],
                 "conflicts": [],
                 "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
             })
@@ -1045,6 +1046,7 @@ async def simulate_trains_bg():
             "type": "topology_update",
             "sim_time": _SIM_TICK,
             "trains": [t for t in TRAIN_STATES.values() if t.get("status") not in ("Scheduled", "Finished")],
+            "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in TRAIN_STATES.values() if t.get("status") != "Finished"],
             "conflicts": list(conflicts),
             "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
         }
@@ -1061,6 +1063,7 @@ async def simulate_trains_bg():
                 "type": "topology_update",
                 "sim_time": _SIM_TICK,
                 "trains": [],
+                "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in TRAIN_STATES.values() if t.get("status") != "Finished"],
                 "conflicts": [],
                 "maintenance_blocks": list(ACTIVE_BLOCKS.values()),
             })
@@ -1199,6 +1202,7 @@ async def start_inference():
             path = DOWN_PATH if direction_str == "DOWN" else UP_PATH
             cfg["path"] = path
 
+        cfg["id"] = t_id
         ordered_ids.append(t_id)
         new_states[t_id] = {
             "train_id"             : t_id,
@@ -2142,7 +2146,7 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
                 t['speed'] = max(0, t['speed'] * 0.3)
                 t['delay'] = t.get('delay', 0) + latencies[t_id]
 
-    outcomes = {'finished': 0, 'total_delay_min': 0.0, 'holds': 0, 'diverts': 0, 'adjustments': [], 'projected_schedule': {}}
+    outcomes = {'finished': 0, 'total_delay_min': 0.0, 'holds': 0, 'diverts': 0, 'adjustments': [], 'projected_schedule': {}, 'holds_total': 0, 'total_trains': len(sandbox_inner.trains), 'on_time_trains': 0}
     for t in sandbox_inner.trains:
         outcomes['projected_schedule'][t.get('id')] = {}
     
@@ -2189,7 +2193,25 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
                         "value": 2
                     })
 
-        _, _, terminated, truncated, _ = sandbox_inner.step(actions)
+        # Apply the OR-Shield safety checks to match live simulation behavior
+        if OR_SHIELD_ENABLED:
+            # optimize_decision returns safe_actions, decision_meta
+            safe_actions, _ = _OR_SHIELD.optimize_decision(
+                trains=sandbox_inner.trains,
+                ai_actions=actions.tolist() if hasattr(actions, 'tolist') else actions,
+                track_map=sandbox_inner.track_map,
+                raw_actions=actions.tolist() if hasattr(actions, 'tolist') else actions,
+            )
+            safe_actions = np.array(safe_actions, dtype=np.int64)
+        else:
+            safe_actions = np.array(actions, dtype=np.int64)
+            
+        for idx, t in enumerate(sandbox_inner.trains):
+            if not t.get('finished', False) and t.get('position', 0) not in (0, 998, 999):
+                if safe_actions[idx] == 0:
+                    outcomes['holds_total'] += 1
+                    
+        _, _, terminated, truncated, _ = sandbox_inner.step(safe_actions)
         
         # Track projected positions
         sim_tick_offset = _SIM_TICK
@@ -2209,6 +2231,8 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
     for t in sandbox_inner.trains:
         if t.get('finished', False):
             outcomes['finished'] += 1
+        if t.get('delay', 0) <= 5.0:
+            outcomes['on_time_trains'] += 1
         outcomes['total_delay_min'] += max(0, t.get('delay', 0))
 
     return outcomes
@@ -2267,23 +2291,19 @@ async def analyze_simulation(req: WhatIfScenarioRequest):
                     adj["edge_id"] = t.get("edge_id", "unknown")
                     break
 
-    delay_diff = scenario_outcomes['total_delay_min'] - baseline_outcomes['total_delay_min']
-    holds_diff = scenario_outcomes['holds'] - baseline_outcomes['holds']
-    diverts_diff = scenario_outcomes['diverts'] - baseline_outcomes['diverts']
-    finished_diff = baseline_outcomes['finished'] - scenario_outcomes['finished'] # positive means fewer finished
+    # Reliability: On-Time Performance (Trains with <= 5 min delay)
+    baseline_otp = (baseline_outcomes['on_time_trains'] / max(1, baseline_outcomes['total_trains'])) * 100
+    scenario_otp = (scenario_outcomes['on_time_trains'] / max(1, scenario_outcomes['total_trains'])) * 100
+    otp_diff = scenario_otp - baseline_otp
+    rel_sign = "+" if otp_diff > 0 else ""
+    reliability_pct = f"{scenario_otp:.1f}% OTP (Δ {rel_sign}{otp_diff:.1f}%)"
     
-    # Reliability: drops heavily if trains fail to finish, and drops slightly per minute of extra delay
-    rel_hit = -(finished_diff * 5.0) - (delay_diff * 0.1)
-    # Cap reliability drop to sensible bounds
-    rel_hit = min(100.0, max(rel_hit, -100.0))
-    rel_sign = "+" if rel_hit > 0 else ""
-    reliability_pct = f"{rel_sign}{rel_hit:.1f}%"
-    
-    # Congestion: spikes immediately when trains are held or diverted, plus minor delay penalty
-    cong_base = (holds_diff * 4.0) + (diverts_diff * 2.0) + (delay_diff * 0.15)
-    cong_base = min(200.0, max(cong_base, -100.0))
-    cong_sign = "+" if cong_base > 0 else ""
-    congestion_pct = f"{cong_sign}{cong_base:.1f}%"
+    # Congestion: Percentage of time trains spent stopped at red signals
+    baseline_stopped = (baseline_outcomes['holds_total'] / max(1, baseline_outcomes['total_trains'] * 60)) * 100
+    scenario_stopped = (scenario_outcomes['holds_total'] / max(1, scenario_outcomes['total_trains'] * 60)) * 100
+    stopped_diff = scenario_stopped - baseline_stopped
+    cong_sign = "+" if stopped_diff > 0 else ""
+    congestion_pct = f"{scenario_stopped:.1f}% Stopped (Δ {cong_sign}{stopped_diff:.1f}%)"
 
     result = {
         "label": req.label,
@@ -2467,11 +2487,18 @@ async def get_fleet():
     result = []
     for t_id, cfg in FLEET_REGISTRY.items():
         live = TRAIN_STATES.get(t_id, {})
+        status = live.get("status", "Scheduled")
+        
+        edge_id = live.get("edge_id")
+        if not edge_id or edge_id == "—":
+            direction = cfg.get("direction", "DOWN")
+            edge_id = "edge-0-1" if direction == "DOWN" else "edge-83-999"
+            
         result.append({
             **cfg,
-            "edge_id"            : live.get("edge_id", "—"),
+            "edge_id"            : edge_id,
             "position_percentage": live.get("position_percentage", 0),
-            "status"             : live.get("status", "Scheduled"),
+            "status"             : status,
             "speed_kmh"          : live.get("speed_kmh", 0),
         })
 

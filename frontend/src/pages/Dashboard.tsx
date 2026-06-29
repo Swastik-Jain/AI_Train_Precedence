@@ -32,8 +32,9 @@ const GhatMonitor = () => {
 
   const ghatTrains = trainStates.filter(t => t.edge_id && isGhat(t.edge_id));
   const activeInGhat = ghatTrains;
-  const queuedAtKSR = trainStates.filter(t => (t.status === 'Halted' || t.status === 'Blocked') && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isKSR(t.edge_id));
-  const queuedAtIGP = trainStates.filter(t => (t.status === 'Halted' || t.status === 'Blocked') && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isIGP(t.edge_id));
+  const isQueued = (status: string) => ['Halted', 'Blocked', 'Waiting at Signal'].includes(status);
+  const queuedAtKSR = trainStates.filter(t => isQueued(t.status) && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isKSR(t.edge_id));
+  const queuedAtIGP = trainStates.filter(t => isQueued(t.status) && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isIGP(t.edge_id));
 
   return (
     <div className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-slate-100 flex-shrink-0 relative overflow-hidden">

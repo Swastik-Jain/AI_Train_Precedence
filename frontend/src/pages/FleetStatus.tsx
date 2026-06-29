@@ -245,6 +245,7 @@ const SchedulePanel: React.FC<SchedulePanelProps> = ({ schedule }) => {
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
+
 const FleetStatus: React.FC = () => {
   useEffect(() => { document.title = 'Fleet Status — ORBIT'; }, []);
 

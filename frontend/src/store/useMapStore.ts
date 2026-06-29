@@ -33,9 +33,15 @@ export interface TrainState {
   direction?: string | number;
 }
 
+export interface TrainOption {
+  train_id: string;
+  status: string;
+}
+
 interface MapState {
   topology: TopologyData | null;
   trainStates: TrainState[];
+  allTrains: TrainOption[];
   conflicts: string[];
   /** Edges that just had an AI action committed — shown as green flash */
   committedEdges: Set<string>;
@@ -50,7 +56,7 @@ interface MapState {
   simTime: number;
   
   setTopology: (topology: TopologyData) => void;
-  updateLiveState: (trains: TrainState[], conflicts: string[]) => void;
+  updateLiveState: (trains: TrainState[], conflicts: string[], allTrains: TrainOption[]) => void;
   setSelectedTrain: (trainId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
   setIsConnected: (status: boolean) => void;
@@ -65,6 +71,7 @@ export const useMapStore = create<MapState>((set) => {
   return {
     topology: null,
     trainStates: [],
+    allTrains: [],
     conflicts: [],
     committedEdges: new Set<string>(),
     selectedTrainId: null,
@@ -78,7 +85,7 @@ export const useMapStore = create<MapState>((set) => {
 
     setTopology: (topology) => set({ topology }),
     
-    updateLiveState: (trainStates, conflicts) => set({ trainStates, conflicts }),
+    updateLiveState: (trainStates, conflicts, allTrains) => set({ trainStates, conflicts, allTrains }),
     
     setSelectedTrain: (selectedTrainId) => set({ selectedTrainId }),
     
@@ -110,6 +117,7 @@ export const useMapStore = create<MapState>((set) => {
         } else if (data.type === 'topology_update') {
           set((state) => ({ 
             trainStates: data.trains || [],
+            allTrains: data.all_trains || [],
             conflicts: data.conflicts || [],
             simTime: data.sim_time !== undefined ? data.sim_time : state.simTime
           }));
