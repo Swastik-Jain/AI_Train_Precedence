@@ -364,7 +364,7 @@ export const AICopilotPanel: React.FC = () => {
 
       {/* Cards */}
       <div className="copilot-card-list">
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {activeSuggestions.length === 0 ? (
             <motion.div
               key="empty"

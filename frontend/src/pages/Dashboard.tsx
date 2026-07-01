@@ -3,6 +3,7 @@ import { KineticMap } from '../components/KineticMap/KineticMap';
 import { AICopilotPanel } from '../components/AICopilotPanel/AICopilotPanel';
 import { MareyTimeline } from '../components/MareyTimeline/MareyTimeline';
 import { useMapStore } from '../store/useMapStore';
+import { useCopilotStore } from '../store/useCopilotStore';
 
 const GhatMonitor = () => {
   const trainStates = useMapStore(s => s.trainStates);
@@ -91,6 +92,7 @@ const Dashboard: React.FC = () => {
   const [simSpeed, setSimSpeed] = useState(0.4);
   
   const { zoomLevel, setZoomLevel } = useMapStore();
+  const { fetchBaseSchedule } = useCopilotStore();
 
   useEffect(() => {
     const fetchTelemetry = async () => {
@@ -203,6 +205,7 @@ const Dashboard: React.FC = () => {
                     if (data.status === 'optimal') {
                       setScheduleReady(true);
                       setScheduleTrainCount(data.fleet_size ?? 0);
+                      fetchBaseSchedule();
                     } else {
                       alert(`OR-Tools: ${data.message ?? 'Infeasible schedule'}`);
                     }

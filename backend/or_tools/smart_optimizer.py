@@ -131,6 +131,8 @@ class SmartOptimizer:
             is_token   = node_data.get('token_block', False)
 
             if not next_opts:
+                safe_actions[i] = 0
+                decision_meta[train['id']] = {"action": "STOP", "reason": "Track Blocked (No next options)"}
                 claimed_occ[pos][direction] += 1
                 continue
 

@@ -117,7 +117,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
     // -----------------------------------------------------------------------
     fetchBaseSchedule: async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/v1/fleet/generate-schedule', { method: 'POST' });
+        const res = await fetch('http://localhost:8000/api/v1/fleet/schedule');
         if (!res.ok) return;
         const data = await res.json();
         if (data.schedule) {
