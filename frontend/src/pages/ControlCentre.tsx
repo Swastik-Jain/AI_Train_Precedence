@@ -37,8 +37,8 @@ const ControlCentre: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'simulate' | 'maintenance' | 'audit'>('simulate');
   
   // Stores
-  const { activeBlocks, fetchActiveBlocks, removeBlockRemote, openDrawer, impactReport } = useMaintenanceStore();
-  const { trainStates, allTrains } = useMapStore();
+  const { activeBlocks, fetchActiveBlocks, removeBlockRemote, openDrawer, impactReport, applyBlockRemote } = useMaintenanceStore();
+  const { trainStates, allTrains, topology } = useMapStore();
   const blockList = Array.from(activeBlocks.values());
 
   // Simulate Tab State
@@ -56,8 +56,55 @@ const ControlCentre: React.FC = () => {
   const [logFilter, setLogFilter] = useState('All');
   const [logLimit, setLogLimit] = useState(50);
   
-  // Calendar State
-  const [calendarDate, setCalendarDate] = useState(new Date());
+  // Infrastructure Blocks State
+  const [selectedBlockEdge, setSelectedBlockEdge] = useState('');
+  const [selectedBlockSeverity, setSelectedBlockSeverity] = useState<'TOTAL_BLOCK'|'SPEED_RESTRICTION'>('TOTAL_BLOCK');
+  const edges = topology?.edges || [];
+
+  const handleAddBlock = async () => {
+    if (!selectedBlockEdge) return;
+    const block = {
+        element_id: selectedBlockEdge,
+        type: 'TRACK_SEGMENT',
+        severity: selectedBlockSeverity,
+        start_time: new Date().toISOString(),
+        end_time: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+        reason: 'What-If Simulation Block',
+        isWhatIf: true,
+    };
+    await applyBlockRemote(block as any);
+    setSelectedBlockEdge('');
+  };
+
+  // Maintenance Form State
+  const getLocalISOString = (date: Date): string => {
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  };
+  const [maintEdge, setMaintEdge] = useState('');
+  const [maintSeverity, setMaintSeverity] = useState<'TOTAL_BLOCK'|'SPEED_RESTRICTION'>('TOTAL_BLOCK');
+  const [maintStartTime, setMaintStartTime] = useState(getLocalISOString(new Date()));
+  const [maintEndTime, setMaintEndTime] = useState(getLocalISOString(new Date(Date.now() + 2 * 3600 * 1000)));
+  const [maintReason, setMaintReason] = useState('');
+  const [maintSubmitting, setMaintSubmitting] = useState(false);
+
+  const handleConfirmMaintenance = async () => {
+      if (!maintEdge) return;
+      setMaintSubmitting(true);
+      const block = {
+          element_id: maintEdge,
+          type: 'TRACK_SEGMENT',
+          severity: maintSeverity,
+          start_time: new Date(maintStartTime).toISOString(),
+          end_time: new Date(maintEndTime).toISOString(),
+          reason: maintReason,
+          isWhatIf: false,
+      };
+      await applyBlockRemote(block as any);
+      setMaintSubmitting(false);
+      setMaintEdge('');
+      setMaintReason('');
+  };
 
   useEffect(() => {
     document.title = 'Control Centre - Zentra Ops | ORBIT';
@@ -127,15 +174,14 @@ const ControlCentre: React.FC = () => {
 
   const handleDeploy = async () => {
     try {
+        // Only deploy real maintenance blocks — what-if blocks must never be
+        // promoted to live inference. The backend also enforces this, but
+        // filtering here makes the intent explicit.
+        const realBlocks = blockList.filter(b => !b.isWhatIf);
         const payload = {
-            blocks: blockList,
-            constraints: (scenarios[scenarios.length - 1]?.adjustments || []).map(a => ({
-                id: `constraint-${Date.now()}-${a.id}`,
-                type: a.constraint_type || 'SPEED_LIMIT',
-                edge_id: a.edge_id || 'edge-1-2', 
-                value: a.value !== undefined ? a.value : 0,
-                expires_at: Math.floor(Date.now() / 1000) + 3600 // 1 hour TTL
-            }))
+            blocks: realBlocks,
+            forced_actions: forcedActions,
+            latencies: latencies
         };
         const res = await fetch('/api/v1/simulation/deploy', {
             method: 'POST',
@@ -144,6 +190,11 @@ const ControlCentre: React.FC = () => {
         });
         if (res.ok) {
             alert('Simulation Sandbox Deployed Successfully!');
+            fetchActiveBlocks();
+            setScenarios([]);
+            setLatencies({});
+            setForcedActions({});
+            setScenarioLabel('Scenario A');
         } else {
             alert('Failed to deploy simulation.');
         }
@@ -173,45 +224,22 @@ const ControlCentre: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Calendar Logic
-  const now = new Date();
-  const year = calendarDate.getFullYear();
-  const month = calendarDate.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDay = new Date(year, month, 1).getDay();
-  const offset = firstDay === 0 ? 6 : firstDay - 1; 
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const currentMonthName = `${monthNames[month]} ${year}`;
-  const daysArray = Array.from({ length: 42 }, (_, i) => {
-    const dayNum = i - offset + 1;
-    if (dayNum > 0 && dayNum <= daysInMonth) return dayNum;
-    return null;
-  });
-
-  const blockEventsByDay = new Map<number, any[]>();
-  blockList.forEach(block => {
-    const startDate = new Date(block.start_time);
-    if (startDate.getMonth() === month && startDate.getFullYear() === year) {
-       const d = startDate.getDate();
-       const existing = blockEventsByDay.get(d) || [];
-       existing.push(block);
-       blockEventsByDay.set(d, existing);
-    }
-  });
-
-  // Priority Alerts
-  const alerts = [];
-  trainStates.forEach(t => {
-    if (t.status === 'Halted' || t.status === 'Blocked') {
-      alerts.push({ id: `train-${t.train_id}`, type: 'critical', icon: 'warning', title: `Train ${t.status}`, desc: `Train ${t.train_id} is currently ${t.status.toLowerCase()} on edge ${t.edge_id}.`, time: 'Live' });
-    }
-  });
-  if (impactReport && impactReport.status === 'blocks_active') {
-    alerts.push({ id: `impact-report`, type: 'info', icon: 'info', title: 'Maintenance Ripple Effect', desc: impactReport.message, time: 'Active' });
-  }
-  if (alerts.length === 0) {
-    alerts.push({ id: `all-clear`, type: 'success', icon: 'check_circle', title: 'System Nominal', desc: 'No critical wear, collisions, or halted trains detected in the network.', time: 'Live' });
-  }
+  // KPI Logic
+  const activeBlocksCount = blockList.filter(b => {
+    const nowTime = new Date().getTime();
+    const st = new Date(b.start_time).getTime();
+    const et = new Date(b.end_time).getTime();
+    return st <= nowTime && et >= nowTime;
+  }).length;
+  
+  const scheduledBlocksCount = blockList.filter(b => {
+    const nowTime = new Date().getTime();
+    const st = new Date(b.start_time).getTime();
+    return st > nowTime;
+  }).length;
+  
+  const totalEdges = topology?.edges?.length || 25;
+  const sectionsClear = totalEdges - activeBlocksCount;
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto w-full space-y-6">
@@ -256,80 +284,25 @@ const ControlCentre: React.FC = () => {
         ))}
       </div>
 
-      {/* ── Tab Content Area ── */}
-      <motion.div 
-        key={activeTab}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="pt-4"
-      >
-        {/* ================= SIMULATE TAB ================= */}
-        {activeTab === 'simulate' && (
-          <div className="flex flex-col gap-8">
-            <div className="grid grid-cols-12 gap-8">
-              <div className="col-span-12 lg:col-span-7 flex flex-col">
-                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold text-on-surface flex items-center gap-2">
-                            <span className="material-symbols-outlined text-violet-500">settings_input_component</span>
-                            Simulation Control
-                        </h3>
-                        <button 
-                            onClick={handleDeploy}
-                            className="bg-[#8B5CF6] text-white px-4 py-1.5 rounded text-xs font-bold shadow-md hover:bg-[#7c3aed] transition-colors"
-                        >
-                            Deploy
-                        </button>
+      {/* ================= SIMULATE TAB ================= */}
+      {activeTab === 'simulate' && (
+          <div className="grid grid-cols-12 gap-8">
+            {/* Left Pane: Scenario Builder */}
+            <div className="col-span-12 lg:col-span-4 flex flex-col">
+                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 flex-1">
+                    <div className="flex items-center gap-2 mb-8 text-on-surface">
+                        <span className="material-symbols-outlined text-violet-500">settings_input_component</span>
+                        <h3 className="text-lg font-bold">Scenario builder</h3>
                     </div>
-                    <div className="space-y-6">
-                        <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Latency Duration (min)</label>
-                            <input 
-                                className="w-full h-1.5 bg-surface-container rounded-lg appearance-none cursor-pointer accent-violet-500" 
-                                type="range" min="0" max="60" 
-                                value={selectedDuration} 
-                                onChange={e => setSelectedDuration(parseInt(e.target.value))}
-                            />
-                            <div className="flex justify-between mt-2 text-xs font-medium text-on-surface-variant mb-3">
-                                <span>0</span><span className="text-violet-600 font-bold">{selectedDuration} min</span><span>60</span>
-                            </div>
-                            
-                            <div className="flex gap-2">
-                                <select
-                                    className="flex-1 px-3 py-2 bg-surface-container-low border-none rounded-sm font-mono text-xs text-on-surface"
-                                    value=""
-                                    onChange={e => {
-                                        const tid = e.target.value;
-                                        setLatencies(prev => ({ ...prev, [tid]: selectedDuration }));
-                                    }}
-                                >
-                                    <option value="" disabled>Add {selectedDuration}m latency to train...</option>
-                                    {allTrains.map(t => (
-                                        <option key={t.train_id} value={t.train_id}>
-                                            {t.train_id} {t.status === 'Scheduled' ? '(Upcoming)' : '(Running)'}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
 
-                            {Object.keys(latencies).length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-2">
-                                    {Object.entries(latencies).map(([tid, lat]) => (
-                                        <span key={tid} className="text-[10px] bg-rose-100 text-rose-700 px-2 py-1 rounded-full flex items-center gap-1">
-                                            {tid}: +{lat}m
-                                            <button onClick={() => setLatencies(prev => { const n = {...prev}; delete n[tid]; return n; })}>×</button>
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                    <div className="space-y-8">
+                        {/* Primary Delay Node */}
                         <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Primary Delay Node</label>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Primary Delay Node</label>
                             <div className="relative">
-                                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10">train</span>
+                                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 text-[18px]">train</span>
                                 <select 
-                                    className="w-full pl-10 pr-10 py-3 bg-surface-container-low border-none rounded-sm font-mono text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface appearance-none cursor-pointer" 
+                                    className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border border-outline-variant/20 rounded-md font-mono text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface appearance-none cursor-pointer hover:bg-surface-container-high transition-colors" 
                                     value={delayTrainId}
                                     onChange={e => setDelayTrainId(e.target.value)}
                                 >
@@ -340,212 +313,484 @@ const ControlCentre: React.FC = () => {
                                         </option>
                                     ))}
                                 </select>
-                                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+                                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[18px]">expand_more</span>
                             </div>
                         </div>
+
+                        {/* Latency Duration */}
                         <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Force Action (optional)</label>
-                            <div className="flex gap-2">
-                                <select
-                                    className="flex-1 px-3 py-2 bg-surface-container-low border-none rounded-sm font-mono text-xs text-on-surface"
-                                    value=""
-                                    onChange={e => {
-                                        const action = parseInt(e.target.value);
-                                        if (delayTrainId) setForcedActions(prev => ({ ...prev, [delayTrainId]: action }));
-                                    }}
-                                >
-                                    <option value="" disabled>Select action for {delayTrainId || 'train'}...</option>
-                                    <option value="0">HOLD</option>
-                                    <option value="1">PROCEED (MAIN)</option>
-                                    <option value="2">DIVERT</option>
-                                </select>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Latency Duration — {selectedDuration} Min</label>
+                            <input 
+                                className="w-full h-1.5 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-violet-500 hover:accent-violet-400 transition-colors" 
+                                type="range" min="0" max="60" 
+                                value={selectedDuration} 
+                                onChange={e => {
+                                    const val = parseInt(e.target.value);
+                                    setSelectedDuration(val);
+                                    if (delayTrainId && val > 0) {
+                                        setLatencies(prev => ({ ...prev, [delayTrainId]: val }));
+                                    } else if (delayTrainId && val === 0) {
+                                        setLatencies(prev => { const n = {...prev}; delete n[delayTrainId]; return n; });
+                                    }
+                                }}
+                            />
+                        </div>
+
+                        {/* Force Action */}
+                        <div className="pt-2 border-t border-outline-variant/10">
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Force Action (Optional)</label>
+                            <div className="flex gap-2 items-center">
+                                <div className="relative flex-1">
+                                    <select
+                                        className="w-full pl-3 pr-8 py-2 bg-surface-container-low border border-outline-variant/20 rounded-md font-mono text-sm text-on-surface appearance-none hover:bg-surface-container-high transition-colors cursor-pointer"
+                                        value=""
+                                        onChange={e => {
+                                            const action = parseInt(e.target.value);
+                                            if (delayTrainId) setForcedActions(prev => ({ ...prev, [delayTrainId]: action }));
+                                        }}
+                                    >
+                                        <option value="" disabled>Select action...</option>
+                                        <option value="0">HOLD</option>
+                                        <option value="1">PROCEED (MAIN)</option>
+                                        <option value="2">DIVERT</option>
+                                    </select>
+                                    <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">expand_more</span>
+                                </div>
+                                <button className="px-4 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1 text-on-surface">
+                                    <span className="material-symbols-outlined text-[16px]">add</span> Add
+                                </button>
                             </div>
+                            
                             {Object.keys(forcedActions).length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-2">
+                                <div className="flex flex-col gap-2 mt-3">
                                     {Object.entries(forcedActions).map(([tid, act]) => (
-                                        <span key={tid} className="text-[10px] bg-violet-100 text-violet-700 px-2 py-1 rounded-full flex items-center gap-1">
-                                            {tid}: {['HOLD','MAIN','DIVERT'][act]}
-                                            <button onClick={() => setForcedActions(prev => { const n = {...prev}; delete n[tid]; return n; })}>×</button>
-                                        </span>
+                                        <div key={tid} className="text-xs bg-surface-container px-3 py-2 rounded-md flex items-center justify-between border border-outline-variant/10">
+                                            <span><span className="font-mono font-bold text-violet-600">{tid}</span>: {['HOLD','MAIN','DIVERT'][act]}</span>
+                                            <button onClick={() => setForcedActions(prev => { const n = {...prev}; delete n[tid]; return n; })} className="text-slate-400 hover:text-rose-500">
+                                                <span className="material-symbols-outlined text-[16px]">close</span>
+                                            </button>
+                                        </div>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <button 
-                            onClick={handleRecalculate} disabled={isRecalculating}
-                            className="w-full bg-[#8B5CF6] text-white py-4 rounded-sm font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all disabled:opacity-50">
-                            <span className={`material-symbols-outlined ${isRecalculating ? 'animate-spin' : ''}`}>refresh</span>
-                            {isRecalculating ? 'Recalculating...' : 'Recalculate Network'}
-                        </button>
-                        <div className="pt-4 border-t border-surface-container">
-                            <div className="flex justify-between items-center mb-2">
-                                <p className="text-xs font-bold text-slate-500 uppercase">Scenarios ({scenarios.length})</p>
-                                {scenarios.length > 0 && (
-                                    <button onClick={() => setScenarios([])} className="text-[10px] text-rose-500 font-bold">Clear all</button>
-                                )}
+
+                        {/* Infrastructure Blocks */}
+                        <div className="pt-2 border-t border-outline-variant/10">
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Infrastructure Blocks</label>
+                            <label className="block text-[10px] font-bold uppercase text-slate-400 mb-2">Block a track segment</label>
+                            
+                            <div className="flex gap-2 items-center mb-3">
+                                <div className="relative flex-[1.5]">
+                                    <select
+                                        className="w-full pl-3 pr-8 py-2 bg-surface-container-low border border-outline-variant/20 rounded-md font-mono text-sm text-on-surface appearance-none hover:bg-surface-container-high transition-colors cursor-pointer"
+                                        value={selectedBlockEdge}
+                                        onChange={(e) => setSelectedBlockEdge(e.target.value)}
+                                    >
+                                        <option value="">Segment...</option>
+                                        {edges.map(e => (
+                                            <option key={e.id} value={e.id}>{e.id}</option>
+                                        ))}
+                                    </select>
+                                    <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">expand_more</span>
+                                </div>
+                                <div className="relative flex-1">
+                                    <select
+                                        className="w-full pl-3 pr-8 py-2 bg-surface-container-low border border-outline-variant/20 rounded-md text-sm text-on-surface appearance-none hover:bg-surface-container-high transition-colors cursor-pointer"
+                                        value={selectedBlockSeverity}
+                                        onChange={(e) => setSelectedBlockSeverity(e.target.value as any)}
+                                    >
+                                        <option value="TOTAL_BLOCK">Total block</option>
+                                        <option value="SPEED_RESTRICTION">Speed restriction</option>
+                                    </select>
+                                    <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">expand_more</span>
+                                </div>
+                                <button 
+                                    onClick={handleAddBlock}
+                                    disabled={!selectedBlockEdge}
+                                    className="px-3 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1 disabled:opacity-50 text-on-surface"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">add</span> Add
+                                </button>
                             </div>
-                            <div className="space-y-2 max-h-[280px] overflow-y-auto">
-                                {scenarios.length === 0 && (
-                                    <p className="text-xs text-on-surface-variant italic">Run a scenario to see results here.</p>
-                                )}
-                                {scenarios.map(s => (
-                                    <div key={s.id} className="bg-surface-container-low p-3 rounded-lg">
-                                        <p className="text-xs font-bold text-violet-600 mb-1">{s.label}</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Reliability Impact</p>
-                                                <p className="text-lg font-extrabold text-error">{s.impact.reliability}</p>
+
+                            {blockList.filter(b => b.isWhatIf).length === 0 ? (
+                                <p className="text-xs text-on-surface-variant italic">No blocks added. These affect only this scenario.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2">
+                                    {blockList.filter(b => b.isWhatIf).map(blk => (
+                                        <div key={blk.blockId} className="text-xs bg-surface-container px-3 py-2 rounded-md flex items-center justify-between border border-outline-variant/10">
+                                            <div className="flex gap-2 items-center">
+                                                <span className={blk.severity === 'TOTAL_BLOCK' ? 'text-rose-500 font-bold' : 'text-amber-500 font-bold'}>
+                                                    {blk.severity === 'TOTAL_BLOCK' ? '🔴' : '🟡'}
+                                                </span>
+                                                <span className="font-mono font-bold text-on-surface">{blk.element_id}</span>
                                             </div>
-                                            <div>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase">Congestion Impact</p>
-                                                <p className="text-lg font-extrabold text-on-surface-variant">{s.impact.congestion}</p>
-                                            </div>
+                                            <button onClick={() => removeBlockRemote(blk.element_id)} className="text-slate-400 hover:text-rose-500">
+                                                <span className="material-symbols-outlined text-[16px]">close</span>
+                                            </button>
                                         </div>
-                                        {Object.keys(s.forcedActions).length > 0 && (
-                                            <p className="text-[9px] text-on-surface-variant mt-1">
-                                                Forced: {Object.entries(s.forcedActions).map(([t, a]) => `${t}→${['HOLD','MAIN','DIVERT'][a]}`).join(', ')}
-                                            </p>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Scenario Label */}
+                        <div className="pt-2 border-t border-outline-variant/10">
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2 mt-4">Scenario Label</label>
+                            <input 
+                                type="text"
+                                className="w-full px-3 py-2.5 bg-surface-container-low border border-outline-variant/20 rounded-md text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface"
+                                value={scenarioLabel}
+                                onChange={e => setScenarioLabel(e.target.value)}
+                            />
+                        </div>
+
+                        {/* Recalculate Button */}
+                        <div className="pt-4">
+                            <button 
+                                onClick={handleRecalculate} disabled={isRecalculating}
+                                className="w-full bg-primary text-on-primary py-3.5 rounded-md font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm">
+                                <span className={`material-symbols-outlined ${isRecalculating ? 'animate-spin' : ''}`}>sync</span>
+                                {isRecalculating ? 'Recalculating network...' : 'Recalculate network'}
+                            </button>
                         </div>
                     </div>
                 </section>
             </div>
-            
-            <div className="col-span-12 lg:col-span-5 flex flex-col">
-                <section className="sandbox-mms-panel rounded-lg shadow-sm h-full flex flex-col border border-outline-variant/10">
-                    <div className="sandbox-mms-header p-4">
-                        <h3 className="sandbox-mms-title text-sm">
-                            <span className="material-symbols-outlined text-amber-500 text-[16px]">construction</span>
-                            What-If Blocks
-                        </h3>
-                        <button className="sandbox-mms-add-btn text-xs px-2 py-1" onClick={() => openDrawer()}>
-                            <span className="material-symbols-outlined text-[12px]">add</span> Add
-                        </button>
+
+            {/* Right Pane: Visuals & Comparison */}
+            <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+                
+                {/* Marey Topology */}
+                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-lg font-bold text-on-surface">Marey space-time topology</h3>
+                        <div className="flex gap-4">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded-full bg-[#8B5CF6]"></span> Projected</span>
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-300"></span> Historical</span>
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-2 rounded-sm bg-amber-500"></span> Block</span>
+                        </div>
                     </div>
-                    {blockList.length === 0 ? (
-                        <div className="sandbox-mms-empty flex-1 flex flex-col items-center justify-center py-6">
-                            <p className="text-xs text-on-surface-variant text-center px-4">No active blocks. Add a What-If block to simulate repairs.</p>
+                    <div className="relative bg-surface-container-low rounded-xl overflow-hidden p-4 [&_.marey-container]:!p-0 [&_.marey-canvas-wrapper]:!mb-0 [&_.marey-container]:border-0 [&_.marey-container]:shadow-none">
+                        <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: "radial-gradient(#8B5CF6 0.5px, transparent 0.5px)", backgroundSize: "24px 24px" }}></div>
+                        <MareyTimeline scenarios={scenarios} hideHeader={true} hideTelemetry={true} />
+                    </div>
+                </section>
+
+                {/* Scenario Comparison */}
+                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 flex-1 flex flex-col min-h-[200px]">
+                    <div className="flex items-center gap-2 mb-6">
+                        <span className="material-symbols-outlined text-violet-500">splitscreen</span>
+                        <h3 className="text-lg font-bold text-on-surface">Scenario comparison</h3>
+                    </div>
+
+                    {scenarios.length === 0 ? (
+                        <div className="flex-1 flex items-center justify-center">
+                            <p className="text-sm text-on-surface-variant font-medium">Run a scenario to see results here.</p>
                         </div>
                     ) : (
-                        <div className="sandbox-block-list overflow-y-auto flex-1 p-2">
-                            {blockList.map((blk) => (
-                                <div key={blk.blockId} className={`sandbox-block-card p-2 text-sm ${blk.isWhatIf ? 'whatif' : ''}`}>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-bold truncate">{blk.element_id}</div>
-                                        <div className="text-[10px] flex gap-2 mt-1">
-                                            <span className={blk.severity === 'TOTAL_BLOCK' ? 'text-rose-500 font-bold' : 'text-amber-500 font-bold'}>
-                                                {blk.severity === 'TOTAL_BLOCK' ? '🔴 BLOCKED' : '🟡 RESTRICTED'}
-                                            </span>
-                                            <span className="text-on-surface-variant truncate">{blk.type}</span>
+                        <div className="flex-1 overflow-y-auto mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {scenarios.map(s => (
+                                <div key={s.id} className="bg-surface-container-low p-4 rounded-lg border border-outline-variant/20 relative">
+                                    <p className="text-sm font-bold text-violet-600 mb-3">{s.label}</p>
+                                    <div className="grid grid-cols-2 gap-4 mb-2">
+                                        <div>
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Reliability</p>
+                                            <p className="text-xl font-extrabold text-error">{s.impact.reliability}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Congestion</p>
+                                            <p className="text-xl font-extrabold text-on-surface-variant">{s.impact.congestion}</p>
                                         </div>
                                     </div>
-                                    <button onClick={() => removeBlockRemote(blk.element_id)} className="text-on-surface-variant hover:text-rose-500">
+                                    {(Object.keys(s.forcedActions).length > 0 || Object.keys(s.latencies).length > 0) && (
+                                        <div className="mt-3 pt-3 border-t border-outline-variant/10 text-xs text-on-surface-variant space-y-1">
+                                            {Object.keys(s.latencies).length > 0 && (
+                                                <p>Latencies: {Object.entries(s.latencies).map(([t, l]) => `${t}(+${l}m)`).join(', ')}</p>
+                                            )}
+                                            {Object.keys(s.forcedActions).length > 0 && (
+                                                <p>Forced: {Object.entries(s.forcedActions).map(([t, a]) => `${t}→${['HOLD','MAIN','DIVERT'][a]}`).join(', ')}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                    <button onClick={() => setScenarios(prev => prev.filter(x => x.id !== s.id))} className="absolute top-3 right-3 text-slate-400 hover:text-rose-500">
                                         <span className="material-symbols-outlined text-[16px]">close</span>
                                     </button>
                                 </div>
                             ))}
                         </div>
                     )}
-                </section>
-            </div>
-            </div>
-            
-            <div className="w-full flex flex-col">
-                <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold text-on-surface">Interactive Marey Topology</h3>
-                        <div className="flex gap-4">
-                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded-full bg-[#8B5CF6]"></span> Projected</span>
-                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-300"></span> Historical</span>
-                        </div>
-                    </div>
-                    <div className="relative bg-surface-container-low rounded-xl overflow-hidden p-4 [&_.marey-container]:!p-0 [&_.marey-canvas-wrapper]:!mb-0 [&_.marey-container]:border-0 [&_.marey-container]:shadow-none">
-                        <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: "radial-gradient(#8B5CF6 0.5px, transparent 0.5px)", backgroundSize: "24px 24px" }}></div>
-                        <MareyTimeline scenarios={scenarios} hideHeader={true} hideTelemetry={true} />
-                        <div className="absolute bottom-6 left-6 bg-white/70 backdrop-blur-md p-4 rounded-lg border border-white shadow-xl max-w-xs">
-                            <p className="text-xs font-bold text-violet-600 mb-1">Impact Highlight</p>
-                            <p className="text-sm text-on-surface leading-tight font-medium">
-                                {scenarios.length > 0
-                                    ? `${scenarios[scenarios.length - 1].label}: ${scenarios.length} scenario${scenarios.length > 1 ? 's' : ''} compared. Latest reliability: ${scenarios[scenarios.length - 1].impact.reliability}.`
-                                    : `Node ${delayTrainId || 'selected train'} might cause bottlenecks.`}
-                            </p>
-                        </div>
+
+                    <div className="mt-auto pt-6 border-t border-outline-variant/10 flex justify-end">
+                        <button 
+                            onClick={handleDeploy}
+                            disabled={scenarios.length === 0}
+                            className="bg-surface-container border border-outline-variant/20 text-on-surface px-5 py-2.5 rounded-md text-sm font-bold shadow-sm hover:bg-surface-container-high transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                           <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
+                           Deploy to live network
+                        </button>
                     </div>
                 </section>
             </div>
           </div>
         )}
 
+
         {/* ================= MAINTENANCE TAB ================= */}
         {activeTab === 'maintenance' && (
-          <div className="grid grid-cols-12 gap-8">
-            <motion.section className="col-span-12 lg:col-span-4 bg-surface-container-lowest rounded-lg p-6 border border-outline-variant/10 shadow-sm flex flex-col" variants={fadeUp as any}>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold tracking-tight">Priority Alerts</h3>
-                {alerts.length > 0 && <span className="bg-tertiary text-on-tertiary text-[10px] px-2 py-0.5 rounded-full font-bold">{alerts.length}</span>}
-              </div>
-              <div className="space-y-4 overflow-y-auto pr-2 max-h-[400px]">
-                {alerts.map((alert) => (
-                  <div key={alert.id} className={`flex gap-4 p-4 rounded-lg ${
-                    alert.type === 'critical' ? 'bg-tertiary-container/10 border-l-4 border-tertiary' : 
-                    alert.type === 'info' ? 'bg-surface-container border-l-4 border-amber-400' : 'bg-surface-container opacity-60'
-                  }`}>
-                    <span className={`material-symbols-outlined ${
-                      alert.type === 'critical' ? 'text-tertiary' : alert.type === 'info' ? 'text-amber-500' : 'text-primary'
-                    }`}>{alert.icon}</span>
-                    <div>
-                      <h4 className={`text-sm font-bold ${alert.type === 'critical' ? 'text-on-tertiary-container' : 'text-on-surface'}`}>{alert.title}</h4>
-                      <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">{alert.desc}</p>
-                      <span className={`text-[10px] font-bold mt-2 inline-block ${alert.type === 'critical' ? 'text-tertiary-dim' : 'text-on-surface-variant'}`}>{alert.time}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.section>
+          <motion.div className="flex flex-col gap-6" variants={fadeUp as any}>
+            
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant/10 shadow-sm flex flex-col">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Active Now</p>
+                    <p className="text-4xl font-light text-rose-500 mb-2">{activeBlocksCount}</p>
+                    <p className="text-xs text-on-surface-variant font-medium">affecting live inference</p>
+                </div>
+                <div className="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant/10 shadow-sm flex flex-col">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Scheduled</p>
+                    <p className="text-4xl font-light text-amber-500 mb-2">{scheduledBlocksCount}</p>
+                    <p className="text-xs text-on-surface-variant font-medium">upcoming windows</p>
+                </div>
+                <div className="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant/10 shadow-sm flex flex-col">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sections Clear</p>
+                    <p className="text-4xl font-light text-emerald-500 mb-2">{sectionsClear}</p>
+                    <p className="text-xs text-on-surface-variant font-medium">of {totalEdges} total edges</p>
+                </div>
+            </div>
 
-            <motion.section className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-lg p-6 border border-outline-variant/10 shadow-sm" variants={fadeUp as any}>
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-lg font-bold tracking-tight">Maintenance Calendar</h3>
-                  <p className="text-xs text-on-surface-variant mt-1">Upcoming service windows</p>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <button onClick={() => setCalendarDate(new Date(year, month - 1, 1))} className="p-1 hover:bg-surface-container rounded transition-colors"><span className="material-symbols-outlined">chevron_left</span></button>
-                  <span className="text-sm font-bold w-32 text-center">{currentMonthName}</span>
-                  <button onClick={() => setCalendarDate(new Date(year, month + 1, 1))} className="p-1 hover:bg-surface-container rounded transition-colors"><span className="material-symbols-outlined">chevron_right</span></button>
-                </div>
-              </div>
-              <div className="overflow-x-auto w-full pb-2">
-                <div className="grid grid-cols-7 gap-px bg-outline-variant/10 rounded-lg border border-outline-variant/10 min-w-[700px]">
-                  {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(day => (
-                    <div key={day} className="bg-surface-container py-2 text-center text-[10px] font-bold text-on-surface-variant">{day}</div>
-                  ))}
-                  {daysArray.map((day, idx) => {
-                    if (day === null) return <div key={`empty-${idx}`} className="bg-surface-container-lowest min-h-[90px] p-2 opacity-30 text-[10px] font-bold"></div>;
-                    const events = blockEventsByDay.get(day) || [];
-                    const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear();
-                    return (
-                      <div key={`day-${day}`} className={`min-h-[90px] p-2 text-[10px] font-bold border border-transparent ${isToday ? 'bg-primary/5 border-primary/20' : 'bg-surface-container-lowest'}`}>
-                        <span className="mb-1 inline-block">{day}</span>
-                        <div className="space-y-1">
-                          {events.map((evt, eIdx) => (
-                            <div key={eIdx} className={`group relative p-1 rounded text-[9px] leading-tight flex flex-col ${evt.severity === 'TOTAL_BLOCK' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>
-                              <div className="flex justify-between items-start">
-                                <span className="font-extrabold truncate pr-1">{evt.element_id}</span>
-                              </div>
-                            </div>
-                          ))}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left Pane: Schedule Form */}
+                <div className="lg:col-span-4 bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 flex flex-col h-fit">
+                    <div className="flex items-center gap-2 mb-6">
+                        <span className="material-symbols-outlined text-violet-500">calendar_month</span>
+                        <h3 className="text-lg font-bold text-on-surface">Schedule maintenance window</h3>
+                    </div>
+
+                    <div className="space-y-5">
+                        <div>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Track Segment</label>
+                            <select 
+                                className="w-full px-3 py-2.5 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-medium focus:ring-2 focus:ring-violet-500/30 text-on-surface"
+                                value={maintEdge}
+                                onChange={e => setMaintEdge(e.target.value)}
+                            >
+                                <option value="" disabled>Select an edge...</option>
+                                {edges.map(e => <option key={e.id} value={e.id}>{e.id}</option>)}
+                            </select>
                         </div>
-                      </div>
-                    );
-                  })}
+
+                        <div>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Severity</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button 
+                                    className={`py-3 px-2 rounded border flex flex-col items-center justify-center gap-1 transition-colors ${maintSeverity === 'TOTAL_BLOCK' ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'}`}
+                                    onClick={() => setMaintSeverity('TOTAL_BLOCK')}
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">block</span>
+                                    <span className="text-[13px] font-bold">Total block</span>
+                                </button>
+                                <button 
+                                    className={`py-3 px-2 rounded border flex flex-col items-center justify-center gap-1 transition-colors ${maintSeverity === 'SPEED_RESTRICTION' ? 'bg-yellow-500 border-yellow-500 text-white shadow-sm' : 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100'}`}
+                                    onClick={() => setMaintSeverity('SPEED_RESTRICTION')}
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">speed</span>
+                                    <span className="text-[13px] font-bold">Speed restriction</span>
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-on-surface-variant mt-2 font-medium">
+                                {maintSeverity === 'TOTAL_BLOCK' ? 'Segment fully closed — trains will be rerouted or held.' : 'Segment traversable at reduced speed.'}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Maintenance Window</label>
+                            <div className="flex flex-col gap-2">
+                                <input 
+                                    type="datetime-local" 
+                                    className="w-full px-3 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-xs font-mono text-on-surface"
+                                    value={maintStartTime}
+                                    onChange={e => setMaintStartTime(e.target.value)}
+                                />
+                                <div className="flex justify-center -my-1">
+                                    <span className="material-symbols-outlined text-[16px] text-slate-400 rotate-90">arrow_forward</span>
+                                </div>
+                                <input 
+                                    type="datetime-local" 
+                                    className="w-full px-3 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-xs font-mono text-on-surface"
+                                    value={maintEndTime}
+                                    onChange={e => setMaintEndTime(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Reason / Work Order</label>
+                            <textarea 
+                                className="w-full px-3 py-2.5 bg-surface-container border border-outline-variant/20 rounded-md text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface resize-none"
+                                rows={3}
+                                placeholder="e.g. Track relay replacement — WO-2026-0419"
+                                value={maintReason}
+                                onChange={e => setMaintReason(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button 
+                                className="flex-1 py-2.5 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                                onClick={() => { setMaintEdge(''); setMaintReason(''); }}
+                                disabled={maintSubmitting}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                className="flex-[2] py-2.5 bg-primary text-on-primary rounded-md text-sm font-bold hover:opacity-90 transition-opacity shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                                onClick={handleConfirmMaintenance}
+                                disabled={maintSubmitting || !maintEdge}
+                            >
+                                <span className={`material-symbols-outlined text-[18px] ${maintSubmitting ? 'animate-spin' : ''}`}>
+                                    {maintSubmitting ? 'sync' : 'event_available'}
+                                </span>
+                                {maintSubmitting ? 'Scheduling...' : 'Confirm window'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </motion.section>
-          </div>
+
+                {/* Right Pane: Charts and Lists */}
+                <div className="lg:col-span-8 flex flex-col gap-6">
+                    
+                    {/* Corridor View */}
+                    <div className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-violet-500">timeline</span>
+                                <h3 className="text-lg font-bold text-on-surface">24-hour corridor view</h3>
+                            </div>
+                            <div className="flex gap-4">
+                                <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded bg-rose-400 border border-rose-500"></span> Active block</span>
+                                <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300"></span> Scheduled</span>
+                            </div>
+                        </div>
+
+                        <div className="relative pt-4 pb-8">
+                            {/* X-axis lines */}
+                            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8" style={{marginLeft: '120px'}}>
+                                {[0,1,2,3,4,5].map(i => (
+                                    <div key={i} className="w-full border-b border-outline-variant/10 h-10"></div>
+                                ))}
+                            </div>
+
+                            {/* Blocks */}
+                            <div className="relative z-10 flex flex-col gap-4 mt-2">
+                                {Array.from(new Set(blockList.map(b => b.element_id))).slice(0,5).map((edgeId, idx) => (
+                                    <div key={edgeId} className="flex items-center h-6">
+                                        <div className="w-[120px] text-[11px] font-bold text-on-surface-variant truncate pr-4 text-right">
+                                            {edgeId}
+                                        </div>
+                                        <div className="flex-1 relative h-full bg-surface-container-low rounded">
+                                            {blockList.filter(b => b.element_id === edgeId).map((block, bIdx) => {
+                                                const d = new Date();
+                                                const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                                                const endOfDay = startOfDay + 24 * 3600 * 1000;
+                                                const bStart = new Date(block.start_time).getTime();
+                                                const bEnd = new Date(block.end_time).getTime();
+                                                
+                                                if (bEnd < startOfDay || bStart > endOfDay) return null;
+                                                
+                                                const effStart = Math.max(startOfDay, bStart);
+                                                const effEnd = Math.min(endOfDay, bEnd);
+                                                
+                                                const leftPct = ((effStart - startOfDay) / (24 * 3600 * 1000)) * 100;
+                                                const widthPct = ((effEnd - effStart) / (24 * 3600 * 1000)) * 100;
+                                                const isActive = bStart <= Date.now() && bEnd >= Date.now();
+
+                                                return (
+                                                    <div 
+                                                        key={bIdx}
+                                                        className={`absolute top-0 bottom-0 rounded opacity-90 flex items-center justify-center overflow-hidden border ${isActive ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-amber-100 border-amber-300 text-amber-800'}`}
+                                                        style={{ left: `${leftPct}%`, width: `${Math.max(2, widthPct)}%` }}
+                                                    >
+                                                        {widthPct > 8 && (
+                                                            <span className="text-[8px] font-bold whitespace-nowrap px-1">
+                                                                {new Date(effStart).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(effEnd).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                                {blockList.length === 0 && (
+                                    <div className="text-center text-sm text-on-surface-variant italic py-8">No active or scheduled blocks.</div>
+                                )}
+                            </div>
+
+                            {/* X-axis labels */}
+                            <div className="absolute bottom-0 left-[120px] right-0 flex justify-between text-[10px] font-bold text-slate-400">
+                                <span>00:00</span>
+                                <span>06:00</span>
+                                <span>12:00</span>
+                                <span>18:00</span>
+                                <span>24:00</span>
+                            </div>
+                            
+                            {/* Current Time Indicator */}
+                            <div className="absolute top-0 bottom-6 w-px bg-violet-500 z-20 pointer-events-none" style={{
+                                left: `calc(120px + ${((Date.now() - new Date().setHours(0,0,0,0)) / (24 * 3600 * 1000)) * 100}%)`
+                            }}>
+                                <div className="absolute -top-4 -translate-x-1/2 text-[9px] font-bold text-violet-600 bg-violet-100 px-1 py-0.5 rounded">NOW</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Scheduled Windows List */}
+                    <div className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 flex-1">
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-violet-500">list_alt</span>
+                                <h3 className="text-lg font-bold text-on-surface">Scheduled windows</h3>
+                            </div>
+                            <span className="text-xs font-bold text-slate-500">{blockList.length} windows</span>
+                        </div>
+                        
+                        <div className="flex flex-col gap-3">
+                            {blockList.length === 0 && (
+                                <p className="text-sm text-on-surface-variant text-center py-4">No maintenance windows scheduled.</p>
+                            )}
+                            {blockList.map((block, idx) => {
+                                const isActive = new Date(block.start_time).getTime() <= Date.now() && new Date(block.end_time).getTime() >= Date.now();
+                                return (
+                                    <div key={idx} className="bg-surface-container p-4 rounded-lg border border-outline-variant/10 flex items-center gap-4 group">
+                                        <div className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap border ${isActive ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                                            {isActive ? 'Active now' : 'Scheduled'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold text-on-surface truncate">
+                                                {block.element_id}
+                                            </p>
+                                            <p className="text-[11px] text-on-surface-variant truncate mt-0.5 font-medium">
+                                                {new Date(block.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} → {new Date(block.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {block.severity === 'TOTAL_BLOCK' ? 'Total block' : 'Speed restriction'} • {block.reason}
+                                            </p>
+                                        </div>
+                                        <button 
+                                            onClick={() => removeBlockRemote(block.element_id)}
+                                            className="w-8 h-8 rounded border border-outline-variant/20 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-[16px]">close</span>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+          </motion.div>
         )}
 
         {/* ================= AUDIT LOG TAB ================= */}
@@ -619,7 +864,6 @@ const ControlCentre: React.FC = () => {
             </div>
           </motion.section>
         )}
-      </motion.div>
     </div>
   );
 };

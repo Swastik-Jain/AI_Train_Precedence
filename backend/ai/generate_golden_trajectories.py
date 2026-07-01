@@ -52,7 +52,7 @@ def build_track_map_for_solver() -> dict:
     """
     from map_generator import generate_realistic_section
 
-    raw_map, loop_sections, end_node = generate_realistic_section()
+    raw_map, loop_sections, end_node, station_nodes, token_blocks = generate_realistic_section()
 
     # Convert integer keys → string keys, integer next-lists → string lists
     solver_map = {}
@@ -64,6 +64,7 @@ def build_track_map_for_solver() -> dict:
             "SINGLE_LINE_BLOCK": data.get("type", "") == "SINGLE_LINE_BLOCK",
             "next":              [str(n) for n in data.get("next", [])],
             "speed":             data.get("speed", 75),
+            "km":                data.get("km", 0.0),
         }
 
     logger.info(f"✅ Track map built: {len(solver_map)} nodes")
@@ -157,16 +158,11 @@ FLEET_TEMPLATES = [
 ]
 
 
-def compute_runtime(speed_kmh: float, node_type: str) -> int:
+def compute_runtime(speed_kmh: float, node_type: str, dist_km: float) -> float:
     """
-    Estimate block transit time in minutes.
-
-    Each map block represents ~2 km.
-    transit_time = distance / speed  (in hours) * 60 (→ minutes)
-    Minimum 1 minute enforced as floor (CP-SAT needs positive integers).
+    Estimate block transit time in minutes as a float.
+    Minimum 0.1 minutes enforced.
     """
-    BLOCK_DISTANCE_KM = 2.0
-
     # Speed is capped to block speed limit
     BLOCK_SPEED_CAPS = {
         "MAIN_BLOCK":        130,
@@ -182,9 +178,9 @@ def compute_runtime(speed_kmh: float, node_type: str) -> int:
     effective_speed = min(speed_kmh, cap) if cap > 0 else speed_kmh
 
     if effective_speed <= 0:
-        return 1
-    transit_minutes = (BLOCK_DISTANCE_KM / effective_speed) * 60
-    return max(1, round(transit_minutes))
+        return 1.0
+    transit_minutes = (dist_km / effective_speed) * 60.0
+    return max(0.1, transit_minutes)
 
 
 def build_path_and_runtimes(solver_map: dict, train: dict, start_node: str, end_node: str):
@@ -215,11 +211,38 @@ def build_path_and_runtimes(solver_map: dict, train: dict, start_node: str, end_
 
     # Runtime for each leg: time to travel from path[i-1] to path[i]
     runtimes = {}
+    accumulated_float = 0.0
+    accumulated_int = 0
+    
     for i in range(1, len(path)):
         from_node = path[i - 1]
         to_node   = path[i]
-        from_type = solver_map.get(from_node, {}).get("type", "BLOCK")
-        runtimes[from_node] = compute_runtime(train["max_speed"], from_type)
+        from_data = solver_map.get(from_node, {})
+        to_data   = solver_map.get(to_node, {})
+        
+        # Determine distance
+        from_km = from_data.get("km", 0.0)
+        to_km   = to_data.get("km", 0.0)
+        dist_km = abs(to_km - from_km)
+        if dist_km == 0:
+            dist_km = 0.1 # Minimum fallback distance for zero-length blocks (like switches)
+            
+        from_type = from_data.get("type", "BLOCK")
+        float_mins = compute_runtime(train["max_speed"], from_type, dist_km)
+        
+        accumulated_float += float_mins
+        int_target = round(accumulated_float)
+        
+        # Distribute the rounded integers to blocks
+        leg_int = int_target - accumulated_int
+        if leg_int < 0:
+            leg_int = 0
+            accumulated_int += 0
+            accumulated_float = max(accumulated_float, float(accumulated_int))
+        else:
+            accumulated_int += leg_int
+            
+        runtimes[from_node] = leg_int
 
     # Dwell at stations/platforms (minimum 2 min, 0 elsewhere)
     dwell_times = {}
@@ -270,10 +293,24 @@ def run_solver_with_start_times(solver_map: dict, fleet: list, out_path: str, go
     alignment with the RL environment start times is preserved.
     """
     from ortools.sat.python import cp_model
-    from or_solver import (
-        TIME_HORIZON, BLOCK_HEADWAY, STATION_BUFFER,
-        get_priority_weight, generate_expert_actions
-    )
+    TIME_HORIZON = 1440
+    BLOCK_HEADWAY = 3
+    STATION_BUFFER = 5
+
+    def get_priority_weight(train_type: str) -> int:
+        mapping = {
+            "Vande Bharat": 100,
+            "Rajdhani": 80,
+            "Superfast": 50,
+            "Express": 20,
+            "Freight (WAG-9)": 5,
+            "Freight (WAG-12)": 5
+        }
+        return mapping.get(train_type, 10)
+
+    def generate_expert_actions(sched, flt, smap):
+        return {"schedule": sched, "expert_actions": {}}
+
 
     model   = cp_model.CpModel()
     arrivals    = {}

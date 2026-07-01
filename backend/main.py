@@ -16,7 +16,7 @@ import database
 import schema
 import crud
 from database import TrainPosition
-from ai.config import ACTIVE_FLEET as TRAIN_CONFIG
+from ai.config import ACTIVE_FLEET as TRAIN_CONFIG, SECTION_LENGTH_KM
 from or_tools.smart_optimizer import SmartOptimizer
 from topology import get_network_topology
 
@@ -45,6 +45,9 @@ AUTOPILOT_MODE = True       # kept for backward-compat reads
 EXPLAIN_BEFORE_ACT_MODE = False  # when True: contested decisions HOLD pending override-or-confirm
 SIM_SPEED_FACTOR = 0.4
 TICK_INTERVAL_S = 1.0
+
+# Telemetry Persistence
+LAST_PUNCTUALITY = 100.0
 
 # ---------------------------------------------------------------------------
 # Operator-loop action tables (Change #1–#3)
@@ -75,8 +78,16 @@ COPILOT_SUGGESTIONS: Dict[str, Any] = {}
 
 # ---------------------------------------------------------------------------
 # In-memory maintenance block store  (element_id → block dict)
+# Real blocks only — synced to RL env, time-gated, persists across scenarios.
 # ---------------------------------------------------------------------------
 ACTIVE_BLOCKS: Dict[str, Any] = {}
+
+# ---------------------------------------------------------------------------
+# Sandbox what-if block store (element_id → block dict)
+# Sandbox only — NEVER touches ACTIVE_BLOCKS or _sync_blocks_to_rl_env().
+# Created/destroyed within a scenario session.
+# ---------------------------------------------------------------------------
+SANDBOX_BLOCKS: Dict[str, Any] = {}
 
 # ---------------------------------------------------------------------------
 # Dynamic Constraints from Sandbox (constraint_id -> constraint dict)
@@ -138,6 +149,7 @@ def _get_sim_brain():
         def make_env():
             e = TrainDispatchEnv()
             e.set_difficulty(25)
+            e.inference_mode = True
             return e
 
         raw_env = DummyVecEnv([make_env])
@@ -179,6 +191,7 @@ PRIORITY_MAP = {
     "Vande Bharat": 10, "Rajdhani": 10, "Superfast": 8,
     "Express": 6, "Local": 5, "Suburban": 5,
     "Passenger": 3, "Freight (WAG-9)": 2,
+    "Freight (Wag-9)": 2, "Goods": 1, "Freight": 2, "Wag-9 Goods": 1,
 }
 
 # ---------------------------------------------------------------------------
@@ -196,6 +209,7 @@ class InfrastructureBlock(BaseModel):
     end_time: str                                      # ISO-8601
     severity: Literal["TOTAL_BLOCK", "SPEED_RESTRICTION"]
     reason: Optional[str] = "Scheduled maintenance"
+    speed_limit: Optional[int] = 30                   # km/h — only used for SPEED_RESTRICTION
 
 class NewTrainRequest(BaseModel):
     train_id: str
@@ -246,8 +260,6 @@ def _sync_blocks_to_rl_env() -> None:
         for edge_id, block in ACTIVE_BLOCKS.items():
             if not is_block_active(block):
                 continue
-            if block.get("severity") != "TOTAL_BLOCK":
-                continue
             parts = edge_id.split("-")
             if len(parts) < 3:
                 continue
@@ -256,17 +268,25 @@ def _sync_blocks_to_rl_env() -> None:
                 dst = int(parts[2])
             except ValueError:
                 continue
-            # Remove the blocked destination from the source node's 'next' list
-            if src in patched_map and dst in patched_map[src].get("next", []):
-                patched_map[src]["next"] = [
-                    n for n in patched_map[src]["next"] if n != dst
-                ]
-            
-            # Remove the blocked source from the destination node's 'prev' list
-            if dst in patched_map and src in patched_map[dst].get("prev", []):
-                patched_map[dst]["prev"] = [
-                    n for n in patched_map[dst]["prev"] if n != src
-                ]
+
+            if block.get("severity") == "TOTAL_BLOCK":
+                # Remove the blocked destination from the source node's 'next' list
+                if src in patched_map and dst in patched_map[src].get("next", []):
+                    patched_map[src]["next"] = [
+                        n for n in patched_map[src]["next"] if n != dst
+                    ]
+                
+                # Remove the blocked source from the destination node's 'prev' list
+                if dst in patched_map and src in patched_map[dst].get("prev", []):
+                    patched_map[dst]["prev"] = [
+                        n for n in patched_map[dst]["prev"] if n != src
+                    ]
+            elif block.get("severity") == "SPEED_RESTRICTION":
+                # Apply speed restriction to the destination node (where train sits on this edge)
+                limit = block.get("speed_limit", 30)
+                if dst in patched_map:
+                    patched_map[dst]["speed"] = limit
+
         inner_env.track_map = patched_map
     except Exception as e:
         print(f"[REROUTE] ⚠️  RL env track_map sync failed: {e}")
@@ -407,25 +427,50 @@ def _compute_impact_minutes(train_id: str, rl_action: int) -> int:
     """
     Returns estimated delay impact in minutes.
     Positive = time saved. Negative = delay added.
-    Reads from LAST_OR_SCHEDULE if available, else uses physics estimate.
+    Uses physics estimates based on actual train positions on the path.
     """
     state = TRAIN_STATES.get(train_id)
     if not state:
         return 0
 
-    scheduled_arrival = state.get("scheduled_arrival", 0)
-    sim_time          = state.get("sim_time", 0)
-    delay_so_far      = state.get("delay_mins", 0)
+    path = state.get("path", [])
+    edge_id = state.get("edge_id")
+    try:
+        idx = path.index(edge_id)
+    except ValueError:
+        idx = -1
 
-    if rl_action == 0:  # STOP — adds roughly 1-2 minutes of waiting
-        return -2       # negative: costs the train 2 minutes
-    elif rl_action == 2:  # DIVERT — loop adds ~3-5 min but prevents collision penalty
-        path = state.get("path", [])
-        trains_on_mainline = sum(
-            1 for s in TRAIN_STATES.values()
-            if s.get("edge_id") in path and s.get("train_id") != train_id
-        )
-        return max(3, trains_on_mainline * 2)  # positive: saves cascade delays
+    if rl_action == 0:  # STOP
+        delay = -2
+        if idx != -1 and idx + 1 < len(path):
+            next_edge = path[idx + 1]
+            trains_ahead = [s for s in TRAIN_STATES.values() if s.get("edge_id") == next_edge and s.get("train_id") != train_id]
+            if trains_ahead:
+                ahead_speed = trains_ahead[0].get("speed_kmh", 0)
+                if ahead_speed == 0:
+                    delay = -5  # Blocked by a stopped train
+                else:
+                    # Slower train ahead -> wait longer
+                    delay = -max(1, int(60 / max(ahead_speed, 10)))
+        return delay
+
+    elif rl_action == 2:  # DIVERT
+        saved = 3
+        if idx != -1:
+            # Check up to 10 edges behind for faster trains
+            edges_behind = path[max(0, idx - 10):idx]
+            trains_behind = [s for s in TRAIN_STATES.values() if s.get("edge_id") in edges_behind and s.get("train_id") != train_id]
+            
+            my_speed = max(1, state.get("speed_kmh", 50))
+            
+            for tb in trains_behind:
+                tb_speed = tb.get("speed_kmh", 0)
+                if tb_speed > my_speed:
+                    speed_diff = tb_speed - my_speed
+                    # Time saved for the faster train by clearing the block
+                    saved += 5 + int(speed_diff * 0.3)
+                    
+        return min(saved, 45) # Cap at realistic maximum
 
     return 0
 
@@ -705,6 +750,10 @@ async def simulate_trains_bg():
                 "id": str(uuid.uuid4())
             })
 
+        # If any blocks were expired, re-sync the RL env track_map
+        if expired_blocks:
+            _sync_blocks_to_rl_env()
+
         if SYSTEM_LOCKDOWN:
             for t_id, state in TRAIN_STATES.items():
                 state['status'] = 'Halted'
@@ -935,11 +984,18 @@ async def simulate_trains_bg():
 
                 # ── MAINTENANCE BLOCK CHECK (current edge) ────────────────────
                 edge_block = ACTIVE_BLOCKS.get(curr_edge)
-                if edge_block and is_block_active(edge_block) and edge_block.get('severity') == 'TOTAL_BLOCK':
-                    state['status'] = 'Blocked'
-                    if INFERENCE_ACTIVE:
-                        STICKY_ACTIONS[t_id] = (0, _SIM_TICK + 2)
-                    continue
+                if edge_block and is_block_active(edge_block):
+                    if edge_block.get('severity') == 'TOTAL_BLOCK':
+                        state['status'] = 'Blocked'
+                        if INFERENCE_ACTIVE:
+                            STICKY_ACTIONS[t_id] = (0, _SIM_TICK + 2)
+                        continue
+                    elif edge_block.get('severity') == 'SPEED_RESTRICTION':
+                        # Cap train speed to the configured limit (default 30 km/h)
+                        limit = edge_block.get('speed_limit', 30)
+                        if state.get('speed', 0) > limit:
+                            state['speed'] = limit
+                        state['status'] = 'Moving'  # still moving, just slower
 
                 # ── LOOKAHEAD BLOCK CHECK (next edge in path) ─────────────────
                 # Prevent trains from advancing into a blocked segment
@@ -1484,6 +1540,7 @@ async def get_meta():
 @app.get("/api/v1/telemetry", tags=["Telemetry"])
 async def get_telemetry():
     """Returns real-time telemetry calculated from the current simulation state."""
+    global LAST_PUNCTUALITY
     active_trains = 0
     incoming_trains = 0
     outgoing_trains = 0
@@ -1529,28 +1586,38 @@ async def get_telemetry():
             t_actual = state.get("finish_time", _SIM_TICK)
             delay = max(0.0, t_actual - deadline)
         else:
-            path = state.get("path", [])
             curr_edge = state.get("edge_id")
-            if path and curr_edge in path:
-                path_len = len(path)
-                curr_idx = path.index(curr_edge)
-                edge_pct = state.get("position_percentage", 0.0)
-                completion = (curr_idx + edge_pct) / path_len
-                
-                # Calculate expected completion based on travel time elapsed vs total travel budget
-                train_sim_time = state.get("sim_time", 0)
-                travel_time_elapsed = max(0, train_sim_time - start_time)
-                total_travel_budget = max(1, deadline - start_time)
-                
-                if total_travel_budget > 0:
-                    expected_completion = min(1.0, travel_time_elapsed / total_travel_budget)
-                else:
-                    expected_completion = 1.0
-                
-                if completion < expected_completion:
-                    # Delay is the time equivalent of the completion shortfall
-                    delay = (expected_completion - completion) * total_travel_budget
-                else:
+            if curr_edge and curr_edge.startswith("edge-"):
+                try:
+                    parts = curr_edge.split("-")
+                    if len(parts) >= 3:
+                        source_node = int(parts[1])
+                        target_node = int(parts[2])
+                        source_km = RAW_TRACK_MAP.get(source_node, {}).get("km", 0.0)
+                        target_km = RAW_TRACK_MAP.get(target_node, {}).get("km", 0.0)
+                        edge_pct = state.get("position_percentage", 0.0)
+                        current_km = source_km + edge_pct * (target_km - source_km)
+                        
+                        direction = reg.get("direction", "DOWN")
+                        if direction == "DOWN":
+                            dist_remaining_km = max(0.0, SECTION_LENGTH_KM - current_km)
+                        else:
+                            dist_remaining_km = max(0.0, current_km)
+                        
+                        train_sim_time = state.get("sim_time", 0)
+                        time_remaining_budget = deadline - train_sim_time
+                        
+                        if dist_remaining_km <= 0:
+                            delay = 0.0
+                        elif time_remaining_budget <= 0:
+                            # Already late, estimate 1 min per km (60 km/h) for remaining
+                            delay = -time_remaining_budget + dist_remaining_km * 1.0
+                        else:
+                            # Assuming avg speed 60km/h (1 min per km) for remainder
+                            expected_time_to_finish = dist_remaining_km * 1.0
+                            estimated_finish = train_sim_time + expected_time_to_finish
+                            delay = max(0.0, estimated_finish - deadline)
+                except Exception:
                     delay = 0.0
 
         if delay <= DELAY_THRESHOLD:
@@ -1560,8 +1627,9 @@ async def get_telemetry():
 
     if evaluated_trains > 0:
         punctuality = (on_time_trains / evaluated_trains) * 100.0
+        LAST_PUNCTUALITY = punctuality
     else:
-        punctuality = 100.0
+        punctuality = LAST_PUNCTUALITY
 
     halted_pct = (halted_trains / active_trains * 100) if active_trains > 0 else 0
     active_blocks_count = sum(1 for b in ACTIVE_BLOCKS.values() if is_block_active(b))
@@ -2123,11 +2191,51 @@ async def remove_block(element_id: str):
     }
 
 
-def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict) -> dict:
+
+# ---------------------------------------------------------------------------
+# Simulation Sandbox — What-If Block Endpoints
+# These routes manage SANDBOX_BLOCKS only. They NEVER touch ACTIVE_BLOCKS
+# and NEVER call _sync_blocks_to_rl_env(), so the live RL model is
+# completely unaffected by what-if blocks.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/sandbox/blocks", tags=["Simulation Sandbox"])
+async def list_sandbox_blocks():
+    """Return all current sandbox (what-if) blocks."""
+    return {"blocks": list(SANDBOX_BLOCKS.values()), "count": len(SANDBOX_BLOCKS)}
+
+
+@app.post("/api/v1/sandbox/blocks", tags=["Simulation Sandbox"])
+async def add_sandbox_block(block: InfrastructureBlock):
+    """
+    Add a what-if block to the sandbox.
+    Stored in SANDBOX_BLOCKS only — does NOT affect ACTIVE_BLOCKS,
+    does NOT call _sync_blocks_to_rl_env(), and has NO effect on live inference.
+    """
+    block_dict = block.model_dump()
+    block_dict["applied_at"] = _now_iso()
+    block_dict["isWhatIf"] = True
+    SANDBOX_BLOCKS[block.element_id] = block_dict
+    print(f"[SANDBOX] 🧪 What-if block added: '{block.element_id}' ({block.severity}) — sandbox only")
+    return {"status": "sandbox_only", "block": block_dict}
+
+
+@app.delete("/api/v1/sandbox/blocks/{element_id}", tags=["Simulation Sandbox"])
+async def remove_sandbox_block(element_id: str):
+    """Remove a what-if block from the sandbox."""
+    removed = SANDBOX_BLOCKS.pop(element_id, None)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"No sandbox block found for '{element_id}'")
+    print(f"[SANDBOX] 🧹 What-if block removed: '{element_id}'")
+    return {"status": "removed", "element_id": element_id}
+
+
+def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict, apply_sandbox_blocks: bool = True) -> dict:
     """
     Clone current live state into a throwaway env copy.
     Run N ticks. Return outcome metrics.
     Does NOT touch TRAIN_STATES or live env.
+    Applies SANDBOX_BLOCKS (what-if blocks) to the cloned env — not ACTIVE_BLOCKS.
     """
     model, live_vec_env = _get_sim_brain()
     if live_vec_env is None:
@@ -2138,15 +2246,45 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
     
     sandbox_inner = copy.deepcopy(live_vec_env.venv.envs[0])
 
+    # Apply sandbox (what-if) blocks to the cloned env's track_map.
+    # This makes the forward simulation reflect what-if constraints WITHOUT
+    # touching the live inner_env or calling _sync_blocks_to_rl_env().
+    if apply_sandbox_blocks and SANDBOX_BLOCKS:
+        patched_map = copy.deepcopy(sandbox_inner.track_map) if hasattr(sandbox_inner, 'track_map') else {}
+        for edge_id, blk in SANDBOX_BLOCKS.items():
+            parts = edge_id.split("-")
+            if len(parts) < 3:
+                continue
+            try:
+                src = int(parts[1])
+                dst = int(parts[2])
+            except ValueError:
+                continue
+
+            if blk.get("severity") == "TOTAL_BLOCK":
+                if src in patched_map and dst in patched_map[src].get("next", []):
+                    patched_map[src]["next"] = [n for n in patched_map[src]["next"] if n != dst]
+                if dst in patched_map and src in patched_map[dst].get("prev", []):
+                    patched_map[dst]["prev"] = [n for n in patched_map[dst]["prev"] if n != src]
+            elif blk.get("severity") == "SPEED_RESTRICTION":
+                limit = blk.get("speed_limit", 30)
+                if dst in patched_map:
+                    patched_map[dst]["speed"] = limit
+
+        if hasattr(sandbox_inner, 'track_map'):
+            sandbox_inner.track_map = patched_map
+
     # Inject the delay
+    active_latencies = {}
     if latencies:
+        active_latencies = latencies.copy()
         for t in sandbox_inner.trains:
             t_id = t.get('id')
             if t_id in latencies:
-                t['speed'] = max(0, t['speed'] * 0.3)
-                t['delay'] = t.get('delay', 0) + latencies[t_id]
+                if t_id in sandbox_inner.schedule:
+                    sandbox_inner.schedule[t_id]['deadline'] -= latencies[t_id]
 
-    outcomes = {'finished': 0, 'total_delay_min': 0.0, 'holds': 0, 'diverts': 0, 'adjustments': [], 'projected_schedule': {}, 'holds_total': 0, 'total_trains': len(sandbox_inner.trains), 'on_time_trains': 0}
+    outcomes = {'finished': 0, 'total_delay_min': 0.0, 'holds': 0, 'diverts': 0, 'adjustments': [], 'projected_schedule': {}, 'holds_total': 0, 'active_train_ticks': 0, 'spawned_trains': 0, 'on_time_trains': 0}
     for t in sandbox_inner.trains:
         outcomes['projected_schedule'][t.get('id')] = {}
     
@@ -2157,15 +2295,18 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
             obs_batch = np.expand_dims(obs, axis=0)
             norm_obs_batch = live_vec_env.normalize_obs(obs_batch)
             actions_batch, _ = model.predict(norm_obs_batch, deterministic=True)
-            actions = actions_batch[0]
+            actions = actions_batch[0].copy() if hasattr(actions_batch[0], 'copy') else np.array(actions_batch[0])
         else:
             actions = np.ones(sandbox_inner.observation_space.shape[0], dtype=np.int64)
 
-        # Apply forced actions
+        # Apply forced actions and latencies
         for idx, t in enumerate(sandbox_inner.trains):
             t_id = t.get('id')
             if t_id in forced_actions and forced_actions[t_id] in (0, 1, 2):
                 actions[idx] = forced_actions[t_id]
+            elif t_id in active_latencies and active_latencies[t_id] > 0:
+                actions[idx] = 0
+                active_latencies[t_id] -= 1
                 
             # Log holds/diverts for the first tick only for adjustments
             if tick == 0 and not t.get('finished', False) and t.get('position', 0) not in (0, 998, 999):
@@ -2208,6 +2349,7 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
             
         for idx, t in enumerate(sandbox_inner.trains):
             if not t.get('finished', False) and t.get('position', 0) not in (0, 998, 999):
+                outcomes['active_train_ticks'] += 1
                 if safe_actions[idx] == 0:
                     outcomes['holds_total'] += 1
                     
@@ -2229,11 +2371,40 @@ def _run_forward_simulation(n_ticks: int, latencies: dict, forced_actions: dict)
             break
 
     for t in sandbox_inner.trains:
-        if t.get('finished', False):
-            outcomes['finished'] += 1
-        if t.get('delay', 0) <= 5.0:
-            outcomes['on_time_trains'] += 1
-        outcomes['total_delay_min'] += max(0, t.get('delay', 0))
+        sched = sandbox_inner.schedule.get(t.get('id'), {})
+        # Count if train has spawned, OR if it's stuck at spawn but past its scheduled departure
+        has_spawned = t.get('position', 0) != 0
+        should_have_spawned = sched.get('start_time', 9999) <= sandbox_inner.sim_time
+        
+        if has_spawned or should_have_spawned:
+            outcomes['spawned_trains'] += 1
+            if t.get('finished', False):
+                outcomes['finished'] += 1
+            
+            sched = sandbox_inner.schedule.get(t.get('id'), {})
+            t_time = t.get('finish_step')
+            if t_time is None:
+                # Project the finish time based on remaining distance
+                if hasattr(sandbox_inner, '_get_train_km') and hasattr(sandbox_inner, 'SECTION_LENGTH_KM'):
+                    my_km = sandbox_inner._get_train_km(t)
+                    if t.get('direction', 'DOWN') == 'DOWN':
+                        km_done = my_km
+                    else:
+                        km_done = sandbox_inner.SECTION_LENGTH_KM - my_km
+                    
+                    dist_remaining_km = sandbox_inner.SECTION_LENGTH_KM - km_done
+                    # Assume an average speed of 50 km/h
+                    projected_remaining_mins = (dist_remaining_km / 50.0) * 60.0
+                else:
+                    projected_remaining_mins = 0
+                
+                t_time = sandbox_inner.sim_time + projected_remaining_mins
+                
+            current_delay = max(0, t_time - sched.get('deadline', 9999))
+            
+            if current_delay <= 5.0:
+                outcomes['on_time_trains'] += 1
+            outcomes['total_delay_min'] += current_delay
 
     return outcomes
 
@@ -2246,14 +2417,14 @@ async def analyze_simulation(req: WhatIfScenarioRequest):
     latencies = req.latencies or {}
     forced_actions = req.forced_actions or {}
 
-    if not TRAIN_STATES:
-        raise HTTPException(status_code=503, detail="No live train data available.")
+    # Allow simulation even if no live trains have spawned yet (TRAIN_STATES is empty)
+    # The forward simulation will advance time and naturally spawn the upcoming scheduled trains.
 
-    # Run baseline (no delay)
-    baseline_outcomes = _run_forward_simulation(60, {}, {})
+    # Run baseline (no delay, no what-if blocks)
+    baseline_outcomes = _run_forward_simulation(120, {}, {}, apply_sandbox_blocks=False)
     
-    # Run scenario
-    scenario_outcomes = _run_forward_simulation(60, latencies, forced_actions)
+    # Run scenario (with latencies, forced actions, and what-if blocks)
+    scenario_outcomes = _run_forward_simulation(120, latencies, forced_actions, apply_sandbox_blocks=True)
     
     if baseline_outcomes is None or scenario_outcomes is None:
         raise HTTPException(status_code=503, detail="Simulation unavailable (model missing?).")
@@ -2292,22 +2463,22 @@ async def analyze_simulation(req: WhatIfScenarioRequest):
                     break
 
     # Reliability: On-Time Performance (Trains with <= 5 min delay)
-    baseline_otp = (baseline_outcomes['on_time_trains'] / max(1, baseline_outcomes['total_trains'])) * 100
-    scenario_otp = (scenario_outcomes['on_time_trains'] / max(1, scenario_outcomes['total_trains'])) * 100
+    baseline_otp = (baseline_outcomes['on_time_trains'] / max(1, baseline_outcomes['spawned_trains'])) * 100
+    scenario_otp = (scenario_outcomes['on_time_trains'] / max(1, scenario_outcomes['spawned_trains'])) * 100
     otp_diff = scenario_otp - baseline_otp
     rel_sign = "+" if otp_diff > 0 else ""
     reliability_pct = f"{scenario_otp:.1f}% OTP (Δ {rel_sign}{otp_diff:.1f}%)"
     
     # Congestion: Percentage of time trains spent stopped at red signals
-    baseline_stopped = (baseline_outcomes['holds_total'] / max(1, baseline_outcomes['total_trains'] * 60)) * 100
-    scenario_stopped = (scenario_outcomes['holds_total'] / max(1, scenario_outcomes['total_trains'] * 60)) * 100
+    baseline_stopped = (baseline_outcomes['holds_total'] / max(1, baseline_outcomes['active_train_ticks'])) * 100
+    scenario_stopped = (scenario_outcomes['holds_total'] / max(1, scenario_outcomes['active_train_ticks'])) * 100
     stopped_diff = scenario_stopped - baseline_stopped
     cong_sign = "+" if stopped_diff > 0 else ""
     congestion_pct = f"{scenario_stopped:.1f}% Stopped (Δ {cong_sign}{stopped_diff:.1f}%)"
 
     result = {
         "label": req.label,
-        "source": "True Forward-Simulation (60 ticks)",
+        "source": "True Forward-Simulation (120 ticks)",
         "latencies_applied": latencies,
         "forced_actions_applied": list(forced_actions.keys()),
         "impact": {
@@ -2330,19 +2501,39 @@ async def deploy_simulation(payload: dict):
     into the live production environment.
     """
     blocks = payload.get("blocks", [])
-    constraints = payload.get("constraints", [])
+    forced_actions = payload.get("forced_actions", {})
+    latencies = payload.get("latencies", {})
 
-    # Apply constraints to DYNAMIC_CONSTRAINTS
-    for c in constraints:
-        c_id = c.get("id", f"constraint-{uuid.uuid4()}")
-        DYNAMIC_CONSTRAINTS[c_id] = c
+    # Apply forced_actions as sticky overrides for 60 ticks
+    for t_id, action in forced_actions.items():
+        STICKY_ACTIONS[t_id] = (action, _SIM_TICK + 60)
         
-    # Apply What-If Blocks as Real Blocks
-    for b in blocks:
+    # Apply latencies by reducing deadline in the live environment and holding the train
+    if latencies:
+        model, env = _get_sim_brain()
+        if env:
+            inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
+            for t_id, lat in latencies.items():
+                if t_id in inner_env.schedule:
+                    inner_env.schedule[t_id]['deadline'] -= lat
+                
+                # If there's no explicit forced action, physically hold the train for `lat` ticks
+                if t_id not in forced_actions:
+                    STICKY_ACTIONS[t_id] = (0, _SIM_TICK + lat)
+
+    # Deploy real blocks only — explicitly reject any what-if blocks that
+    # may have been included by accident. isWhatIf: true blocks must never
+    # enter ACTIVE_BLOCKS or affect live inference.
+    real_blocks = [b for b in blocks if not b.get("isWhatIf", False)]
+    skipped = len(blocks) - len(real_blocks)
+    if skipped > 0:
+        print(f"[SANDBOX] ⚠️  Skipped {skipped} what-if block(s) during deploy — they must not enter ACTIVE_BLOCKS")
+
+    for b in real_blocks:
         element_id = b.get("element_id")
         if not element_id:
             continue
-            
+
         block_dict = {
             "blockId": b.get("blockId", str(uuid.uuid4())),
             "element_id": element_id,
@@ -2350,32 +2541,37 @@ async def deploy_simulation(payload: dict):
             "severity": b.get("severity", "TOTAL_BLOCK"),
             "reason": b.get("reason", "Deployed from Sandbox"),
             "applied_at": _now_iso(),
-            "isWhatIf": False # Now it's real
+            "isWhatIf": False,
+            # Preserve start_time/end_time if provided so time-gating works
+            "start_time": b.get("start_time", _now_iso()),
+            "end_time": b.get("end_time", _now_iso()),
         }
-        
+
         ACTIVE_BLOCKS[element_id] = block_dict
+        _sync_blocks_to_rl_env()  # Immediately patch live RL model
         impact = _resolve_reroute_strategy(element_id)
-        
+
         await _broadcast_topology({
             "type": "MAINTENANCE_BLOCK_APPLIED",
             "block": block_dict,
             "impact": impact,
         })
     
+    constraints_count = len(forced_actions) + len(latencies)
     # Audit Log
     AUDIT_LOGS.insert(0, {
         "t": _now_iso(),
         "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
         "source": "SIMULATION_SANDBOX",
-        "action": f"Deployed {len(blocks)} blocks and {len(constraints)} adjustments.",
+        "action": f"Deployed {len(real_blocks)} real block(s) and {constraints_count} constraint(s). {skipped} what-if block(s) skipped.",
         "operator": "Chief Dispatcher",
         "status": "Deployed",
         "statusType": "success",
         "id": str(uuid.uuid4())
     })
 
-    print(f"[SANDBOX] 🚀 Simulation Deployed! ({len(blocks)} blocks, {len(constraints)} constraints)")
-    return {"status": "success", "blocks_applied": len(blocks), "constraints_applied": len(constraints)}
+    print(f"[SANDBOX] 🚀 Simulation Deployed! ({len(real_blocks)} real blocks, {constraints_count} constraints, {skipped} what-if skipped)")
+    return {"status": "success", "blocks_applied": len(real_blocks), "constraints_applied": constraints_count, "whatif_skipped": skipped}
 
 
 @app.get("/api/v1/impact-analysis", tags=["MMS"])
@@ -2546,7 +2742,7 @@ async def add_train(req: NewTrainRequest):
         )
 
     # Derive priority from type
-    priority = req.priority if req.priority is not None else PRIORITY_MAP.get(req.train_type, 5)
+    priority = req.priority if req.priority is not None else PRIORITY_MAP.get(req.train_type.title(), 5)
 
     # Build path from topology (first edge → destination)
     all_edges = [e["id"] for e in NETWORK_TOPOLOGY.get("edges", [])]
@@ -2633,6 +2829,13 @@ def _get_rerouted_path(original_path: List[str]) -> List[str]:
         new_path.append(edge_id)
         i += 1
     return new_path
+
+@app.get("/api/v1/fleet/schedule", tags=["Fleet"])
+async def get_schedule():
+    """Returns the previously generated OR-Tools schedule if available."""
+    if LAST_OR_SCHEDULE:
+        return {"status": "optimal", "fleet_size": len(LAST_OR_SCHEDULE), "schedule": LAST_OR_SCHEDULE}
+    return {"status": "empty", "fleet_size": 0, "schedule": {}}
 
 @app.post("/api/v1/fleet/generate-schedule", tags=["Fleet"])
 async def generate_schedule():

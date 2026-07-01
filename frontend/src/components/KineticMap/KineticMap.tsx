@@ -715,7 +715,17 @@ export const KineticMap: React.FC = () => {
           {/* Block section boundaries are shown as 3 px gaps within each SEG zone */}
 
           {/* ── MAINTENANCE BLOCKS HIGHLIGHT ────────────────────────────── */}
-          {Array.from(activeBlocks.values()).map(blk => {
+          {Array.from(activeBlocks.values()).filter(blk => {
+            if (!blk.start_time || !blk.end_time) return true;
+            try {
+              const now = new Date();
+              const start = new Date(blk.start_time);
+              const end = new Date(blk.end_time);
+              return start <= now && now <= end;
+            } catch (e) {
+              return true;
+            }
+          }).map(blk => {
             if (!topology) return null;
             const edge = topology.edges.find(e => e.id === blk.element_id);
             if (!edge) return null;

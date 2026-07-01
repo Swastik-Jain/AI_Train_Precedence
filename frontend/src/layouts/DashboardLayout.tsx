@@ -46,9 +46,9 @@ const DashboardLayout: React.FC = () => {
   const location = useLocation();
   const clock = useLiveClock();
   const { 
-    isLockdown, isSafetyShield, isAutoCommit, 
+    isLockdown, isSafetyShield,
     networkFluidity, haltedPct, activeTrains,
-    fetchStatus, setLockdown, setSafetyShield, setAutoCommit 
+    fetchStatus, setLockdown, setSafetyShield 
   } = useSystemStore();
   const mapConnected = useMapStore(state => state.isConnected);
   const conflicts = useMapStore(state => state.conflicts);
@@ -91,10 +91,6 @@ const DashboardLayout: React.FC = () => {
       >
         <div className="dash__sidebar-header">
           <p className="dash__sidebar-title" style={{ whiteSpace: 'nowrap' }}>Control Center</p>
-          <span className="dash__sidebar-badge">
-            <span className="dash__sidebar-badge-dot" />
-            {mapConnected ? `Active Ops: ${activeTrains}` : 'Offline'}
-          </span>
         </div>
 
         <nav className="dash__nav">
@@ -150,12 +146,6 @@ const DashboardLayout: React.FC = () => {
           </div>
           <div className="dash__topbar-right" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
             <div className="flex gap-2 mr-4">
-              <button 
-                onClick={() => setAutoCommit(!isAutoCommit)}
-                className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-full border transition-colors ${isAutoCommit ? 'bg-primary/10 border-primary text-primary' : 'bg-surface-container border-outline-variant/20 text-on-surface-variant'}`}
-              >
-                Auto-Commit
-              </button>
               <button 
                 onClick={() => setSafetyShield(!isSafetyShield)}
                 className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-full border transition-colors ${isSafetyShield ? 'bg-tertiary/10 border-tertiary text-tertiary' : 'bg-surface-container border-outline-variant/20 text-on-surface-variant'}`}

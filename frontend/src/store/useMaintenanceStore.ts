@@ -19,6 +19,7 @@ export interface BlockRecord {
   end_time: string;        // ISO-8601
   severity: BlockSeverity;
   reason?: string;
+  speed_limit?: number;    // km/h — only relevant for SPEED_RESTRICTION
   applied_at?: string;
   isWhatIf?: boolean;      // sandbox-only, NOT sent to backend
 }
@@ -106,8 +107,16 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
   // REST — apply on backend then update local state + trigger impact toast
   // -------------------------------------------------------------------------
   applyBlockRemote: async (block) => {
+    // Route to the correct endpoint based on whether this is a sandbox what-if
+    // block or a real maintenance block.
+    // What-if → /api/v1/sandbox/blocks   (never touches ACTIVE_BLOCKS or RL env)
+    // Real    → /api/v1/maintenance/blocks (syncs to RL env immediately)
+    const endpoint = block.isWhatIf
+      ? '/api/v1/sandbox/blocks'
+      : '/api/v1/maintenance/blocks';
+
     try {
-      const res = await fetch('/api/v1/maintenance/blocks', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -116,7 +125,8 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
           start_time: block.start_time,
           end_time: block.end_time,
           severity: block.severity,
-          reason: block.reason ?? 'Scheduled maintenance',
+          reason: block.reason ?? (block.isWhatIf ? 'What-if scenario' : 'Scheduled maintenance'),
+          speed_limit: block.speed_limit ?? 30,
         }),
       });
 
@@ -127,19 +137,25 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
         return;
       }
 
-      // Store locally
+      // Store locally with the isWhatIf flag preserved
       const record: BlockRecord = {
         ...block,
         blockId: crypto.randomUUID(),
-        applied_at: data.timestamp,
+        applied_at: data.block?.applied_at ?? data.timestamp,
+        isWhatIf: block.isWhatIf ?? false,
       };
       get().applyBlock(record);
 
-      // Trigger impact analysis + toast
-      await get().fetchImpactAnalysis();
+      // Only trigger impact analysis for real blocks — sandbox blocks don't
+      // affect the live network so there's no ripple effect to report.
+      if (!block.isWhatIf) {
+        await get().fetchImpactAnalysis();
+      } else {
+        useCopilotStore.getState().addToast('info', `🧪 What-if block added on ${block.element_id} (sandbox only).`);
+      }
 
     } catch {
-      useCopilotStore.getState().addToast('error', 'Network error — could not apply maintenance block.');
+      useCopilotStore.getState().addToast('error', 'Network error — could not apply block.');
     }
   },
 
@@ -149,17 +165,14 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
   removeBlockRemote: async (elementId) => {
     const isWhatIf = get().activeBlocks.get(elementId)?.isWhatIf;
 
-    // What-if blocks are local only
-    if (isWhatIf) {
-      get().removeBlock(elementId);
-      return;
-    }
+    // Route DELETE to the matching endpoint so sandbox blocks never hit the
+    // maintenance DELETE route (which would 404 since they aren't in ACTIVE_BLOCKS).
+    const endpoint = isWhatIf
+      ? `/api/v1/sandbox/blocks/${encodeURIComponent(elementId)}`
+      : `/api/v1/maintenance/blocks/${encodeURIComponent(elementId)}`;
 
     try {
-      const res = await fetch(
-        `/api/v1/maintenance/blocks/${encodeURIComponent(elementId)}`,
-        { method: 'DELETE' }
-      );
+      const res = await fetch(endpoint, { method: 'DELETE' });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -168,7 +181,10 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
       }
 
       get().removeBlock(elementId);
-      useCopilotStore.getState().addToast('info', `🔓 Maintenance cleared on ${elementId}.`);
+      useCopilotStore.getState().addToast(
+        'info',
+        isWhatIf ? `🧪 What-if block removed: ${elementId}.` : `🔓 Maintenance cleared on ${elementId}.`
+      );
     } catch {
       useCopilotStore.getState().addToast('error', 'Network error — could not remove block.');
     }
@@ -200,12 +216,22 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
   // -------------------------------------------------------------------------
   fetchActiveBlocks: async () => {
     try {
-      const res = await fetch('/api/v1/maintenance/blocks');
-      const data = await res.json();
+      // Fetch real maintenance blocks AND sandbox what-if blocks separately,
+      // then merge them into the same local Map with correct isWhatIf tags.
+      const [realRes, sandboxRes] = await Promise.all([
+        fetch('/api/v1/maintenance/blocks'),
+        fetch('/api/v1/sandbox/blocks'),
+      ]);
+      const realData = realRes.ok ? await realRes.json() : { blocks: [] };
+      const sandboxData = sandboxRes.ok ? await sandboxRes.json() : { blocks: [] };
+
       set((state) => {
         const next = new Map(state.activeBlocks);
-        (data.blocks ?? []).forEach((b: BlockRecord) => {
-          next.set(b.element_id, { ...b, blockId: b.element_id });
+        (realData.blocks ?? []).forEach((b: BlockRecord) => {
+          next.set(b.element_id, { ...b, blockId: b.element_id, isWhatIf: false });
+        });
+        (sandboxData.blocks ?? []).forEach((b: BlockRecord) => {
+          next.set(b.element_id, { ...b, blockId: b.element_id, isWhatIf: true });
         });
         return { activeBlocks: next };
       });

@@ -47,6 +47,7 @@ export const MaintenanceDrawer: React.FC = () => {
 
   const [type,      setType]      = useState<BlockType>('TRACK_SEGMENT');
   const [severity,  setSeverity]  = useState<BlockSeverity>('TOTAL_BLOCK');
+  const [speedLimit, setSpeedLimit] = useState<number>(30);
   const [startTime, setStartTime] = useState<string>(nowISO());
   const [endTime,   setEndTime]   = useState<string>(twoHoursLaterISO());
   const [reason,    setReason]    = useState<string>('Scheduled maintenance');
@@ -66,6 +67,7 @@ export const MaintenanceDrawer: React.FC = () => {
       if (existingBlock) {
         setType(existingBlock.type);
         setSeverity(existingBlock.severity);
+        setSpeedLimit(existingBlock.speed_limit ?? 30);
         setStartTime(existingBlock.start_time ? existingBlock.start_time.slice(0, 16) : nowISO());
         setEndTime(existingBlock.end_time ? existingBlock.end_time.slice(0, 16) : twoHoursLaterISO());
         setReason(existingBlock.reason || '');
@@ -77,6 +79,7 @@ export const MaintenanceDrawer: React.FC = () => {
         setIsWhatIf(false);
         setType('TRACK_SEGMENT');
         setSeverity('TOTAL_BLOCK');
+        setSpeedLimit(30);
       }
     }
   }, [isDrawerOpen, localElementId, existingBlock]);
@@ -87,29 +90,26 @@ export const MaintenanceDrawer: React.FC = () => {
       element_id: localElementId,
       type,
       severity,
+      speed_limit: severity === 'SPEED_RESTRICTION' ? speedLimit : undefined,
       start_time: new Date(startTime).toISOString(),
       end_time:   new Date(endTime).toISOString(),
       reason,
       isWhatIf,
     };
 
-    if (isWhatIf) {
-      // Sandbox-only: store locally, don't touch backend
-      applyBlock({ ...block, blockId: crypto.randomUUID() });
-    } else {
-      await applyBlockRemote(block);
-    }
+    // useMaintenanceStore.ts handles routing to the correct endpoint
+    // based on the isWhatIf flag (sandbox vs maintenance endpoints).
+    await applyBlockRemote(block);
 
     setSubmitting(false);
     closeDrawer();
-  }, [localElementId, type, severity, startTime, endTime, reason, isWhatIf,
+  }, [localElementId, type, severity, speedLimit, startTime, endTime, reason, isWhatIf,
       applyBlockRemote, applyBlock, closeDrawer]);
 
   const handleRemove = useCallback(async () => {
     setSubmitting(true);
-    if (!isWhatIf) {
-      await removeBlockRemote(localElementId);
-    }
+    // removeBlockRemote routes to the correct endpoint based on isWhatIf
+    await removeBlockRemote(localElementId);
     setSubmitting(false);
     closeDrawer();
   }, [localElementId, isWhatIf, removeBlockRemote, closeDrawer]);
@@ -234,8 +234,49 @@ export const MaintenanceDrawer: React.FC = () => {
               <p className="mms-severity-hint">
                 {severity === 'TOTAL_BLOCK'
                   ? 'Segment fully closed — trains will be rerouted or held.'
-                  : 'Segment traversable at reduced speed (≤ 30 km/h).'}
+                  : `Segment traversable at reduced speed (${speedLimit} km/h).`}
               </p>
+
+              {/* Speed limit input — only shown for SPEED_RESTRICTION */}
+              {severity === 'SPEED_RESTRICTION' && (
+                <div className="mms-speed-limit-row">
+                  <label className="mms-speed-limit-label">
+                    Speed Limit (km/h)
+                  </label>
+                  <div className="mms-speed-limit-controls">
+                    <input
+                      type="range"
+                      min={10}
+                      max={110}
+                      step={5}
+                      value={speedLimit}
+                      onChange={(e) => setSpeedLimit(Number(e.target.value))}
+                      className="mms-speed-slider"
+                    />
+                    <input
+                      type="number"
+                      min={10}
+                      max={110}
+                      step={5}
+                      value={speedLimit}
+                      onChange={(e) => setSpeedLimit(Math.min(110, Math.max(10, Number(e.target.value))))}
+                      className="mms-speed-number"
+                    />
+                    <span className="mms-speed-unit">km/h</span>
+                  </div>
+                  <div className="mms-speed-presets">
+                    {[10, 20, 30, 50, 75].map(v => (
+                      <button
+                        key={v}
+                        className={`mms-speed-preset ${speedLimit === v ? 'active' : ''}`}
+                        onClick={() => setSpeedLimit(v)}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Duration */}
