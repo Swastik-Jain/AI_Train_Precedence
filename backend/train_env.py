@@ -370,7 +370,7 @@ class TrainDispatchEnv(gym.Env):
     def _is_scheduled_stop(self, train, station_name: str) -> bool:
         """True if this train has a scheduled halt at this station."""
         sched = self.schedule.get(train['id'], {})
-        return station_name in sched.get('stops', [])
+        return station_name in sched.get('stops', []) or station_name in sched
 
     def _get_train_km(self, train) -> float:
         return self.get_node_km(train['position'])
@@ -557,6 +557,32 @@ class TrainDispatchEnv(gym.Env):
     # ACTION MASK
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _get_valid_loops(self, loop_targets, direction):
+        import math
+        valid_loops = []
+        for lnode in loop_targets:
+            lnode_data = self.track_map.get(lnode, {})
+            if lnode_data.get('type') == 'PLATFORM':
+                st_name = lnode_data.get('station')
+                p_idx = lnode_data.get('platform_index', 0)
+                if st_name and st_name in self.station_nodes:
+                    if st_name in ['CSMT', 'MANMAD']:
+                        valid_loops.append(lnode)
+                    else:
+                        platforms = self.station_nodes[st_name].get('platforms', [0, 1])
+                        total_p = len(platforms)
+                        mid = total_p / 2.0
+                        if direction == 'UP' and p_idx < math.ceil(mid):
+                            valid_loops.append(lnode)
+                        elif direction == 'DOWN' and p_idx >= math.floor(mid):
+                            valid_loops.append(lnode)
+                else:
+                    valid_loops.append(lnode)
+            else:
+                valid_loops.append(lnode)
+        return valid_loops
+
+
     def get_action_mask(self) -> np.ndarray:
         """
         Returns bool array (MAX_TRAINS_CAPACITY, 3).
@@ -634,11 +660,22 @@ class TrainDispatchEnv(gym.Env):
 
             # DIVERT check — loop/platform nodes (next_opts[1:])
             loop_targets = [n for n in next_opts if n != main_target]
-            for loop_n in loop_targets:
+            valid_loops = self._get_valid_loops(loop_targets, direction)
+            
+            is_scheduled_stop_here = False
+            for loop_n in valid_loops:
+                station = self.track_map.get(loop_n, {}).get('station')
+                if station and self.track_map[loop_n].get('type') == 'PLATFORM' and self._is_scheduled_stop(train, station):
+                    is_scheduled_stop_here = True
+                    break
+                    
+            if is_scheduled_stop_here:
+                mask[i, 1] = False
+
+            for loop_n in valid_loops:
                 cap = self.track_map.get(loop_n, {}).get('capacity', 1)
-                dir_cap = max(1, cap // 2) if cap > 1 else cap
-                occ = self.get_node_occupancy(loop_n, direction)
-                if occ < dir_cap:
+                occ = self.get_node_occupancy(loop_n)
+                if occ < cap:
                     mask[i, 2] = True
                     break
 
@@ -692,7 +729,7 @@ class TrainDispatchEnv(gym.Env):
             direction = train.get('direction', 'DOWN')
             sched     = self.schedule.get(train.get('id', ''), {})
 
-            if train.get('finished', False):
+            if train.get('finished', False) or self.sim_time < sched.get('start_time', 0):
                 obs[i] = _GHOST_OBS
                 continue
 
@@ -728,8 +765,18 @@ class TrainDispatchEnv(gym.Env):
             for j, other in enumerate(self.trains):
                 if i == j or other['finished']:
                     continue
+                if self.sim_time < self.schedule.get(other.get('id', ''), {}).get('start_time', 0):
+                    continue
                 if other['direction'] != direction:
                     continue
+
+                my_node = self.track_map.get(train['position'], {})
+                other_node = self.track_map.get(other['position'], {})
+                # Parallel track exclusion: different nodes at the same station
+                if my_node.get('station') and my_node.get('station') == other_node.get('station'):
+                    if train['position'] != other['position']:
+                        continue
+
                 other_km = self.get_node_km(other['position'])
                 if direction == 'DOWN' and other_km > my_km:
                     gap = other_km - my_km
@@ -761,6 +808,13 @@ class TrainDispatchEnv(gym.Env):
                     continue
                 if other['direction'] == direction:
                     continue
+
+                my_node = self.track_map.get(train['position'], {})
+                other_node = self.track_map.get(other['position'], {})
+                # Parallel track exclusion: different nodes at the same station
+                if my_node.get('station') and my_node.get('station') == other_node.get('station'):
+                    if train['position'] != other['position']:
+                        continue
                 if other['position'] in (0, 998, 999):
                     continue
                 other_km = self.get_node_km(other['position'])
@@ -1036,10 +1090,11 @@ class TrainDispatchEnv(gym.Env):
 
                     if act == 2 and loop_targets:
                         target_node = None
-                        for lnode in loop_targets:
+                        valid_loops = self._get_valid_loops(loop_targets, direction)
+                        for lnode in valid_loops:
                             cap = self.track_map.get(lnode, {}).get('capacity', 1)
-                            dir_cap = max(1, cap // 2) if cap > 1 else cap
-                            if self.get_node_occupancy(lnode, direction) < dir_cap:
+                            occ = self.get_node_occupancy(lnode)
+                            if occ < cap:
                                 target_node = lnode
                                 break
 
@@ -1142,8 +1197,10 @@ class TrainDispatchEnv(gym.Env):
                     now_in_token = self._is_in_token_block(target_node)
 
                     if now_in_token and not was_in_token:
+                        print(f"[TOKEN] Train {train['id']} ENTERS token block at node {target_node}")
                         self.ghat_token.train_entered(train['id'], direction)
                     elif was_in_token and not now_in_token:
+                        print(f"[TOKEN] Train {train['id']} EXITS token block at node {target_node} (from {old_pos})")
                         self.ghat_token.train_exited(train['id'])
                         if train.get('banker_required'):
                             train['banker_wait'] = BANKER_DETACH_TIME

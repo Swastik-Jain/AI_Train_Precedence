@@ -31,7 +31,12 @@ def get_network_topology():
             "x": x, 
             "y": y, 
             "type": info.get('type', 'NODE'),
-            "km": info.get('km', 0)
+            "km": info.get('km', 0),
+            "stId": info.get('station') or info.get('label'),
+            "capacity": info.get('capacity', 2),
+            "platform_index": info.get('platform_index'),
+            "loop_index": info.get('loop_index'),
+            "token_block": info.get('token_block', False)
         }
         
         next_nodes = info.get('next', [])

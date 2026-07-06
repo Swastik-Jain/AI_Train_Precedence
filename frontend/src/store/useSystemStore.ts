@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiUrl, wsUrl } from '../lib/api';
 
 interface SystemState {
   isLockdown: boolean;
@@ -21,8 +22,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   fetchStatus: async () => {
     try {
       const [statusRes, telemetryRes] = await Promise.all([
-        fetch('http://localhost:8000/api/v1/system/inference-status'),
-        fetch('http://localhost:8000/api/v1/telemetry'),
+        fetch(apiUrl('/api/v1/system/inference-status')),
+        fetch(apiUrl('/api/v1/telemetry')),
       ]);
       
       if (statusRes.ok && telemetryRes.ok) {
@@ -45,7 +46,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     const previous = get().isLockdown;
     set({ isLockdown: enabled }); // optimistic
     try {
-      const res = await fetch('http://localhost:8000/api/v1/system/lockdown', {
+      const res = await fetch(apiUrl('/api/v1/system/lockdown'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -61,7 +62,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     const previous = get().isSafetyShield;
     set({ isSafetyShield: enabled }); // optimistic
     try {
-      const res = await fetch('http://localhost:8000/api/v1/system/safety-shield', {
+      const res = await fetch(apiUrl('/api/v1/system/safety-shield'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),

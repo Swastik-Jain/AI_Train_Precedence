@@ -1,0 +1,311 @@
+[
+  {
+    "type": "ST",
+    "x1": 50,
+    "x2": 190,
+    "cap": 4,
+    "stId": "CSMT",
+    "isLeft": true,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 190,
+    "x2": 380,
+    "cap": 4,
+    "speed": 100,
+    "km": 9,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 380,
+    "x2": 424,
+    "fromCap": 4,
+    "toCap": 3
+  },
+  {
+    "type": "ST",
+    "x1": 424,
+    "x2": 564,
+    "cap": 3,
+    "stId": "DADAR",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 564,
+    "x2": 1114,
+    "cap": 3,
+    "speed": 100,
+    "km": 45,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 1114,
+    "x2": 1158,
+    "fromCap": 3,
+    "toCap": 7
+  },
+  {
+    "type": "ST",
+    "x1": 1158,
+    "x2": 1298,
+    "cap": 7,
+    "stId": "KALYAN",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SW",
+    "x1": 1298,
+    "x2": 1342,
+    "fromCap": 7,
+    "toCap": 2
+  },
+  {
+    "type": "SEG",
+    "x1": 1342,
+    "x2": 1532,
+    "cap": 2,
+    "speed": 100,
+    "km": 9,
+    "isGhat": false
+  },
+  {
+    "type": "ST",
+    "x1": 1532,
+    "x2": 1672,
+    "cap": 2,
+    "stId": "AMBERNATH",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 1672,
+    "x2": 1942,
+    "cap": 2,
+    "speed": 100,
+    "km": 17,
+    "isGhat": false
+  },
+  {
+    "type": "ST",
+    "x1": 1942,
+    "x2": 2082,
+    "cap": 2,
+    "stId": "TITWALA",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 2082,
+    "x2": 2362,
+    "cap": 2,
+    "speed": 100,
+    "km": 18,
+    "isGhat": false
+  },
+  {
+    "type": "ST",
+    "x1": 2362,
+    "x2": 2502,
+    "cap": 2,
+    "stId": "ATGAON",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 2502,
+    "x2": 2832,
+    "cap": 2,
+    "speed": 100,
+    "km": 23,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 2832,
+    "x2": 2876,
+    "fromCap": 2,
+    "toCap": 4
+  },
+  {
+    "type": "ST",
+    "x1": 2876,
+    "x2": 3016,
+    "cap": 4,
+    "stId": "KASARA",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SW",
+    "x1": 3016,
+    "x2": 3060,
+    "fromCap": 4,
+    "toCap": 1
+  },
+  {
+    "type": "SEG",
+    "x1": 3060,
+    "x2": 3310,
+    "cap": 1,
+    "speed": 100,
+    "km": 15,
+    "isGhat": true
+  },
+  {
+    "type": "SW",
+    "x1": 3310,
+    "x2": 3354,
+    "fromCap": 1,
+    "toCap": 6
+  },
+  {
+    "type": "ST",
+    "x1": 3354,
+    "x2": 3494,
+    "cap": 6,
+    "stId": "IGATPURI",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SW",
+    "x1": 3494,
+    "x2": 3538,
+    "fromCap": 6,
+    "toCap": 2
+  },
+  {
+    "type": "SEG",
+    "x1": 3538,
+    "x2": 4098,
+    "cap": 2,
+    "speed": 100,
+    "km": 46,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 4098,
+    "x2": 4142,
+    "fromCap": 2,
+    "toCap": 3
+  },
+  {
+    "type": "ST",
+    "x1": 4142,
+    "x2": 4282,
+    "cap": 3,
+    "stId": "DEVLALI",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SW",
+    "x1": 4282,
+    "x2": 4326,
+    "fromCap": 3,
+    "toCap": 2
+  },
+  {
+    "type": "SEG",
+    "x1": 4326,
+    "x2": 4476,
+    "cap": 2,
+    "speed": 100,
+    "km": 5,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 4476,
+    "x2": 4520,
+    "fromCap": 2,
+    "toCap": 6
+  },
+  {
+    "type": "ST",
+    "x1": 4520,
+    "x2": 4660,
+    "cap": 6,
+    "stId": "NASHIK",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SW",
+    "x1": 4660,
+    "x2": 4704,
+    "fromCap": 6,
+    "toCap": 2
+  },
+  {
+    "type": "SEG",
+    "x1": 4704,
+    "x2": 5034,
+    "cap": 2,
+    "speed": 100,
+    "km": 23,
+    "isGhat": false
+  },
+  {
+    "type": "ST",
+    "x1": 5034,
+    "x2": 5174,
+    "cap": 2,
+    "stId": "LOOP_NANDGAON",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 5174,
+    "x2": 5524,
+    "cap": 2,
+    "speed": 100,
+    "km": 25,
+    "isGhat": false
+  },
+  {
+    "type": "ST",
+    "x1": 5524,
+    "x2": 5664,
+    "cap": 2,
+    "stId": "LOOP_LASALGAON",
+    "isLeft": false,
+    "isRight": false
+  },
+  {
+    "type": "SEG",
+    "x1": 5664,
+    "x2": 6024,
+    "cap": 2,
+    "speed": 100,
+    "km": 26,
+    "isGhat": false
+  },
+  {
+    "type": "SW",
+    "x1": 6024,
+    "x2": 6068,
+    "fromCap": 2,
+    "toCap": 4
+  },
+  {
+    "type": "ST",
+    "x1": 6068,
+    "x2": 6208,
+    "cap": 4,
+    "stId": "MANMAD",
+    "isLeft": false,
+    "isRight": true
+  }
+]

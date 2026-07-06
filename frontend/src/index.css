@@ -68,7 +68,7 @@
   --c-surface-low: #f1f5f9;
   --c-surface-high:#e2e8f0;
   --c-surface-top: #ffffff;
-  --c-void:        #ffffff;  /* Replaced dark void with clean white for layout panels */
+  --c-panel-bg:    #ffffff;  /* White background for panels and layout containers */
   --c-bright:      #f4f4f5;
 
   --c-primary:     #8B5CF6;
@@ -76,7 +76,10 @@
   --c-on-primary:  #ffffff;
 
   --c-secondary:   #64748b;
-  --c-orange:      #8B5CF6; /* Swapped safety orange for Brand Violet to maintain compatibility without renaming variables everywhere */
+  --c-orange:      #8B5CF6; /* kept for backward compat — prefer --c-accent */
+  --c-accent:      #8B5CF6; /* Brand violet accent — use this instead of --c-orange */
+
+  --c-error:       #b31b25; /* Error / conflict red — matches --color-error */
 
   --c-on-surface:  #0f172a;
   --c-muted:       #334155;

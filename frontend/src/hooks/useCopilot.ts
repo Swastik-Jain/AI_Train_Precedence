@@ -1,3 +1,4 @@
+import { apiUrl, wsUrl } from '../lib/api';
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCopilotStore, type AISuggestion } from '../store/useCopilotStore';
@@ -52,7 +53,7 @@ export function useCopilot() {
         if (new_action !== undefined) bodyPayload.new_action = new_action;
         if (new_edge !== undefined) bodyPayload.new_edge = new_edge;
 
-        const res = await fetch('/api/v1/dispatch/override', {
+        const res = await fetch(apiUrl('/api/v1/dispatch/override'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bodyPayload),
@@ -97,7 +98,7 @@ export function useCopilot() {
       rejectSuggestion(recommendation_id);
 
       try {
-        await fetch('/api/v1/dispatch/acknowledge', {
+        await fetch(apiUrl('/api/v1/dispatch/acknowledge'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ recommendation_id }),

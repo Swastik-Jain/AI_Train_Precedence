@@ -53,6 +53,7 @@ const ControlCentre: React.FC = () => {
 
   // Audit Log State
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(true);
   const [logFilter, setLogFilter] = useState('All');
   const [logLimit, setLogLimit] = useState(50);
   
@@ -114,6 +115,7 @@ const ControlCentre: React.FC = () => {
   // Load logs
   useEffect(() => {
     if (activeTab !== 'audit') return;
+    setIsLoadingLogs(true);
     const loadLogs = async () => {
       try {
         const res = await fetch(`/api/v1/system/audit-logs?limit=${logLimit}`);
@@ -127,6 +129,8 @@ const ControlCentre: React.FC = () => {
         }
       } catch (err) {
         console.error(err);
+      } finally {
+        setIsLoadingLogs(false);
       }
     };
     loadLogs();
@@ -135,6 +139,16 @@ const ControlCentre: React.FC = () => {
   }, [logLimit, activeTab]);
 
   const handleRecalculate = async () => {
+    // Check if the user has inputted any scenario conditions
+    const hasLatencies = Object.keys(latencies).length > 0;
+    const hasForcedActions = Object.keys(forcedActions).length > 0;
+    const hasWhatIfBlocks = blockList.some(b => b.isWhatIf);
+
+    if (!hasLatencies && !hasForcedActions && !hasWhatIfBlocks) {
+      alert("Please add at least one condition (latency, force action, or a track block) before recalculating.");
+      return;
+    }
+
     setIsRecalculating(true);
     try {
         const res = await fetch('/api/v1/simulation/analyze', {
@@ -195,6 +209,8 @@ const ControlCentre: React.FC = () => {
             setLatencies({});
             setForcedActions({});
             setScenarioLabel('Scenario A');
+            setDelayTrainId('');
+            setSelectedDuration(0);
         } else {
             alert('Failed to deploy simulation.');
         }
@@ -242,7 +258,7 @@ const ControlCentre: React.FC = () => {
   const sectionsClear = totalEdges - activeBlocksCount;
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto w-full space-y-6">
+    <section aria-label="Control Centre" className="p-8 max-w-[1600px] mx-auto w-full space-y-6">
       
       {/* ── Top Shared Map Section ── */}
       <section className="bg-surface-container-lowest p-6 rounded-lg shadow-sm border border-outline-variant/10 relative flex flex-col h-[560px]">
@@ -304,7 +320,11 @@ const ControlCentre: React.FC = () => {
                                 <select 
                                     className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border border-outline-variant/20 rounded-md font-mono text-sm focus:ring-2 focus:ring-violet-500/30 text-on-surface appearance-none cursor-pointer hover:bg-surface-container-high transition-colors" 
                                     value={delayTrainId}
-                                    onChange={e => setDelayTrainId(e.target.value)}
+                                    onChange={e => {
+                                        const newId = e.target.value;
+                                        setDelayTrainId(newId);
+                                        setSelectedDuration(latencies[newId] || 0);
+                                    }}
                                 >
                                     <option value="">Select a train...</option>
                                     {allTrains.map(t => (
@@ -320,20 +340,29 @@ const ControlCentre: React.FC = () => {
                         {/* Latency Duration */}
                         <div>
                             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Latency Duration — {selectedDuration} Min</label>
-                            <input 
-                                className="w-full h-1.5 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-violet-500 hover:accent-violet-400 transition-colors" 
-                                type="range" min="0" max="60" 
-                                value={selectedDuration} 
-                                onChange={e => {
-                                    const val = parseInt(e.target.value);
-                                    setSelectedDuration(val);
-                                    if (delayTrainId && val > 0) {
-                                        setLatencies(prev => ({ ...prev, [delayTrainId]: val }));
-                                    } else if (delayTrainId && val === 0) {
-                                        setLatencies(prev => { const n = {...prev}; delete n[delayTrainId]; return n; });
-                                    }
-                                }}
-                            />
+                            <div className="flex gap-2 items-center">
+                                <input 
+                                    className="flex-1 h-1.5 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-violet-500 hover:accent-violet-400 transition-colors" 
+                                    type="range" min="0" max="60" 
+                                    value={selectedDuration} 
+                                    onChange={e => {
+                                        const val = parseInt(e.target.value);
+                                        setSelectedDuration(val);
+                                    }}
+                                />
+                                <button 
+                                    className="px-4 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1 text-on-surface"
+                                    onClick={() => {
+                                        if (delayTrainId && selectedDuration > 0) {
+                                            setLatencies(prev => ({ ...prev, [delayTrainId]: selectedDuration }));
+                                        } else if (delayTrainId && selectedDuration === 0) {
+                                            setLatencies(prev => { const n = {...prev}; delete n[delayTrainId]; return n; });
+                                        }
+                                    }}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">add</span> Add
+                                </button>
+                            </div>
                         </div>
 
                         {/* Force Action */}
@@ -816,8 +845,15 @@ const ControlCentre: React.FC = () => {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
+              {isLoadingLogs ? (
+                <div className="flex flex-col gap-4 py-8 px-4">
+                  <div className="dash-skeleton h-10 w-full"></div>
+                  <div className="dash-skeleton h-10 w-full"></div>
+                  <div className="dash-skeleton h-10 w-full"></div>
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
                   <tr className="border-b border-outline-variant/10">
                     <th className="py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Timestamp</th>
                     <th className="py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Event Source</th>
@@ -856,6 +892,7 @@ const ControlCentre: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
             <div className="mt-4 flex justify-center">
               <button onClick={() => setLogLimit(prev => prev + 50)} className="text-[10px] font-bold text-primary flex items-center gap-1 hover:underline">
@@ -864,7 +901,7 @@ const ControlCentre: React.FC = () => {
             </div>
           </motion.section>
         )}
-    </div>
+    </section>
   );
 };
 

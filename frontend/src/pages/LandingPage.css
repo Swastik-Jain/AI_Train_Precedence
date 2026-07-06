@@ -734,7 +734,7 @@
    FOOTER
    ────────────────────────────────────────────────────────────── */
 .orbit-footer {
-  background-color: var(--c-void);
+  background-color: var(--c-panel-bg);
   padding: 36px 80px;
   display: flex;
   align-items: center;

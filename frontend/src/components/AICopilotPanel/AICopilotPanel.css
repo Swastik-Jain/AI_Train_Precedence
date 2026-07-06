@@ -378,3 +378,74 @@
   max-width: 200px;
   margin: 0;
 }
+
+/* Refactored inline styles */
+.copilot-ttl-wrapper {
+  margin-bottom: 6px;
+}
+
+.copilot-ttl-bar {
+  height: 3px;
+  background: var(--c-slate-200, #e2e8f0);
+  width: 100%;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.copilot-ttl-countdown {
+  font-size: 9px;
+  text-align: right;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.copilot-ttl-countdown.danger {
+  color: var(--c-red-600, #dc2626);
+}
+
+.copilot-ttl-countdown.normal {
+  color: var(--c-slate-400, #94a3b8);
+}
+
+.copilot-badge-container {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.copilot-modification-panel {
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.copilot-modification-inner {
+  padding: 8px;
+  background: var(--c-slate-50, #f8fafc);
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--c-slate-200, #e2e8f0);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.copilot-modification-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.copilot-modification-label {
+  font-weight: 600;
+  color: var(--c-slate-600, #475569);
+}
+
+.copilot-modification-select, .copilot-modification-input {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--c-slate-300, #cbd5e1);
+}
+
+.copilot-modification-input {
+  width: 100px;
+}

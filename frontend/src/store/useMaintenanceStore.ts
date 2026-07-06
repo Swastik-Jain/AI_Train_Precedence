@@ -1,3 +1,4 @@
+import { apiUrl, wsUrl } from '../lib/api';
 import { create } from 'zustand';
 import { useCopilotStore } from './useCopilotStore';
 
@@ -195,7 +196,7 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
   // -------------------------------------------------------------------------
   fetchImpactAnalysis: async () => {
     try {
-      const res = await fetch('/api/v1/impact-analysis');
+      const res = await fetch(apiUrl('/api/v1/impact-analysis'));
       const data: ConsolidatedImpact = await res.json();
       get().setImpactReport(data);
 
@@ -219,8 +220,8 @@ export const useMaintenanceStore = create<MaintenanceState>((set, get) => ({
       // Fetch real maintenance blocks AND sandbox what-if blocks separately,
       // then merge them into the same local Map with correct isWhatIf tags.
       const [realRes, sandboxRes] = await Promise.all([
-        fetch('/api/v1/maintenance/blocks'),
-        fetch('/api/v1/sandbox/blocks'),
+        fetch(apiUrl('/api/v1/maintenance/blocks')),
+        fetch(apiUrl('/api/v1/sandbox/blocks')),
       ]);
       const realData = realRes.ok ? await realRes.json() : { blocks: [] };
       const sandboxData = sandboxRes.ok ? await sandboxRes.json() : { blocks: [] };

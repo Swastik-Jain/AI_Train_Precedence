@@ -157,8 +157,8 @@ const DecisionCard: React.FC<{
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
     >
       {/* TTL Bar + tick countdown */}
-      <div style={{ marginBottom: '6px' }}>
-        <div style={{ height: '3px', background: '#e2e8f0', width: '100%', borderRadius: '2px', overflow: 'hidden' }}>
+      <div className="copilot-ttl-wrapper">
+        <div className="copilot-ttl-bar">
           <div style={{
             height: '100%',
             background: isExpired ? '#dc2626' : '#8B5CF6',
@@ -168,13 +168,7 @@ const DecisionCard: React.FC<{
         </div>
         {/* Secondary: server-reported tick countdown for drift visibility */}
         {suggestion.expires_in_ticks !== undefined && !isExpired && (
-          <div style={{
-            fontSize: '9px',
-            color: suggestion.expires_in_ticks <= 3 ? '#dc2626' : '#94a3b8',
-            textAlign: 'right',
-            marginTop: '2px',
-            fontVariantNumeric: 'tabular-nums',
-          }}>
+          <div className={`copilot-ttl-countdown ${suggestion.expires_in_ticks <= 3 ? 'danger' : 'normal'}`}>
             {suggestion.expires_in_ticks}t remaining
           </div>
         )}
@@ -182,7 +176,7 @@ const DecisionCard: React.FC<{
 
       {/* Card Header */}
       <div className="copilot-card-header">
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+        <div className="copilot-badge-container">
           <span className="copilot-priority-badge" style={{ color: pm.color, backgroundColor: pm.bg }}>
             {pm.label}
           </span>
@@ -225,20 +219,20 @@ const DecisionCard: React.FC<{
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            style={{ overflow: 'hidden', marginBottom: '8px' }}
+            className="copilot-modification-panel"
           >
-            <div style={{ padding: '8px', background: '#f8fafc', borderRadius: '6px', fontSize: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontWeight: 600, color: '#475569' }}>Action:</label>
-                <select value={modAct} onChange={e => setModAct(Number(e.target.value))} style={{ padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+            <div className="copilot-modification-inner">
+              <div className="copilot-modification-row">
+                <label className="copilot-modification-label">Action:</label>
+                <select value={modAct} onChange={e => setModAct(Number(e.target.value))} className="copilot-modification-select">
                   <option value={0}>STOP</option>
                   <option value={1}>MAIN</option>
                   <option value={2}>DIVERT</option>
                 </select>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontWeight: 600, color: '#475569' }}>Edge:</label>
-                <input type="text" value={modEdge} onChange={e => setModEdge(e.target.value)} style={{ padding: '2px 6px', width: '100px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+              <div className="copilot-modification-row">
+                <label className="copilot-modification-label">Edge:</label>
+                <input type="text" value={modEdge} onChange={e => setModEdge(e.target.value)} className="copilot-modification-input" />
               </div>
             </div>
           </motion.div>
@@ -377,7 +371,7 @@ export const AICopilotPanel: React.FC = () => {
                 <Zap size={20} />
               </div>
               <p className="copilot-empty-title">Monitoring Network</p>
-              <p className="copilot-empty-sub">Contested AI decisions will appear here as the RL agent re-optimises the network.</p>
+              <p className="copilot-empty-sub">AI Co-Pilot is actively monitoring. No contested decisions or schedule conflicts require intervention at this time.</p>
             </motion.div>
           ) : (
             activeSuggestions.map((s) => (
