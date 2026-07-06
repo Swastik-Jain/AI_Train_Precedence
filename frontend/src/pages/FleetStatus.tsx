@@ -1,3 +1,4 @@
+import { apiUrl, wsUrl } from '../lib/api';
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './FleetStatus.css';
@@ -58,7 +59,7 @@ const ACTION_COLOR = (a: number) =>
 const fadeUp = {
   hidden : { opacity: 0, y: 16 },
   visible: (d = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.45, delay: d, ease: [0.22,1,0.36,1] } }),
-};
+} as any;
 
 // ---------------------------------------------------------------------------
 // Add Train Modal
@@ -81,7 +82,7 @@ const AddTrainModal: React.FC<AddTrainModalProps> = ({ onClose, onAdded }) => {
     if (!form.train_id.trim()) { setError('Train ID is required'); return; }
     setLoading(true); setError(null);
     try {
-      const res = await fetch('/api/v1/fleet', {
+      const res = await fetch(apiUrl('/api/v1/fleet'), {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify(form),
@@ -259,7 +260,7 @@ const FleetStatus: React.FC = () => {
 
   const fetchFleet = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/fleet');
+      const res = await fetch(apiUrl('/api/v1/fleet'));
       if (res.ok) {
         const data = await res.json();
         setFleet(data.fleet ?? []);
@@ -278,7 +279,7 @@ const FleetStatus: React.FC = () => {
   const handleGenerateSchedule = async () => {
     setSchedLoad(true); setSchedError(null); setShowSched(true);
     try {
-      const res = await fetch('/api/v1/fleet/generate-schedule', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/v1/fleet/generate-schedule'), { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setSchedError(data.detail ?? 'OR-Solver error'); setSchedule(null); }
       else          { setSchedule(data); }
@@ -294,7 +295,7 @@ const FleetStatus: React.FC = () => {
     : 0;
 
   return (
-    <div className="fs-page">
+    <section aria-label="Fleet Status" className="fs-page">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <motion.div className="fs-page-header" variants={fadeUp} initial="hidden" animate="visible">
         <div>
@@ -484,7 +485,7 @@ const FleetStatus: React.FC = () => {
           <AddTrainModal key="add-train-modal" onClose={() => setAddModal(false)} onAdded={fetchFleet} />
         )}
       </AnimatePresence>
-    </div>
+    </section>
   );
 };
 

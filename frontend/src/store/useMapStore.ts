@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { WS_BASE } from '../lib/api';
 import { useMaintenanceStore } from './useMaintenanceStore';
 
 export interface Node {
@@ -7,6 +8,10 @@ export interface Node {
   y: number;
   type: string;
   km: number;
+  capacity?: number;
+  stId?: string;
+  platform_index?: number;
+  loop_index?: number;
 }
 
 export interface Edge {
@@ -43,6 +48,7 @@ interface MapState {
   trainStates: TrainState[];
   allTrains: TrainOption[];
   conflicts: string[];
+  tokenTrains: string[];
   /** Edges that just had an AI action committed — shown as green flash */
   committedEdges: Set<string>;
   selectedTrainId: string | null;
@@ -53,7 +59,8 @@ interface MapState {
   /** The RL action that was committed: 0=STOP, 2=DIVERT, 1=MAIN */
   committedAction: number | null;
   zoomLevel: number;
-  simTime: number;
+  simTick: number;
+  tickIntervalS: number;
   
   setTopology: (topology: TopologyData) => void;
   updateLiveState: (trains: TrainState[], conflicts: string[], allTrains: TrainOption[]) => void;
@@ -61,6 +68,7 @@ interface MapState {
   setSelectedEdge: (edgeId: string | null) => void;
   setIsConnected: (status: boolean) => void;
   setZoomLevel: (zoom: number | ((prev: number) => number)) => void;
+  setSimTick: (t: number) => void;
   connectWebSocket: () => void;
 }
 
@@ -73,6 +81,7 @@ export const useMapStore = create<MapState>((set) => {
     trainStates: [],
     allTrains: [],
     conflicts: [],
+    tokenTrains: [],
     committedEdges: new Set<string>(),
     selectedTrainId: null,
     selectedEdgeId: null,
@@ -80,7 +89,8 @@ export const useMapStore = create<MapState>((set) => {
     committedTrainId: null,
     committedAction: null,
     zoomLevel: 1.2,
-    simTime: 0,
+    simTick: 0,
+    tickIntervalS: 1.0,
 
 
     setTopology: (topology) => set({ topology }),
@@ -97,12 +107,14 @@ export const useMapStore = create<MapState>((set) => {
       zoomLevel: typeof zoom === 'function' ? zoom(state.zoomLevel) : zoom 
     })),
 
+    setSimTick: (simTick) => set({ simTick }),
+
     connectWebSocket: () => {
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         return;
       }
       
-      const wsUrl = `ws://localhost:8000/ws/topology`;
+      const wsUrl = `${WS_BASE}/ws/topology`;
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
@@ -119,7 +131,9 @@ export const useMapStore = create<MapState>((set) => {
             trainStates: data.trains || [],
             allTrains: data.all_trains || [],
             conflicts: data.conflicts || [],
-            simTime: data.sim_time !== undefined ? data.sim_time : state.simTime
+            tokenTrains: data.token_trains || [],
+            simTick: data.sim_time !== undefined ? data.sim_time : state.simTick,
+            tickIntervalS: data.tick_interval_s !== undefined ? data.tick_interval_s : state.tickIntervalS
           }));
           
           if (data.maintenance_blocks) {

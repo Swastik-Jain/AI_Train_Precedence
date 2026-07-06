@@ -10,6 +10,7 @@ import {
   HelpCircle,
   LogOut,
   ChevronRight,
+  Menu,
 } from 'lucide-react';
 import { useSystemStore } from '../store/useSystemStore';
 import { useMapStore } from '../store/useMapStore';
@@ -45,6 +46,7 @@ const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const clock = useLiveClock();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { 
     isLockdown, isSafetyShield,
     networkFluidity, haltedPct, activeTrains,
@@ -81,10 +83,17 @@ const DashboardLayout: React.FC = () => {
       {/* ══════════════════════════════════════════════
           SIDEBAR — Control Center
       ══════════════════════════════════════════════ */}
+      {/* Overlay for mobile when sidebar is open */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
       <motion.aside
-        className="dash__sidebar"
-        initial={{ x: -40, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
+        className={`dash__sidebar ${isSidebarOpen ? 'open' : ''}`}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
         transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
         role="navigation"
         aria-label="Control Center navigation"
@@ -140,6 +149,13 @@ const DashboardLayout: React.FC = () => {
           transition={{ duration: 0.5, ease: 'easeOut' }}
         >
           <div className="dash__topbar-left">
+            <button 
+              className="dash-menu-toggle"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              aria-label="Toggle Menu"
+            >
+              <Menu size={20} />
+            </button>
             <p className="dash__topbar-breadcrumb">
               ORBIT <span>›</span> <strong>{pageTitle}</strong>
             </p>

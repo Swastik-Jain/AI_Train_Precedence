@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiUrl, wsUrl } from '../lib/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +118,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
     // -----------------------------------------------------------------------
     fetchBaseSchedule: async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/v1/fleet/schedule');
+        const res = await fetch(apiUrl('/api/v1/fleet/schedule'));
         if (!res.ok) return;
         const data = await res.json();
         if (data.schedule) {
@@ -244,11 +245,24 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
         return; // already connected / connecting
       }
 
-      socket = new WebSocket('ws://localhost:8000/ws/copilot');
+      socket = new WebSocket(wsUrl('/ws/copilot'));
 
       socket.onopen = () => {
         set({ isConnected: true });
         console.log('[ORBIT] Co-pilot WebSocket connected');
+      };
+
+      const handleDisconnect = () => {
+        set({ isConnected: false });
+        socket = null;
+        console.log('[ORBIT] Co-pilot WebSocket disconnected. Reconnecting in 3s...');
+        setTimeout(() => get().connectCopilotWS(), 3000);
+      };
+
+      socket.onclose = handleDisconnect;
+      socket.onerror = () => {
+        // Socket will close after error, handled by onclose
+        console.warn('[ORBIT] Co-pilot WebSocket error');
       };
 
       socket.onmessage = (event) => {

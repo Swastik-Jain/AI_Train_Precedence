@@ -1,0 +1,5902 @@
+{
+  "nodes": [
+    {
+      "id": "0",
+      "x": 100,
+      "y": 250,
+      "type": "ORIGIN",
+      "km": 0.0,
+      "stId": null,
+      "capacity": 99
+    },
+    {
+      "id": "1",
+      "x": 250,
+      "y": 250,
+      "type": "SWITCH",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 4
+    },
+    {
+      "id": "2",
+      "x": 430,
+      "y": 178.0,
+      "type": "SWITCH",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 4
+    },
+    {
+      "id": "1000",
+      "x": 430,
+      "y": 202.0,
+      "type": "PLATFORM",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "1001",
+      "x": 430,
+      "y": 226.0,
+      "type": "PLATFORM",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "1002",
+      "x": 430,
+      "y": 250.0,
+      "type": "PLATFORM",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "1003",
+      "x": 430,
+      "y": 274.0,
+      "type": "PLATFORM",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "1004",
+      "x": 430,
+      "y": 298.0,
+      "type": "LOOP",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "1005",
+      "x": 430,
+      "y": 322.0,
+      "type": "LOOP",
+      "km": 0,
+      "stId": "CSMT",
+      "capacity": 1
+    },
+    {
+      "id": "3",
+      "x": 580,
+      "y": 178.0,
+      "type": "MAIN_BLOCK",
+      "km": 4.5,
+      "stId": null,
+      "capacity": 4
+    },
+    {
+      "id": "4",
+      "x": 730,
+      "y": 178.0,
+      "type": "MAIN_BLOCK",
+      "km": 9.0,
+      "stId": null,
+      "capacity": 4
+    },
+    {
+      "id": "5",
+      "x": 880,
+      "y": 178.0,
+      "type": "SWITCH",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 4
+    },
+    {
+      "id": "6",
+      "x": 1060,
+      "y": 130.0,
+      "type": "SWITCH",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 4
+    },
+    {
+      "id": "1006",
+      "x": 1060,
+      "y": 154.0,
+      "type": "PLATFORM",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 1
+    },
+    {
+      "id": "1007",
+      "x": 1060,
+      "y": 178.0,
+      "type": "PLATFORM",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 1
+    },
+    {
+      "id": "1008",
+      "x": 1060,
+      "y": 202.0,
+      "type": "PLATFORM",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 1
+    },
+    {
+      "id": "1009",
+      "x": 1060,
+      "y": 226.0,
+      "type": "LOOP",
+      "km": 9,
+      "stId": "DADAR",
+      "capacity": 1
+    },
+    {
+      "id": "7",
+      "x": 1210,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 14.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "8",
+      "x": 1360,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 19.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "9",
+      "x": 1510,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 24.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "10",
+      "x": 1660,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 29.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "11",
+      "x": 1810,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 34.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "12",
+      "x": 1960,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 39.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "13",
+      "x": 2110,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 44.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "14",
+      "x": 2260,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 49.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "15",
+      "x": 2410,
+      "y": 130.0,
+      "type": "MAIN_BLOCK",
+      "km": 54.0,
+      "stId": null,
+      "capacity": 3
+    },
+    {
+      "id": "16",
+      "x": 2560,
+      "y": 130.0,
+      "type": "SWITCH",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 4
+    },
+    {
+      "id": "17",
+      "x": 2740,
+      "y": 10.0,
+      "type": "SWITCH",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 4
+    },
+    {
+      "id": "1010",
+      "x": 2740,
+      "y": 34.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1011",
+      "x": 2740,
+      "y": 58.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1012",
+      "x": 2740,
+      "y": 82.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1013",
+      "x": 2740,
+      "y": 106.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1014",
+      "x": 2740,
+      "y": 130.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1015",
+      "x": 2740,
+      "y": 154.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1016",
+      "x": 2740,
+      "y": 178.0,
+      "type": "PLATFORM",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1017",
+      "x": 2740,
+      "y": 202.0,
+      "type": "LOOP",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1018",
+      "x": 2740,
+      "y": 226.0,
+      "type": "LOOP",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "1019",
+      "x": 2740,
+      "y": 250.0,
+      "type": "LOOP",
+      "km": 54,
+      "stId": "KALYAN",
+      "capacity": 1
+    },
+    {
+      "id": "18",
+      "x": 2890,
+      "y": 10.0,
+      "type": "MAIN_BLOCK",
+      "km": 58.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "19",
+      "x": 3040,
+      "y": 10.0,
+      "type": "MAIN_BLOCK",
+      "km": 63.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "20",
+      "x": 3190,
+      "y": 10.0,
+      "type": "SWITCH",
+      "km": 63,
+      "stId": "AMBERNATH",
+      "capacity": 2
+    },
+    {
+      "id": "21",
+      "x": 3370,
+      "y": -14.0,
+      "type": "SWITCH",
+      "km": 63,
+      "stId": "AMBERNATH",
+      "capacity": 2
+    },
+    {
+      "id": "1020",
+      "x": 3370,
+      "y": 10.0,
+      "type": "LOOP",
+      "km": 63,
+      "stId": "AMBERNATH",
+      "capacity": 1
+    },
+    {
+      "id": "1021",
+      "x": 3370,
+      "y": 34.0,
+      "type": "LOOP",
+      "km": 63,
+      "stId": "AMBERNATH",
+      "capacity": 1
+    },
+    {
+      "id": "22",
+      "x": 3520,
+      "y": -14.0,
+      "type": "MAIN_BLOCK",
+      "km": 67.2,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "23",
+      "x": 3670,
+      "y": -14.0,
+      "type": "MAIN_BLOCK",
+      "km": 71.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "24",
+      "x": 3820,
+      "y": -14.0,
+      "type": "MAIN_BLOCK",
+      "km": 75.8,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "25",
+      "x": 3970,
+      "y": -14.0,
+      "type": "MAIN_BLOCK",
+      "km": 80.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "26",
+      "x": 4120,
+      "y": -14.0,
+      "type": "SWITCH",
+      "km": 80,
+      "stId": "TITWALA",
+      "capacity": 2
+    },
+    {
+      "id": "27",
+      "x": 4300,
+      "y": -38.0,
+      "type": "SWITCH",
+      "km": 80,
+      "stId": "TITWALA",
+      "capacity": 2
+    },
+    {
+      "id": "1022",
+      "x": 4300,
+      "y": -14.0,
+      "type": "LOOP",
+      "km": 80,
+      "stId": "TITWALA",
+      "capacity": 1
+    },
+    {
+      "id": "1023",
+      "x": 4300,
+      "y": 10.0,
+      "type": "LOOP",
+      "km": 80,
+      "stId": "TITWALA",
+      "capacity": 1
+    },
+    {
+      "id": "28",
+      "x": 4450,
+      "y": -38.0,
+      "type": "MAIN_BLOCK",
+      "km": 84.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "29",
+      "x": 4600,
+      "y": -38.0,
+      "type": "MAIN_BLOCK",
+      "km": 89.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "30",
+      "x": 4750,
+      "y": -38.0,
+      "type": "MAIN_BLOCK",
+      "km": 93.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "31",
+      "x": 4900,
+      "y": -38.0,
+      "type": "MAIN_BLOCK",
+      "km": 98.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "32",
+      "x": 5050,
+      "y": -38.0,
+      "type": "SWITCH",
+      "km": 98,
+      "stId": "ATGAON",
+      "capacity": 2
+    },
+    {
+      "id": "33",
+      "x": 5230,
+      "y": -62.0,
+      "type": "SWITCH",
+      "km": 98,
+      "stId": "ATGAON",
+      "capacity": 2
+    },
+    {
+      "id": "1024",
+      "x": 5230,
+      "y": -38.0,
+      "type": "LOOP",
+      "km": 98,
+      "stId": "ATGAON",
+      "capacity": 1
+    },
+    {
+      "id": "1025",
+      "x": 5230,
+      "y": -14.0,
+      "type": "LOOP",
+      "km": 98,
+      "stId": "ATGAON",
+      "capacity": 1
+    },
+    {
+      "id": "34",
+      "x": 5380,
+      "y": -62.0,
+      "type": "MAIN_BLOCK",
+      "km": 102.6,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "35",
+      "x": 5530,
+      "y": -62.0,
+      "type": "MAIN_BLOCK",
+      "km": 107.2,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "36",
+      "x": 5680,
+      "y": -62.0,
+      "type": "MAIN_BLOCK",
+      "km": 111.8,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "37",
+      "x": 5830,
+      "y": -62.0,
+      "type": "MAIN_BLOCK",
+      "km": 116.4,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "38",
+      "x": 5980,
+      "y": -62.0,
+      "type": "MAIN_BLOCK",
+      "km": 121.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "39",
+      "x": 6130,
+      "y": -62.0,
+      "type": "SWITCH",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 2
+    },
+    {
+      "id": "40",
+      "x": 6310,
+      "y": -146.0,
+      "type": "SWITCH",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 2
+    },
+    {
+      "id": "1026",
+      "x": 6310,
+      "y": -122.0,
+      "type": "PLATFORM",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1027",
+      "x": 6310,
+      "y": -98.0,
+      "type": "PLATFORM",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1028",
+      "x": 6310,
+      "y": -74.0,
+      "type": "PLATFORM",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1029",
+      "x": 6310,
+      "y": -50.0,
+      "type": "PLATFORM",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1030",
+      "x": 6310,
+      "y": -26.0,
+      "type": "LOOP",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1031",
+      "x": 6310,
+      "y": -2.0,
+      "type": "LOOP",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "1032",
+      "x": 6310,
+      "y": 22.0,
+      "type": "LOOP",
+      "km": 121,
+      "stId": "KASARA",
+      "capacity": 1
+    },
+    {
+      "id": "41",
+      "x": 6460,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 122.9,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "42",
+      "x": 6610,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 124.8,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "43",
+      "x": 6760,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 126.6,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "44",
+      "x": 6910,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 128.5,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "45",
+      "x": 7060,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 130.4,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "46",
+      "x": 7210,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 132.2,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "47",
+      "x": 7360,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 134.1,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "48",
+      "x": 7510,
+      "y": -146.0,
+      "type": "GHAT_BLOCK",
+      "km": 136.0,
+      "stId": null,
+      "capacity": 1
+    },
+    {
+      "id": "49",
+      "x": 7660,
+      "y": -146.0,
+      "type": "SWITCH",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 2
+    },
+    {
+      "id": "50",
+      "x": 7840,
+      "y": -266.0,
+      "type": "SWITCH",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 2
+    },
+    {
+      "id": "1033",
+      "x": 7840,
+      "y": -242.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1034",
+      "x": 7840,
+      "y": -218.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1035",
+      "x": 7840,
+      "y": -194.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1036",
+      "x": 7840,
+      "y": -170.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1037",
+      "x": 7840,
+      "y": -146.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1038",
+      "x": 7840,
+      "y": -122.0,
+      "type": "PLATFORM",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1039",
+      "x": 7840,
+      "y": -98.0,
+      "type": "LOOP",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1040",
+      "x": 7840,
+      "y": -74.0,
+      "type": "LOOP",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1041",
+      "x": 7840,
+      "y": -50.0,
+      "type": "LOOP",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "1042",
+      "x": 7840,
+      "y": -26.0,
+      "type": "LOOP",
+      "km": 136,
+      "stId": "IGATPURI",
+      "capacity": 1
+    },
+    {
+      "id": "51",
+      "x": 7990,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 141.1,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "52",
+      "x": 8140,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 146.2,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "53",
+      "x": 8290,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 151.3,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "54",
+      "x": 8440,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 156.4,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "55",
+      "x": 8590,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 161.6,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "56",
+      "x": 8740,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 166.7,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "57",
+      "x": 8890,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 171.8,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "58",
+      "x": 9040,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 176.9,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "59",
+      "x": 9190,
+      "y": -266.0,
+      "type": "MAIN_BLOCK",
+      "km": 182.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "60",
+      "x": 9340,
+      "y": -266.0,
+      "type": "SWITCH",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 2
+    },
+    {
+      "id": "61",
+      "x": 9520,
+      "y": -326.0,
+      "type": "SWITCH",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 2
+    },
+    {
+      "id": "1043",
+      "x": 9520,
+      "y": -302.0,
+      "type": "PLATFORM",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 1
+    },
+    {
+      "id": "1044",
+      "x": 9520,
+      "y": -278.0,
+      "type": "PLATFORM",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 1
+    },
+    {
+      "id": "1045",
+      "x": 9520,
+      "y": -254.0,
+      "type": "PLATFORM",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 1
+    },
+    {
+      "id": "1046",
+      "x": 9520,
+      "y": -230.0,
+      "type": "LOOP",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 1
+    },
+    {
+      "id": "1047",
+      "x": 9520,
+      "y": -206.0,
+      "type": "LOOP",
+      "km": 182,
+      "stId": "DEVLALI",
+      "capacity": 1
+    },
+    {
+      "id": "62",
+      "x": 9670,
+      "y": -326.0,
+      "type": "MAIN_BLOCK",
+      "km": 183.7,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "63",
+      "x": 9820,
+      "y": -326.0,
+      "type": "MAIN_BLOCK",
+      "km": 185.3,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "64",
+      "x": 9970,
+      "y": -326.0,
+      "type": "MAIN_BLOCK",
+      "km": 187.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "65",
+      "x": 10120,
+      "y": -326.0,
+      "type": "SWITCH",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 2
+    },
+    {
+      "id": "66",
+      "x": 10300,
+      "y": -434.0,
+      "type": "SWITCH",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 2
+    },
+    {
+      "id": "1048",
+      "x": 10300,
+      "y": -410.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1049",
+      "x": 10300,
+      "y": -386.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1050",
+      "x": 10300,
+      "y": -362.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1051",
+      "x": 10300,
+      "y": -338.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1052",
+      "x": 10300,
+      "y": -314.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1053",
+      "x": 10300,
+      "y": -290.0,
+      "type": "PLATFORM",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1054",
+      "x": 10300,
+      "y": -266.0,
+      "type": "LOOP",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1055",
+      "x": 10300,
+      "y": -242.0,
+      "type": "LOOP",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "1056",
+      "x": 10300,
+      "y": -218.0,
+      "type": "LOOP",
+      "km": 187,
+      "stId": "NASHIK",
+      "capacity": 1
+    },
+    {
+      "id": "67",
+      "x": 10450,
+      "y": -434.0,
+      "type": "MAIN_BLOCK",
+      "km": 191.9,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "68",
+      "x": 10600,
+      "y": -434.0,
+      "type": "MAIN_BLOCK",
+      "km": 196.9,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "69",
+      "x": 10750,
+      "y": -434.0,
+      "type": "MAIN_BLOCK",
+      "km": 201.8,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "70",
+      "x": 10900,
+      "y": -434.0,
+      "type": "MAIN_BLOCK",
+      "km": 206.7,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "71",
+      "x": 11050,
+      "y": -434.0,
+      "type": "MAIN_BLOCK",
+      "km": 211.7,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "72",
+      "x": 11230,
+      "y": -458.0,
+      "type": "MAIN_BLOCK",
+      "km": 216.6,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "1063",
+      "x": 11230,
+      "y": -434.0,
+      "type": "CROSSING_LOOP",
+      "km": 210.0,
+      "stId": "LOOP_NANDGAON",
+      "capacity": 1
+    },
+    {
+      "id": "1064",
+      "x": 11230,
+      "y": -410.0,
+      "type": "CROSSING_LOOP",
+      "km": 210.0,
+      "stId": "LOOP_NANDGAON",
+      "capacity": 1
+    },
+    {
+      "id": "73",
+      "x": 11380,
+      "y": -458.0,
+      "type": "MAIN_BLOCK",
+      "km": 221.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "74",
+      "x": 11530,
+      "y": -458.0,
+      "type": "MAIN_BLOCK",
+      "km": 226.5,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "75",
+      "x": 11680,
+      "y": -458.0,
+      "type": "MAIN_BLOCK",
+      "km": 231.4,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "76",
+      "x": 11830,
+      "y": -458.0,
+      "type": "MAIN_BLOCK",
+      "km": 236.3,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "77",
+      "x": 12010,
+      "y": -482.0,
+      "type": "MAIN_BLOCK",
+      "km": 241.3,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "1065",
+      "x": 12010,
+      "y": -458.0,
+      "type": "CROSSING_LOOP",
+      "km": 235.0,
+      "stId": "LOOP_LASALGAON",
+      "capacity": 1
+    },
+    {
+      "id": "1066",
+      "x": 12010,
+      "y": -434.0,
+      "type": "CROSSING_LOOP",
+      "km": 235.0,
+      "stId": "LOOP_LASALGAON",
+      "capacity": 1
+    },
+    {
+      "id": "78",
+      "x": 12160,
+      "y": -482.0,
+      "type": "MAIN_BLOCK",
+      "km": 246.2,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "79",
+      "x": 12310,
+      "y": -482.0,
+      "type": "MAIN_BLOCK",
+      "km": 251.1,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "80",
+      "x": 12460,
+      "y": -482.0,
+      "type": "MAIN_BLOCK",
+      "km": 256.1,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "81",
+      "x": 12610,
+      "y": -482.0,
+      "type": "MAIN_BLOCK",
+      "km": 261.0,
+      "stId": null,
+      "capacity": 2
+    },
+    {
+      "id": "82",
+      "x": 12760,
+      "y": -482.0,
+      "type": "SWITCH",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 2
+    },
+    {
+      "id": "83",
+      "x": 12940,
+      "y": -554.0,
+      "type": "SWITCH",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 2
+    },
+    {
+      "id": "1057",
+      "x": 12940,
+      "y": -530.0,
+      "type": "PLATFORM",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "1058",
+      "x": 12940,
+      "y": -506.0,
+      "type": "PLATFORM",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "1059",
+      "x": 12940,
+      "y": -482.0,
+      "type": "PLATFORM",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "1060",
+      "x": 12940,
+      "y": -458.0,
+      "type": "PLATFORM",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "1061",
+      "x": 12940,
+      "y": -434.0,
+      "type": "LOOP",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "1062",
+      "x": 12940,
+      "y": -410.0,
+      "type": "LOOP",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 1
+    },
+    {
+      "id": "999",
+      "x": 13090,
+      "y": -554.0,
+      "type": "DESTINATION",
+      "km": 261,
+      "stId": "MANMAD",
+      "capacity": 99
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-0-1",
+      "source": "0",
+      "target": "1",
+      "length": 1,
+      "max_speed": 0,
+      "capacity": 99,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-2",
+      "source": "1",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1000",
+      "source": "1",
+      "target": "1000",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1001",
+      "source": "1",
+      "target": "1001",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1002",
+      "source": "1",
+      "target": "1002",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1003",
+      "source": "1",
+      "target": "1003",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1004",
+      "source": "1",
+      "target": "1004",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1-1005",
+      "source": "1",
+      "target": "1005",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1000-2",
+      "source": "1000",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1001-2",
+      "source": "1001",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1002-2",
+      "source": "1002",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1003-2",
+      "source": "1003",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1004-2",
+      "source": "1004",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1005-2",
+      "source": "1005",
+      "target": "2",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-2-3",
+      "source": "2",
+      "target": "3",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-3-4",
+      "source": "3",
+      "target": "4",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-4-5",
+      "source": "4",
+      "target": "5",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-5-6",
+      "source": "5",
+      "target": "6",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-5-1006",
+      "source": "5",
+      "target": "1006",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-5-1007",
+      "source": "5",
+      "target": "1007",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-5-1008",
+      "source": "5",
+      "target": "1008",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-5-1009",
+      "source": "5",
+      "target": "1009",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1006-6",
+      "source": "1006",
+      "target": "6",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1007-6",
+      "source": "1007",
+      "target": "6",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1008-6",
+      "source": "1008",
+      "target": "6",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1009-6",
+      "source": "1009",
+      "target": "6",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-6-7",
+      "source": "6",
+      "target": "7",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-7-8",
+      "source": "7",
+      "target": "8",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-8-9",
+      "source": "8",
+      "target": "9",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-9-10",
+      "source": "9",
+      "target": "10",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-10-11",
+      "source": "10",
+      "target": "11",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-11-12",
+      "source": "11",
+      "target": "12",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-12-13",
+      "source": "12",
+      "target": "13",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-13-14",
+      "source": "13",
+      "target": "14",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-14-15",
+      "source": "14",
+      "target": "15",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-15-16",
+      "source": "15",
+      "target": "16",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 3,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-17",
+      "source": "16",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1010",
+      "source": "16",
+      "target": "1010",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1011",
+      "source": "16",
+      "target": "1011",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1012",
+      "source": "16",
+      "target": "1012",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1013",
+      "source": "16",
+      "target": "1013",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1014",
+      "source": "16",
+      "target": "1014",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1015",
+      "source": "16",
+      "target": "1015",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1016",
+      "source": "16",
+      "target": "1016",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1017",
+      "source": "16",
+      "target": "1017",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1018",
+      "source": "16",
+      "target": "1018",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-16-1019",
+      "source": "16",
+      "target": "1019",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-1010-17",
+      "source": "1010",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1011-17",
+      "source": "1011",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1012-17",
+      "source": "1012",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1013-17",
+      "source": "1013",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1014-17",
+      "source": "1014",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1015-17",
+      "source": "1015",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1016-17",
+      "source": "1016",
+      "target": "17",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1017-17",
+      "source": "1017",
+      "target": "17",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1018-17",
+      "source": "1018",
+      "target": "17",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1019-17",
+      "source": "1019",
+      "target": "17",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-17-18",
+      "source": "17",
+      "target": "18",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 4,
+      "type": "track"
+    },
+    {
+      "id": "edge-18-19",
+      "source": "18",
+      "target": "19",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-19-20",
+      "source": "19",
+      "target": "20",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-20-21",
+      "source": "20",
+      "target": "21",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-20-1020",
+      "source": "20",
+      "target": "1020",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-20-1021",
+      "source": "20",
+      "target": "1021",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1020-21",
+      "source": "1020",
+      "target": "21",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1021-21",
+      "source": "1021",
+      "target": "21",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-21-22",
+      "source": "21",
+      "target": "22",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-22-23",
+      "source": "22",
+      "target": "23",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-23-24",
+      "source": "23",
+      "target": "24",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-24-25",
+      "source": "24",
+      "target": "25",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-25-26",
+      "source": "25",
+      "target": "26",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-26-27",
+      "source": "26",
+      "target": "27",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-26-1022",
+      "source": "26",
+      "target": "1022",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-26-1023",
+      "source": "26",
+      "target": "1023",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1022-27",
+      "source": "1022",
+      "target": "27",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1023-27",
+      "source": "1023",
+      "target": "27",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-27-28",
+      "source": "27",
+      "target": "28",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-28-29",
+      "source": "28",
+      "target": "29",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-29-30",
+      "source": "29",
+      "target": "30",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-30-31",
+      "source": "30",
+      "target": "31",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-31-32",
+      "source": "31",
+      "target": "32",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-32-33",
+      "source": "32",
+      "target": "33",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-32-1024",
+      "source": "32",
+      "target": "1024",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-32-1025",
+      "source": "32",
+      "target": "1025",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1024-33",
+      "source": "1024",
+      "target": "33",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1025-33",
+      "source": "1025",
+      "target": "33",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-33-34",
+      "source": "33",
+      "target": "34",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-34-35",
+      "source": "34",
+      "target": "35",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-35-36",
+      "source": "35",
+      "target": "36",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-36-37",
+      "source": "36",
+      "target": "37",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-37-38",
+      "source": "37",
+      "target": "38",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-38-39",
+      "source": "38",
+      "target": "39",
+      "length": 1,
+      "max_speed": 100,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-40",
+      "source": "39",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1026",
+      "source": "39",
+      "target": "1026",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1027",
+      "source": "39",
+      "target": "1027",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1028",
+      "source": "39",
+      "target": "1028",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1029",
+      "source": "39",
+      "target": "1029",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1030",
+      "source": "39",
+      "target": "1030",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1031",
+      "source": "39",
+      "target": "1031",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-39-1032",
+      "source": "39",
+      "target": "1032",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1026-40",
+      "source": "1026",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1027-40",
+      "source": "1027",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1028-40",
+      "source": "1028",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1029-40",
+      "source": "1029",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1030-40",
+      "source": "1030",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1031-40",
+      "source": "1031",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1032-40",
+      "source": "1032",
+      "target": "40",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-40-41",
+      "source": "40",
+      "target": "41",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-41-42",
+      "source": "41",
+      "target": "42",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-42-43",
+      "source": "42",
+      "target": "43",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-43-44",
+      "source": "43",
+      "target": "44",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-44-45",
+      "source": "44",
+      "target": "45",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-45-46",
+      "source": "45",
+      "target": "46",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-46-47",
+      "source": "46",
+      "target": "47",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-47-48",
+      "source": "47",
+      "target": "48",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-48-49",
+      "source": "48",
+      "target": "49",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-50",
+      "source": "49",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1033",
+      "source": "49",
+      "target": "1033",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1034",
+      "source": "49",
+      "target": "1034",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1035",
+      "source": "49",
+      "target": "1035",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1036",
+      "source": "49",
+      "target": "1036",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1037",
+      "source": "49",
+      "target": "1037",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1038",
+      "source": "49",
+      "target": "1038",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1039",
+      "source": "49",
+      "target": "1039",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1040",
+      "source": "49",
+      "target": "1040",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1041",
+      "source": "49",
+      "target": "1041",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-49-1042",
+      "source": "49",
+      "target": "1042",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1033-50",
+      "source": "1033",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1034-50",
+      "source": "1034",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1035-50",
+      "source": "1035",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1036-50",
+      "source": "1036",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1037-50",
+      "source": "1037",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1038-50",
+      "source": "1038",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1039-50",
+      "source": "1039",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1040-50",
+      "source": "1040",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1041-50",
+      "source": "1041",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1042-50",
+      "source": "1042",
+      "target": "50",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-50-51",
+      "source": "50",
+      "target": "51",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-51-52",
+      "source": "51",
+      "target": "52",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-52-53",
+      "source": "52",
+      "target": "53",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-53-54",
+      "source": "53",
+      "target": "54",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-54-55",
+      "source": "54",
+      "target": "55",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-55-56",
+      "source": "55",
+      "target": "56",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-56-57",
+      "source": "56",
+      "target": "57",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-57-58",
+      "source": "57",
+      "target": "58",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-58-59",
+      "source": "58",
+      "target": "59",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-59-60",
+      "source": "59",
+      "target": "60",
+      "length": 1,
+      "max_speed": 110,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-61",
+      "source": "60",
+      "target": "61",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-1043",
+      "source": "60",
+      "target": "1043",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-1044",
+      "source": "60",
+      "target": "1044",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-1045",
+      "source": "60",
+      "target": "1045",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-1046",
+      "source": "60",
+      "target": "1046",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-60-1047",
+      "source": "60",
+      "target": "1047",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1043-61",
+      "source": "1043",
+      "target": "61",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1044-61",
+      "source": "1044",
+      "target": "61",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1045-61",
+      "source": "1045",
+      "target": "61",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1046-61",
+      "source": "1046",
+      "target": "61",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1047-61",
+      "source": "1047",
+      "target": "61",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-61-62",
+      "source": "61",
+      "target": "62",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-62-63",
+      "source": "62",
+      "target": "63",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-63-64",
+      "source": "63",
+      "target": "64",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-64-65",
+      "source": "64",
+      "target": "65",
+      "length": 1,
+      "max_speed": 75,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-66",
+      "source": "65",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1048",
+      "source": "65",
+      "target": "1048",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1049",
+      "source": "65",
+      "target": "1049",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1050",
+      "source": "65",
+      "target": "1050",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1051",
+      "source": "65",
+      "target": "1051",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1052",
+      "source": "65",
+      "target": "1052",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1053",
+      "source": "65",
+      "target": "1053",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1054",
+      "source": "65",
+      "target": "1054",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1055",
+      "source": "65",
+      "target": "1055",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-65-1056",
+      "source": "65",
+      "target": "1056",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1048-66",
+      "source": "1048",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1049-66",
+      "source": "1049",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1050-66",
+      "source": "1050",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1051-66",
+      "source": "1051",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1052-66",
+      "source": "1052",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1053-66",
+      "source": "1053",
+      "target": "66",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1054-66",
+      "source": "1054",
+      "target": "66",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1055-66",
+      "source": "1055",
+      "target": "66",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1056-66",
+      "source": "1056",
+      "target": "66",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-66-67",
+      "source": "66",
+      "target": "67",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-67-68",
+      "source": "67",
+      "target": "68",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-68-69",
+      "source": "68",
+      "target": "69",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-69-70",
+      "source": "69",
+      "target": "70",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-70-71",
+      "source": "70",
+      "target": "71",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-71-72",
+      "source": "71",
+      "target": "72",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-71-1063",
+      "source": "71",
+      "target": "1063",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-71-1064",
+      "source": "71",
+      "target": "1064",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-72-73",
+      "source": "72",
+      "target": "73",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-73-74",
+      "source": "73",
+      "target": "74",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-74-75",
+      "source": "74",
+      "target": "75",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-75-76",
+      "source": "75",
+      "target": "76",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-76-77",
+      "source": "76",
+      "target": "77",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-76-1065",
+      "source": "76",
+      "target": "1065",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-76-1066",
+      "source": "76",
+      "target": "1066",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-77-78",
+      "source": "77",
+      "target": "78",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-78-79",
+      "source": "78",
+      "target": "79",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-79-80",
+      "source": "79",
+      "target": "80",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-80-81",
+      "source": "80",
+      "target": "81",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-81-82",
+      "source": "81",
+      "target": "82",
+      "length": 1,
+      "max_speed": 130,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-83",
+      "source": "82",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1057",
+      "source": "82",
+      "target": "1057",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1058",
+      "source": "82",
+      "target": "1058",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1059",
+      "source": "82",
+      "target": "1059",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1060",
+      "source": "82",
+      "target": "1060",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1061",
+      "source": "82",
+      "target": "1061",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-82-1062",
+      "source": "82",
+      "target": "1062",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1057-83",
+      "source": "1057",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1058-83",
+      "source": "1058",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1059-83",
+      "source": "1059",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1060-83",
+      "source": "1060",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1061-83",
+      "source": "1061",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1062-83",
+      "source": "1062",
+      "target": "83",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-83-999",
+      "source": "83",
+      "target": "999",
+      "length": 1,
+      "max_speed": 30,
+      "capacity": 2,
+      "type": "track"
+    },
+    {
+      "id": "edge-1063-72",
+      "source": "1063",
+      "target": "72",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1064-72",
+      "source": "1064",
+      "target": "72",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1065-77",
+      "source": "1065",
+      "target": "77",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    },
+    {
+      "id": "edge-1066-77",
+      "source": "1066",
+      "target": "77",
+      "length": 1,
+      "max_speed": 50,
+      "capacity": 1,
+      "type": "track"
+    }
+  ],
+  "raw": {
+    "track_map": {
+      "0": {
+        "type": "ORIGIN",
+        "speed": 0,
+        "capacity": 99,
+        "next": [
+          1
+        ],
+        "km": 0.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": []
+      },
+      "1": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 4,
+        "next": [
+          2,
+          1000,
+          1001,
+          1002,
+          1003,
+          1004,
+          1005
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          0
+        ]
+      },
+      "1000": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "1001": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "1002": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "1003": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "1004": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "1005": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          2
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1
+        ]
+      },
+      "2": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 4,
+        "next": [
+          3
+        ],
+        "km": 0,
+        "station": "CSMT",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          1,
+          1000,
+          1001,
+          1002,
+          1003,
+          1004,
+          1005
+        ]
+      },
+      "3": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 4,
+        "next": [
+          4
+        ],
+        "km": 4.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          2
+        ]
+      },
+      "4": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 4,
+        "next": [
+          5
+        ],
+        "km": 9.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          3
+        ]
+      },
+      "5": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 4,
+        "next": [
+          6,
+          1006,
+          1007,
+          1008,
+          1009
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          4
+        ]
+      },
+      "1006": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          6
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          5
+        ]
+      },
+      "1007": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          6
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          5
+        ]
+      },
+      "1008": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          6
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          5
+        ]
+      },
+      "1009": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          6
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          5
+        ]
+      },
+      "6": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 4,
+        "next": [
+          7
+        ],
+        "km": 9,
+        "station": "DADAR",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          5,
+          1006,
+          1007,
+          1008,
+          1009
+        ]
+      },
+      "7": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          8
+        ],
+        "km": 14.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          6
+        ]
+      },
+      "8": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          9
+        ],
+        "km": 19.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          7
+        ]
+      },
+      "9": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          10
+        ],
+        "km": 24.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          8
+        ]
+      },
+      "10": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          11
+        ],
+        "km": 29.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          9
+        ]
+      },
+      "11": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          12
+        ],
+        "km": 34.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          10
+        ]
+      },
+      "12": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          13
+        ],
+        "km": 39.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          11
+        ]
+      },
+      "13": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          14
+        ],
+        "km": 44.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          12
+        ]
+      },
+      "14": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          15
+        ],
+        "km": 49.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          13
+        ]
+      },
+      "15": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 3,
+        "next": [
+          16
+        ],
+        "km": 54.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          14
+        ]
+      },
+      "16": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 4,
+        "next": [
+          17,
+          1010,
+          1011,
+          1012,
+          1013,
+          1014,
+          1015,
+          1016,
+          1017,
+          1018,
+          1019
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          15
+        ]
+      },
+      "1010": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1011": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1012": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1013": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1014": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 4,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1015": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 5,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1016": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "platform_index": 6,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1017": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1018": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "1019": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          17
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "loop_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16
+        ]
+      },
+      "17": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 4,
+        "next": [
+          18
+        ],
+        "km": 54,
+        "station": "KALYAN",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          16,
+          1010,
+          1011,
+          1012,
+          1013,
+          1014,
+          1015,
+          1016,
+          1017,
+          1018,
+          1019
+        ]
+      },
+      "18": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          19
+        ],
+        "km": 58.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          17
+        ]
+      },
+      "19": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          20
+        ],
+        "km": 63.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          18
+        ]
+      },
+      "20": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          21,
+          1020,
+          1021
+        ],
+        "km": 63,
+        "station": "AMBERNATH",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          19
+        ]
+      },
+      "1020": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          21
+        ],
+        "km": 63,
+        "station": "AMBERNATH",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          20
+        ]
+      },
+      "1021": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          21
+        ],
+        "km": 63,
+        "station": "AMBERNATH",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          20
+        ]
+      },
+      "21": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          22
+        ],
+        "km": 63,
+        "station": "AMBERNATH",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          20,
+          1020,
+          1021
+        ]
+      },
+      "22": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          23
+        ],
+        "km": 67.2,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          21
+        ]
+      },
+      "23": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          24
+        ],
+        "km": 71.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          22
+        ]
+      },
+      "24": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          25
+        ],
+        "km": 75.8,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          23
+        ]
+      },
+      "25": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          26
+        ],
+        "km": 80.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          24
+        ]
+      },
+      "26": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          27,
+          1022,
+          1023
+        ],
+        "km": 80,
+        "station": "TITWALA",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          25
+        ]
+      },
+      "1022": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          27
+        ],
+        "km": 80,
+        "station": "TITWALA",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          26
+        ]
+      },
+      "1023": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          27
+        ],
+        "km": 80,
+        "station": "TITWALA",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          26
+        ]
+      },
+      "27": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          28
+        ],
+        "km": 80,
+        "station": "TITWALA",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          26,
+          1022,
+          1023
+        ]
+      },
+      "28": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          29
+        ],
+        "km": 84.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          27
+        ]
+      },
+      "29": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          30
+        ],
+        "km": 89.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          28
+        ]
+      },
+      "30": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          31
+        ],
+        "km": 93.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          29
+        ]
+      },
+      "31": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          32
+        ],
+        "km": 98.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          30
+        ]
+      },
+      "32": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          33,
+          1024,
+          1025
+        ],
+        "km": 98,
+        "station": "ATGAON",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          31
+        ]
+      },
+      "1024": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          33
+        ],
+        "km": 98,
+        "station": "ATGAON",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          32
+        ]
+      },
+      "1025": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          33
+        ],
+        "km": 98,
+        "station": "ATGAON",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          32
+        ]
+      },
+      "33": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          34
+        ],
+        "km": 98,
+        "station": "ATGAON",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          32,
+          1024,
+          1025
+        ]
+      },
+      "34": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          35
+        ],
+        "km": 102.6,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          33
+        ]
+      },
+      "35": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          36
+        ],
+        "km": 107.2,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          34
+        ]
+      },
+      "36": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          37
+        ],
+        "km": 111.8,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          35
+        ]
+      },
+      "37": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          38
+        ],
+        "km": 116.4,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          36
+        ]
+      },
+      "38": {
+        "type": "MAIN_BLOCK",
+        "speed": 100,
+        "capacity": 2,
+        "next": [
+          39
+        ],
+        "km": 121.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          37
+        ]
+      },
+      "39": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          40,
+          1026,
+          1027,
+          1028,
+          1029,
+          1030,
+          1031,
+          1032
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": true,
+        "prev": [
+          38
+        ]
+      },
+      "1026": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1027": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1028": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1029": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1030": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1031": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "1032": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          40
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "loop_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39
+        ]
+      },
+      "40": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          41
+        ],
+        "km": 121,
+        "station": "KASARA",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          39,
+          1026,
+          1027,
+          1028,
+          1029,
+          1030,
+          1031,
+          1032
+        ]
+      },
+      "41": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          42
+        ],
+        "km": 122.9,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          40
+        ]
+      },
+      "42": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          43
+        ],
+        "km": 124.8,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          41
+        ]
+      },
+      "43": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          44
+        ],
+        "km": 126.6,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          42
+        ]
+      },
+      "44": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          45
+        ],
+        "km": 128.5,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          43
+        ]
+      },
+      "45": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          46
+        ],
+        "km": 130.4,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          44
+        ]
+      },
+      "46": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          47
+        ],
+        "km": 132.2,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          45
+        ]
+      },
+      "47": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          48
+        ],
+        "km": 134.1,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          46
+        ]
+      },
+      "48": {
+        "type": "GHAT_BLOCK",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          49
+        ],
+        "km": 136.0,
+        "station": null,
+        "token_block": true,
+        "gradient": true,
+        "prev": [
+          47
+        ]
+      },
+      "49": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          50,
+          1033,
+          1034,
+          1035,
+          1036,
+          1037,
+          1038,
+          1039,
+          1040,
+          1041,
+          1042
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": true,
+        "prev": [
+          48
+        ]
+      },
+      "1033": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1034": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1035": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1036": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1037": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 4,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1038": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "platform_index": 5,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1039": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1040": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1041": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "loop_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "1042": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          50
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "loop_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49
+        ]
+      },
+      "50": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          51
+        ],
+        "km": 136,
+        "station": "IGATPURI",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          49,
+          1033,
+          1034,
+          1035,
+          1036,
+          1037,
+          1038,
+          1039,
+          1040,
+          1041,
+          1042
+        ]
+      },
+      "51": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          52
+        ],
+        "km": 141.1,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          50
+        ]
+      },
+      "52": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          53
+        ],
+        "km": 146.2,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          51
+        ]
+      },
+      "53": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          54
+        ],
+        "km": 151.3,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          52
+        ]
+      },
+      "54": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          55
+        ],
+        "km": 156.4,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          53
+        ]
+      },
+      "55": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          56
+        ],
+        "km": 161.6,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          54
+        ]
+      },
+      "56": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          57
+        ],
+        "km": 166.7,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          55
+        ]
+      },
+      "57": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          58
+        ],
+        "km": 171.8,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          56
+        ]
+      },
+      "58": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          59
+        ],
+        "km": 176.9,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          57
+        ]
+      },
+      "59": {
+        "type": "MAIN_BLOCK",
+        "speed": 110,
+        "capacity": 2,
+        "next": [
+          60
+        ],
+        "km": 182.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          58
+        ]
+      },
+      "60": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          61,
+          1043,
+          1044,
+          1045,
+          1046,
+          1047
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          59
+        ]
+      },
+      "1043": {
+        "type": "PLATFORM",
+        "speed": 75,
+        "capacity": 1,
+        "next": [
+          61
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60
+        ]
+      },
+      "1044": {
+        "type": "PLATFORM",
+        "speed": 75,
+        "capacity": 1,
+        "next": [
+          61
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60
+        ]
+      },
+      "1045": {
+        "type": "PLATFORM",
+        "speed": 75,
+        "capacity": 1,
+        "next": [
+          61
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60
+        ]
+      },
+      "1046": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          61
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60
+        ]
+      },
+      "1047": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          61
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60
+        ]
+      },
+      "61": {
+        "type": "SWITCH",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          62
+        ],
+        "km": 182,
+        "station": "DEVLALI",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          60,
+          1043,
+          1044,
+          1045,
+          1046,
+          1047
+        ]
+      },
+      "62": {
+        "type": "MAIN_BLOCK",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          63
+        ],
+        "km": 183.7,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          61
+        ]
+      },
+      "63": {
+        "type": "MAIN_BLOCK",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          64
+        ],
+        "km": 185.3,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          62
+        ]
+      },
+      "64": {
+        "type": "MAIN_BLOCK",
+        "speed": 75,
+        "capacity": 2,
+        "next": [
+          65
+        ],
+        "km": 187.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          63
+        ]
+      },
+      "65": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 2,
+        "next": [
+          66,
+          1048,
+          1049,
+          1050,
+          1051,
+          1052,
+          1053,
+          1054,
+          1055,
+          1056
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          64
+        ]
+      },
+      "1048": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1049": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1050": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1051": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1052": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 4,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1053": {
+        "type": "PLATFORM",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "platform_index": 5,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1054": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1055": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "1056": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          66
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "loop_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65
+        ]
+      },
+      "66": {
+        "type": "SWITCH",
+        "speed": 50,
+        "capacity": 2,
+        "next": [
+          67
+        ],
+        "km": 187,
+        "station": "NASHIK",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          65,
+          1048,
+          1049,
+          1050,
+          1051,
+          1052,
+          1053,
+          1054,
+          1055,
+          1056
+        ]
+      },
+      "67": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          68
+        ],
+        "km": 191.9,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          66
+        ]
+      },
+      "68": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          69
+        ],
+        "km": 196.9,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          67
+        ]
+      },
+      "69": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          70
+        ],
+        "km": 201.8,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          68
+        ]
+      },
+      "70": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          71
+        ],
+        "km": 206.7,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          69
+        ]
+      },
+      "71": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          72,
+          1063,
+          1064
+        ],
+        "km": 211.7,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          70
+        ]
+      },
+      "72": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          73
+        ],
+        "km": 216.6,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          71,
+          1063,
+          1064
+        ]
+      },
+      "73": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          74
+        ],
+        "km": 221.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          72
+        ]
+      },
+      "74": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          75
+        ],
+        "km": 226.5,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          73
+        ]
+      },
+      "75": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          76
+        ],
+        "km": 231.4,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          74
+        ]
+      },
+      "76": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          77,
+          1065,
+          1066
+        ],
+        "km": 236.3,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          75
+        ]
+      },
+      "77": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          78
+        ],
+        "km": 241.3,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          76,
+          1065,
+          1066
+        ]
+      },
+      "78": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          79
+        ],
+        "km": 246.2,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          77
+        ]
+      },
+      "79": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          80
+        ],
+        "km": 251.1,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          78
+        ]
+      },
+      "80": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          81
+        ],
+        "km": 256.1,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          79
+        ]
+      },
+      "81": {
+        "type": "MAIN_BLOCK",
+        "speed": 130,
+        "capacity": 2,
+        "next": [
+          82
+        ],
+        "km": 261.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          80
+        ]
+      },
+      "82": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          83,
+          1057,
+          1058,
+          1059,
+          1060,
+          1061,
+          1062
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "token_block": false,
+        "gradient": false,
+        "is_banker_point": false,
+        "prev": [
+          81
+        ]
+      },
+      "1057": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "platform_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "1058": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "platform_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "1059": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "platform_index": 2,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "1060": {
+        "type": "PLATFORM",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "platform_index": 3,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "1061": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "loop_index": 0,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "1062": {
+        "type": "LOOP",
+        "speed": 30,
+        "capacity": 1,
+        "next": [
+          83
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "loop_index": 1,
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82
+        ]
+      },
+      "83": {
+        "type": "SWITCH",
+        "speed": 30,
+        "capacity": 2,
+        "next": [
+          999
+        ],
+        "km": 261,
+        "station": "MANMAD",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          82,
+          1057,
+          1058,
+          1059,
+          1060,
+          1061,
+          1062
+        ]
+      },
+      "1063": {
+        "type": "CROSSING_LOOP",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          72
+        ],
+        "km": 210.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "label": "LOOP_NANDGAON",
+        "loop_index": 0,
+        "prev": [
+          71
+        ]
+      },
+      "1064": {
+        "type": "CROSSING_LOOP",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          72
+        ],
+        "km": 210.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "label": "LOOP_NANDGAON",
+        "loop_index": 1,
+        "prev": [
+          71
+        ]
+      },
+      "1065": {
+        "type": "CROSSING_LOOP",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          77
+        ],
+        "km": 235.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "label": "LOOP_LASALGAON",
+        "loop_index": 0,
+        "prev": [
+          76
+        ]
+      },
+      "1066": {
+        "type": "CROSSING_LOOP",
+        "speed": 50,
+        "capacity": 1,
+        "next": [
+          77
+        ],
+        "km": 235.0,
+        "station": null,
+        "token_block": false,
+        "gradient": false,
+        "label": "LOOP_LASALGAON",
+        "loop_index": 1,
+        "prev": [
+          76
+        ]
+      },
+      "999": {
+        "type": "DESTINATION",
+        "speed": 0,
+        "capacity": 99,
+        "next": [],
+        "km": 261,
+        "station": "MANMAD",
+        "token_block": false,
+        "gradient": false,
+        "prev": [
+          83
+        ]
+      }
+    },
+    "loop_sections": [
+      1000,
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+      1006,
+      1007,
+      1008,
+      1009,
+      1010,
+      1011,
+      1012,
+      1013,
+      1014,
+      1015,
+      1016,
+      1017,
+      1018,
+      1019,
+      1020,
+      1021,
+      1022,
+      1023,
+      1024,
+      1025,
+      1026,
+      1027,
+      1028,
+      1029,
+      1030,
+      1031,
+      1032,
+      1033,
+      1034,
+      1035,
+      1036,
+      1037,
+      1038,
+      1039,
+      1040,
+      1041,
+      1042,
+      1043,
+      1044,
+      1045,
+      1046,
+      1047,
+      1048,
+      1049,
+      1050,
+      1051,
+      1052,
+      1053,
+      1054,
+      1055,
+      1056,
+      1057,
+      1058,
+      1059,
+      1060,
+      1061,
+      1062,
+      1063,
+      1064,
+      1065,
+      1066
+    ],
+    "destination_id": 999
+  }
+}

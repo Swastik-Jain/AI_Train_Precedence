@@ -1,14 +1,16 @@
+import { apiUrl, wsUrl } from '../../lib/api';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
 import { useMaintenanceStore } from '../../store/useMaintenanceStore';
-import type { TrainState } from '../../store/useMapStore';
+import type { TrainState, TopologyData, Node } from '../../store/useMapStore';
+import { topologyToZones } from '../../utils/topologyToZones';
+import type { Zone, SegZone, StationZone, SwitchZone } from '../../utils/topologyToZones';
 import './KineticMap.css';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-const SVG_W     = 4200;
 const SVG_H     = 400;
 const MAIN_Y    = 200;
 const TRACK_GAP = 22;   // px between parallel track centres
@@ -33,66 +35,7 @@ const mapIdx = (srcCap: number, dstCap: number, srcIdx: number): number => {
 // ─────────────────────────────────────────────────────────────────────────────
 // ZONE DEFINITIONS  (pre-computed layout along the x-axis)
 // ─────────────────────────────────────────────────────────────────────────────
-type SegZone     = { type:'SEG'; x1:number; x2:number; cap:number; isGhat?:boolean; speed?:number; km?:number };
-type SwitchZone  = { type:'SW';  x1:number; x2:number; fromCap:number; toCap:number };
-type StationZone = { type:'ST';  x1:number; x2:number; cap:number; stId:string; isLeft?:boolean; isRight?:boolean };
-type Zone        = SegZone | SwitchZone | StationZone;
-
-const ZONES: Zone[] = [
-  // CSMT terminus (4 tracks, compact 80 px box)
-  { type:'ST',  x1:50,   x2:130,  cap:4, stId:'CSMT',     isLeft:true  },
-  // CSMT → DADAR (9 km — 200 px)
-  { type:'SEG', x1:130,  x2:330,  cap:4, speed:110, km:9  },
-  // DADAR station (90 px)
-  { type:'ST',  x1:330,  x2:420,  cap:4, stId:'DADAR'                   },
-  // DADAR → KALYAN (45 km — 450 px)
-  { type:'SEG', x1:420,  x2:870,  cap:4, speed:130, km:45 },
-  // KALYAN JN (100 px; exits via 4→2 switch)
-  { type:'ST',  x1:870,  x2:970,  cap:4, stId:'KALYAN'                  },
-  { type:'SW',  x1:970,  x2:1050, fromCap:4, toCap:2                    },
-  // KALYAN → AMBERNATH (9 km)
-  { type:'SEG', x1:1050, x2:1150, cap:2, speed:100, km:9  },
-  // AMBERNATH crossing loop
-  { type:'ST',  x1:1150, x2:1220, cap:2, stId:'AMBERNATH'               },
-  // AMBERNATH → TITWALA (17 km)
-  { type:'SEG', x1:1220, x2:1370, cap:2, speed:100, km:17 },
-  // TITWALA crossing loop
-  { type:'ST',  x1:1370, x2:1440, cap:2, stId:'TITWALA'                 },
-  // TITWALA → ATGAON (18 km)
-  { type:'SEG', x1:1440, x2:1590, cap:2, speed:100, km:18 },
-  // ATGAON crossing loop
-  { type:'ST',  x1:1590, x2:1660, cap:2, stId:'ATGAON'                  },
-  // ATGAON → KASARA (23 km)
-  { type:'SEG', x1:1660, x2:1860, cap:2, speed:100, km:23 },
-  // KASARA station (80 px; exits via 2→1 for ghat)
-  { type:'ST',  x1:1860, x2:1940, cap:2, stId:'KASARA'                  },
-  { type:'SW',  x1:1940, x2:1984, fromCap:2, toCap:1                    },
-  // Ghat — TOKEN BLOCK single-track (15 km)
-  { type:'SEG', x1:1984, x2:2344, cap:1, isGhat:true, speed:50, km:15   },
-  { type:'SW',  x1:2344, x2:2388, fromCap:1, toCap:2                    },
-  // IGATPURI station (80 px)
-  { type:'ST',  x1:2388, x2:2468, cap:2, stId:'IGATPURI'                },
-  // IGATPURI → DEVLALI (46 km — 400 px)
-  { type:'SEG', x1:2468, x2:2868, cap:2, speed:110, km:46 },
-  // DEVLALI station (70 px)
-  { type:'ST',  x1:2868, x2:2938, cap:2, stId:'DEVLALI'                 },
-  // DEVLALI → NASHIK (5 km — 150 px)
-  { type:'SEG', x1:2938, x2:3088, cap:2, speed:75,  km:5  },
-  // NASHIK station (90 px)
-  { type:'ST',  x1:3088, x2:3178, cap:2, stId:'NASHIK'                  },
-  // NASHIK → NANDGAON
-  { type:'SEG', x1:3178, x2:3378, cap:2, speed:130, km:74 },
-  // NANDGAON loop
-  { type:'ST',  x1:3378, x2:3448, cap:2, stId:'LOOP_NANDGAON'           },
-  // NANDGAON → LASALGAON
-  { type:'SEG', x1:3448, x2:3668, cap:2, speed:130, km:25 },
-  // LASALGAON loop
-  { type:'ST',  x1:3668, x2:3738, cap:2, stId:'LOOP_LASALGAON'          },
-  // LASALGAON → MANMAD
-  { type:'SEG', x1:3738, x2:3968, cap:2, speed:130, km:26 },
-  // MANMAD terminus (2 tracks, 80 px)
-  { type:'ST',  x1:3968, x2:4048, cap:2, stId:'MANMAD', isRight:true    },
-];
+// Types and Zones are imported from topologyToZones
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATION METADATA
@@ -123,56 +66,245 @@ const STATION_META: Record<string, StMeta> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BACKEND X → SCHEMATIC X  (piecewise-linear, topology is deterministic)
-// ─────────────────────────────────────────────────────────────────────────────
-const B2S: [number,number,number,number][] = [
-  [100,   250,  20,  50 ],    // ORIGIN → CSMT sw_in
-  [250,   430,  50,  130],    // CSMT station zone
-  [430,   880,  130, 330],    // CSMT → DADAR segment
-  [880,   1060, 330, 420],    // DADAR station zone
-  [1060,  2560, 420, 870],    // DADAR → KALYAN segment
-  [2560,  2740, 870, 970],    // KALYAN station zone
-  [2740,  3190, 970, 1150],   // KALYAN → AMBERNATH segment (inc switch)
-  [3190,  3370, 1150, 1220],  // AMBERNATH station zone
-  [3370,  4120, 1220, 1370],  // AMBERNATH → TITWALA segment
-  [4120,  4300, 1370, 1440],  // TITWALA station zone
-  [4300,  5050, 1440, 1590],  // TITWALA → ATGAON segment
-  [5050,  5230, 1590, 1660],  // ATGAON station zone
-  [5230,  6130, 1660, 1860],  // ATGAON → KASARA segment
-  [6130,  6310, 1860, 1940],  // KASARA station zone
-  [6310,  7660, 1940, 2388],  // KASARA switch + ghat + IGATPURI switch
-  [7660,  7840, 2388, 2468],  // IGATPURI station zone
-  [7840,  9340, 2468, 2868],  // IGATPURI → DEVLALI segment
-  [9340,  9520, 2868, 2938],  // DEVLALI station zone
-  [9520,  10120, 2938, 3088], // DEVLALI → NASHIK segment
-  [10120, 10300, 3088, 3178], // NASHIK station zone
-  [10300, 11150, 3178, 3378], // NASHIK → NANDGAON segment
-  [11150, 11310, 3378, 3448], // NANDGAON crossing loop zone
-  [11310, 11930, 3448, 3668], // NANDGAON → LASALGAON segment
-  [11930, 12090, 3668, 3738], // LASALGAON crossing loop zone
-  [12090, 12760, 3738, 3968], // LASALGAON → MANMAD segment
-  [12760, 13090, 3968, 4048], // MANMAD station zone
-  [13090, 13300, 4048, 4140], // MANMAD → DEST
-];
-
-const bx2sx = (bx: number): number => {
-  for (const [b1, b2, s1, s2] of B2S) {
-    if (bx >= b1 && bx <= b2) {
-      return s1 + ((bx - b1) / (b2 - b1)) * (s2 - s1);
-    }
-  }
-  return bx < 100 ? 20 : 4140;
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
+const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, tickIntervalS, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
+  const pos = getPos(train);
+  const [currentPos, setCurrentPos] = useState(pos);
+  const [transitionDuration, setTransitionDuration] = useState(tickIntervalS);
+  
+  // Update target when position changes, calculate speed-based duration
+  useEffect(() => {
+    if (!pos) return;
+    
+    // If this is the first render, just snap
+    if (!currentPos) {
+      setCurrentPos(pos);
+      return;
+    }
+    
+    // Calculate distance between current DOM target and new target
+    const dx = pos.x - currentPos.x;
+    const dy = pos.y - currentPos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    // Default visual speed: pixels per second
+    const EXPECTED_PX_PER_SEC = 40;
+    
+    // Standard duration is tickIntervalS. If the distance implies a crazy speed, 
+    // clamp it by making the duration speed-based.
+    const impliedSpeed = dist / tickIntervalS;
+    
+    let duration = tickIntervalS;
+    if (impliedSpeed > EXPECTED_PX_PER_SEC * 1.5) {
+       // It's jumping too fast across a stretched visual segment (e.g. slope).
+       // Make it take longer so visual speed is capped.
+       duration = dist / EXPECTED_PX_PER_SEC;
+    }
+    
+    // Prevent mid-flight retargeting from resetting to full duration if we are very close
+    if (dist < 5) {
+       duration = 0.1; // Quick snap for tiny adjustments
+    }
+    
+    setTransitionDuration(duration);
+    setCurrentPos(pos);
+  }, [pos?.x, pos?.y, tickIntervalS]);
+
+  if (!currentPos) return null;
+
+  const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
+  const bW     = 50;
+  const bH     = 14;
+  const isUp = train.direction === "UP" || train.direction === -1;
+  const trainX = isUp ? currentPos.x : currentPos.x - bW;
+
+  return (
+    <g
+      onClick={(e) => { e.stopPropagation(); setSelectedTrain(train.train_id); }}
+      onMouseEnter={() => setHoveredTrain(train.train_id)}
+      onMouseLeave={() => setHoveredTrain(null)}
+      style={{ 
+        cursor: 'pointer',
+        transform: `translate(${trainX}px, ${currentPos.y}px)`,
+        transition: `transform ${transitionDuration}s linear`
+      }}
+    >
+      {/* Conflict flash ring */}
+      {isConflict && (
+        <rect
+          x={-4} y={-bH / 2 - 4}
+          width={bW + 8} height={bH + 8}
+          fill="none" stroke="#ef4444" strokeWidth={1}
+          strokeDasharray="3 2" rx={2}
+          className="sch-conflict-anim"
+        />
+      )}
+
+      {/* Committed ring */}
+      {isCommit && (
+        <rect
+          x={-5} y={-bH / 2 - 5}
+          width={bW + 10} height={bH + 10}
+          fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3}
+          className="sch-commit-anim"
+        />
+      )}
+
+      {/* Train badge */}
+      <rect
+        x={0} y={-bH / 2}
+        width={bW} height={bH}
+        fill={`${fill}22`}
+        stroke={fill}
+        strokeWidth={isSel ? 1.5 : 1}
+        rx={2}
+      />
+
+      {/* Train ID */}
+      <text x={bW / 2} y={4}
+        textAnchor="middle"
+        fill={fill}
+        className="sch-train-id"
+        opacity={isHover || isSel || isCommit ? 1 : 0.85}>
+        {train.train_id}
+      </text>
+
+      {/* Committed action tag */}
+      {isCommit && (
+        <>
+          <rect
+            x={bW / 2 - 22} y={-bH / 2 - 15}
+            width={44} height={12}
+            fill="#22c55e" rx={2} />
+          <text x={bW / 2} y={-bH / 2 - 5}
+            textAnchor="middle" className="sch-commit-tag">
+            {actionLabel}
+          </text>
+        </>
+      )}
+    </g>
+  );
+};
+
 export const KineticMap: React.FC = () => {
   const {
     topology, trainStates, conflicts,
     connectWebSocket, setSelectedTrain,
     selectedTrainId, committedTrainId, committedAction, zoomLevel,
+    tickIntervalS,
   } = useMapStore();
+
+  const dynamicZones = useMemo(() => {
+    if (!topology || !topology.nodes || !topology.edges) return [];
+    return topologyToZones(topology);
+  }, [topology]);
+
+  /**
+   * Map a km value to a schematic X coordinate.
+   * Uses the dynamicZones station zones as anchors.
+   * Station node types in topology are 'SWITCH', 'CROSSING_LOOP', 'TERMINUS',
+   * 'MAJOR_JUNCTION', 'STATION', 'ORIGIN', 'DESTINATION'.
+   */
+  const getSxForKm = (km: number): number => {
+    if (!dynamicZones.length || !topology) return 20;
+
+    // Build a sorted list of unique km→schematic-x anchors from station zones.
+    // Each ST zone has a known km (from STATION_META or the station node itself).
+    const stZones = dynamicZones.filter(z => z.type === 'ST') as StationZone[];
+    if (stZones.length === 0) return 20;
+
+    // Build km→x1 anchors for each unique station zone
+    // (prefer the STATION_META km if available, else use topology node km)
+    const stationTypes = [
+      'SWITCH', 'CROSSING_LOOP', 'TERMINUS', 'MAJOR_JUNCTION',
+      'STATION', 'ORIGIN', 'DESTINATION', 'PLATFORM', 'LOOP',
+    ];
+    const stationNodes = topology.nodes
+      .filter(n => stationTypes.includes(n.type) && (n.km !== undefined && n.km !== null))
+      .sort((a, b) => (a.km || 0) - (b.km || 0));
+
+    // Build sorted anchor list: { km, sx }
+    // For each ST zone, resolve the km from STATION_META or topology
+    const anchors: { km: number; sx: number }[] = [];
+    for (const z of stZones) {
+      const meta = STATION_META[z.stId];
+      const zKm = meta ? meta.km : (stationNodes.find(n => {
+        const nStId = (n as any).stId || n.id;
+        return nStId === z.stId;
+      })?.km ?? null);
+      if (zKm !== null && zKm !== undefined) {
+        anchors.push({ km: zKm, sx: z.x1 });
+      }
+    }
+    anchors.sort((a, b) => a.km - b.km);
+
+    if (anchors.length === 0) return 20;
+    if (km <= anchors[0].km) return anchors[0].sx;
+    if (km >= anchors[anchors.length - 1].km) return anchors[anchors.length - 1].sx;
+
+    // Interpolate between bracketing anchors
+    for (let i = 0; i < anchors.length - 1; i++) {
+      if (km >= anchors[i].km && km <= anchors[i + 1].km) {
+        const span = anchors[i + 1].km - anchors[i].km;
+        if (span === 0) return anchors[i].sx;
+        const t = (km - anchors[i].km) / span;
+        return anchors[i].sx + t * (anchors[i + 1].sx - anchors[i].sx);
+      }
+    }
+    return 20;
+  };
+
+  const nodeSx = (node: { km: number; id: string; type: string }): number => {
+    const km = node.km || 0;
+    if (!dynamicZones.length || !topology) return getSxForKm(km);
+
+    // 1. If it's a segment block, interpolate strictly within its physical SEG zone bounds
+    if (node.type === 'MAIN_BLOCK' || node.type === 'GHAT_BLOCK') {
+      const seg = dynamicZones.find(z => z.type === 'SEG' && z.startKm !== undefined && z.endKm !== undefined && km > z.startKm && km < z.endKm) as SegZone | undefined;
+      if (seg && seg.startKm !== undefined && seg.endKm !== undefined) {
+        const span = seg.endKm - seg.startKm;
+        if (span === 0) return seg.x1;
+        const t = (km - seg.startKm) / span;
+        return seg.x1 + t * (seg.x2 - seg.x1);
+      }
+    }
+
+    // 2. If it's a station node, place it relative to the ST footprint
+    const stationTypes = [
+      'SWITCH', 'CROSSING_LOOP', 'TERMINUS', 'MAJOR_JUNCTION',
+      'STATION', 'ORIGIN', 'DESTINATION', 'PLATFORM', 'LOOP',
+    ];
+    if (stationTypes.includes(node.type)) {
+      const stZones = dynamicZones.filter(z => z.type === 'ST') as StationZone[];
+      const stZone = stZones.find(z => {
+         const meta = STATION_META[z.stId];
+         const zKm = meta ? meta.km : (topology.nodes.find(n => (n as any).stId === z.stId || n.id === z.stId)?.km ?? null);
+         return zKm === km;
+      });
+
+      if (stZone) {
+         if (node.type === 'SWITCH') {
+            const connectedEdges = topology.edges.filter(e => e.source === node.id || e.target === node.id);
+            let connectsLeft = false;
+            let connectsRight = false;
+            for (const e of connectedEdges) {
+              const otherId = e.source === node.id ? e.target : e.source;
+              const otherNode = topology.nodes.find(n => n.id === otherId);
+              if (otherNode && (otherNode.km || 0) < km) connectsLeft = true;
+              if (otherNode && (otherNode.km || 0) > km) connectsRight = true;
+            }
+            if (connectsLeft && !connectsRight) return stZone.x1;
+            if (connectsRight && !connectsLeft) return stZone.x2;
+         }
+         return (stZone.x1 + stZone.x2) / 2;
+      }
+    }
+
+    return getSxForKm(km);
+  };
 
   const previewState    = useCopilotStore(s => s.previewState);
   const aiAffectedEdges = useMemo(() => new Set(previewState?.affected_edges ?? []), [previewState]);
@@ -189,7 +321,7 @@ export const KineticMap: React.FC = () => {
 
   const handleForceAction = async (trainId: string, action: number) => {
     try {
-      const resp = await fetch('/api/v1/dispatch/force-action', {
+      const resp = await fetch(apiUrl('/api/v1/dispatch/force-action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ train_id: trainId, action, duration_ticks: 50 })
@@ -203,40 +335,169 @@ export const KineticMap: React.FC = () => {
   };
 
   // ── Node → schematic position ──────────────────────────────────────────────
+  // Uses km-based mapping (nodeSx) instead of the BFS layout x coordinate,
+  // because BFS x values are arbitrary and don't correspond to schematic zones.
   const nodePos = useMemo(() => {
     const map = new Map<string, { x: number; y: number }>();
-    if (!topology) return map;
+    if (!topology || !dynamicZones.length) return map;
     topology.nodes.forEach(n => {
       map.set(n.id, {
-        x: bx2sx(n.x),
+        x: nodeSx(n),
         y: MAIN_Y,
       });
     });
     return map;
-  }, [topology]);
+  }, [topology, dynamicZones]);
 
   // ── Train schematic position ───────────────────────────────────────────────
+  /**
+   * Resolve the track-capacity used for the Y-coordinate of a train.
+   *
+   * Priority:
+   *  1. MAIN_BLOCK / GHAT_BLOCK source nodes carry the exact segment cap.
+   *  2. PLATFORM / LOOP edges: cap = 1 (siding track).
+   *  3. SWITCH–SWITCH edges (intra-station main): use the adjacent SEG zone cap
+   *     so the train sits on the same line as the through-running tracks.
+   *  4. Fallback: nearest SEG zone at position x, or 2.
+   *
+   * We deliberately avoid using SW zone cap (= max of both sides) because that
+   * places the badge above/below the actual drawn track lines.
+   */
+  const resolveEdgeCap = (edgeId: string, posX: number): number => {
+    const edge = topology!.edges.find(e => e.id === edgeId);
+    if (!edge) return 2;
+
+    const srcNode = topology!.nodes.find(n => n.id === edge.source);
+    const tgtNode = topology!.nodes.find(n => n.id === edge.target);
+
+    // MAIN_BLOCK / GHAT_BLOCK — source node holds the correct segment capacity
+    if (srcNode && (srcNode.type === 'MAIN_BLOCK' || srcNode.type === 'GHAT_BLOCK')) {
+      return srcNode.capacity || 2;
+    }
+    if (tgtNode && (tgtNode.type === 'MAIN_BLOCK' || tgtNode.type === 'GHAT_BLOCK')) {
+      return tgtNode.capacity || 2;
+    }
+
+    // PLATFORM / LOOP edges — siding, always single-track
+    if (
+      (srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP')) ||
+      (tgtNode && (tgtNode.type === 'PLATFORM' || tgtNode.type === 'LOOP'))
+    ) {
+      return 1;
+    }
+
+    // SWITCH–SWITCH (intra-station) or ORIGIN/DESTINATION edges:
+    // Use the nearest SEG zone's cap so the train rides on the mainline tracks.
+    const nearestSeg = dynamicZones
+      .filter(z => z.type === 'SEG')
+      .reduce<{ zone: SegZone | null; dist: number }>(
+        (best, z) => {
+          const seg = z as SegZone;
+          const cx = (seg.x1 + seg.x2) / 2;
+          const dist = Math.abs(cx - posX);
+          return dist < best.dist ? { zone: seg, dist } : best;
+        },
+        { zone: null, dist: Infinity }
+      );
+    if (nearestSeg.zone) return nearestSeg.zone.cap;
+
+    return 2;
+  };
+
   const getPos = (train: TrainState): { x: number; y: number } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
     if (!edge) return null;
+    const srcNode = topology.nodes.find(n => n.id === edge.source);
+    const tgtNode = topology.nodes.find(n => n.id === edge.target);
     const src = nodePos.get(edge.source);
     const tgt = nodePos.get(edge.target);
-    if (!src || !tgt) return null;
-    
+    if (!src || !tgt || !srcNode || !tgtNode) return null;
+
     const x = src.x + (tgt.x - src.x) * train.position_percentage;
-    
-    // Find capacity of the zone we are in
-    let cap = 2;
-    const zone = ZONES.find(z => x >= z.x1 && x <= z.x2);
-    if (zone) {
-      if (zone.type === 'SEG' || zone.type === 'ST') cap = zone.cap;
-      else if (zone.type === 'SW') cap = Math.max(zone.fromCap, zone.toCap);
+
+    // Check if it's a loop or platform
+    const isPlatform = srcNode.type === 'PLATFORM' || tgtNode.type === 'PLATFORM';
+    const isLoop = srcNode.type === 'LOOP' || tgtNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' || tgtNode.type === 'CROSSING_LOOP';
+
+    if (isPlatform || isLoop) {
+      const stNode = isPlatform ? (srcNode.type === 'PLATFORM' ? srcNode : tgtNode) : (srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' ? srcNode : tgtNode);
+      const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stNode.stId) as StationZone | undefined;
+      
+      if (stZone && stNode) {
+        const stCap = stZone.cap;
+        
+        let targetY = MAIN_Y;
+        if (isPlatform && stNode.platform_index !== undefined) {
+          targetY = trackY(stNode.platform_index, stCap);
+        } else if (isLoop && stNode.loop_index !== undefined) {
+          targetY = trackY(0, stCap) - (stNode.loop_index + 1) * TRACK_GAP;
+        }
+
+        // Fix early platform snap & missing slope traversal:
+        // If transitioning from a SWITCH (entry track) to a PLATFORM/LOOP, interpolate the Y coordinate
+        const otherNode = isPlatform ? (srcNode.type === 'PLATFORM' ? tgtNode : srcNode) : (srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' ? tgtNode : srcNode);
+        
+        if (otherNode.type === 'SWITCH') {
+          const capAtSwitch = resolveEdgeCap(train.edge_id, src.x);
+          const startY = trackY(trainTrackAt(train, capAtSwitch), capAtSwitch);
+          
+          // Determine the X coordinates of the slope/curve region
+          const zIndex = dynamicZones.findIndex(z => z === stZone);
+          const prevZone = dynamicZones[zIndex - 1];
+          const nextZone = dynamicZones[zIndex + 1];
+          const meta = STATION_META[stZone.stId] || { loopLeft: 'inside', loopRight: 'inside' };
+          const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
+          const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
+
+          let curveStartX = 0;
+          let curveEndX = 0;
+          let curveStartY = 0;
+          let curveEndY = 0;
+
+          // Which side of the station is the switch on?
+          if (otherNode.km < stNode.km) {
+            // Left side entry
+            curveStartX = actualLoopLeft === 'segment' ? stZone.x1 - LOOP_OFF : stZone.x1;
+            curveEndX = curveStartX + LOOP_OFF;
+            curveStartY = startY;
+            curveEndY = targetY;
+          } else {
+            // Right side exit
+            curveEndX = actualLoopRight === 'segment' ? stZone.x2 + LOOP_OFF : stZone.x2;
+            curveStartX = curveEndX - LOOP_OFF;
+            curveStartY = startY;
+            curveEndY = targetY;
+          }
+
+          let currentY = targetY;
+          
+          // Find Y by treating the bezier as a smoothstep-like function of X
+          if (x >= curveStartX && x <= curveEndX) {
+             const tX = (x - curveStartX) / (curveEndX - curveStartX);
+             // A cubic bezier with C1=C2=center is mathematically exactly:
+             // y(t) = y0*(1 - 3t^2 + 2t^3) + y1*(3t^2 - 2t^3)
+             // But x(t) is also a cubic. For small angles, smoothstep(tX) is an almost perfect approximation of the geometric curve.
+             const smoothT = tX * tX * (3 - 2 * tX);
+             currentY = curveStartY + (curveEndY - curveStartY) * smoothT;
+          } else if (otherNode.km < stNode.km && x < curveStartX) {
+             currentY = curveStartY;
+          } else if (otherNode.km > stNode.km && x > curveEndX) {
+             currentY = curveStartY;
+          }
+
+          return { x, y: currentY };
+        }
+        
+        return { x, y: targetY };
+      }
     }
-    
+
+    // Use source-node-aware cap so the badge always sits on a drawn track line.
+    const cap = resolveEdgeCap(train.edge_id, x);
     const trackIdx = trainTrackAt(train, cap);
     const y = trackY(trackIdx, cap);
-    
+
     return { x, y };
   };
 
@@ -259,13 +520,13 @@ export const KineticMap: React.FC = () => {
 
   // ── Block tick marks: actual topology block boundaries ──────────────────────
   const blockTicks = useMemo(() => {
-    if (!topology) return [] as { x: number; cap: number }[];
+    if (!topology || !dynamicZones.length) return [] as { x: number; cap: number }[];
     const result: { x: number; cap: number }[] = [];
     topology.nodes.forEach(n => {
       if (n.type !== 'MAIN_BLOCK' && n.type !== 'GHAT_BLOCK') return;
-      const sx = bx2sx(n.x);
+      const sx = nodeSx(n); // use km-based lookup instead of BFS layout x
       // Find the SEG zone this node falls inside
-      const seg = ZONES.find(
+      const seg = dynamicZones.find(
         z => z.type === 'SEG' && sx > (z as SegZone).x1 && sx < (z as SegZone).x2
       ) as SegZone | undefined;
       if (seg) result.push({ x: sx, cap: seg.cap });
@@ -278,8 +539,8 @@ export const KineticMap: React.FC = () => {
     const elems: React.ReactNode[] = [];
     
     // Check if adjacent stations encroach on this segment with their loops
-    const prevZ = ZONES[key - 1];
-    const nextZ = ZONES[key + 1];
+    const prevZ = dynamicZones[key - 1];
+    const nextZ = dynamicZones[key + 1];
     
     let drawX1 = z.x1;
     let drawX2 = z.x2;
@@ -429,16 +690,22 @@ export const KineticMap: React.FC = () => {
   };
 
   // ── Render: STATION ─────────────────────────────────────────────────────────
-  const renderStation = (z: StationZone, zKey: number) => {
-    const meta        = STATION_META[z.stId];
+  const renderStation = (z: StationZone, zKey: number, allZones: Zone[]) => {
+    const meta        = STATION_META[z.stId] || { label: z.stId, km: (z as any).km || 0, loops: 0, passing: false, loopLeft: 'inside', loopRight: 'inside' };
     const { x1, x2, cap } = z;
     const isTerminus  = !!(z.isLeft || z.isRight);
     const topTrackY   = trackY(0, cap);
     const botTrackY   = trackY(cap - 1, cap);
     
+    // Dynamically retract loops into the station if there is a switch zone immediately adjacent
+    const prevZone = allZones[zKey - 1];
+    const nextZone = allZones[zKey + 1];
+    const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
+    const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
+
     // Visually expand the station boundaries to cover the loops if they branch in the segment
-    const visualX1 = meta.loopLeft === 'segment' ? x1 - LOOP_OFF : x1;
-    const visualX2 = meta.loopRight === 'segment' ? x2 + LOOP_OFF : x2;
+    const visualX1 = actualLoopLeft === 'segment' ? x1 - LOOP_OFF : x1;
+    const visualX2 = actualLoopRight === 'segment' ? x2 + LOOP_OFF : x2;
     const cx       = (visualX1 + visualX2) / 2;
 
     // Which trains are at this station? (track occupancy)
@@ -484,13 +751,13 @@ export const KineticMap: React.FC = () => {
       const parts: string[] = [];
 
       // ── LEFT side entry ──────────────────────────────────────
-      if (meta.loopLeft === 'segment') {
+      if (actualLoopLeft === 'segment') {
         // Smooth S-arch entering from the left segment
         parts.push(
           `M ${x1 - LOOP_OFF} ${topTrackY}`,
           `C ${x1 - CP_OFF} ${topTrackY}, ${x1 - CP_OFF} ${sidY}, ${x1} ${sidY}`
         );
-      } else if (meta.loopLeft === 'inside') {
+      } else if (actualLoopLeft === 'inside') {
         // Diverges from main track just inside the station left boundary
         parts.push(
           `M ${x1} ${topTrackY}`,
@@ -502,13 +769,13 @@ export const KineticMap: React.FC = () => {
       }
 
       // ── RIGHT side exit ──────────────────────────────────────
-      if (meta.loopRight === 'segment') {
+      if (actualLoopRight === 'segment') {
         // Extends then arches back to main track in the right segment
         parts.push(
           `L ${x2} ${sidY}`,
           `C ${x2 + CP_OFF} ${sidY}, ${x2 + CP_OFF} ${topTrackY}, ${x2 + LOOP_OFF} ${topTrackY}`
         );
-      } else if (meta.loopRight === 'inside') {
+      } else if (actualLoopRight === 'inside') {
         // Rejoins main track just before the station right boundary
         parts.push(
           `L ${x2 - LOOP_OFF} ${sidY}`,
@@ -530,10 +797,10 @@ export const KineticMap: React.FC = () => {
     // Junction dots — where loop branches off or rejoins the main track
     if (meta.loops > 0) {
       const r = 2.5;
-      if (meta.loopLeft  === 'segment') elems.push(<circle key="cl-s" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (meta.loopLeft  === 'inside')  elems.push(<circle key="cl-i" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
-      if (meta.loopRight === 'segment') elems.push(<circle key="cr-s" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (meta.loopRight === 'inside')  elems.push(<circle key="cr-i" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
+      if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+      if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
+      if (actualLoopRight === 'segment') elems.push(<circle key="cr-s" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+      if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
     }
 
     // 4) Individual platform markers (small rects above each main track)
@@ -628,13 +895,13 @@ export const KineticMap: React.FC = () => {
 
     // 11) Loop-end bumpers — only for 'bumper' sides
     if (meta.loops > 0) {
-      if (meta.loopLeft === 'bumper') {
+      if (actualLoopLeft === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
           const sidY = topTrackY - (l + 1) * TRACK_GAP;
           elems.push(<line key={`bll${l}`} x1={visualX1} y1={sidY-4} x2={visualX1} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
-      if (meta.loopRight === 'bumper') {
+      if (actualLoopRight === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
           const sidY = topTrackY - (l + 1) * TRACK_GAP;
           elems.push(<line key={`blr${l}`} x1={visualX2} y1={sidY-4} x2={visualX2} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
@@ -656,7 +923,9 @@ export const KineticMap: React.FC = () => {
   };
 
   // ── Zone elements (computed once per topology state) ───────────────────────
-  const zoneElems = ZONES.map((z, i) => {
+  const svgW = dynamicZones.length > 0 ? dynamicZones[dynamicZones.length - 1].x2 + 200 : 4200;
+
+  const zoneElems = dynamicZones.map((z, i) => {
     if (z.type === 'SEG') {
       const segsBlocks = blockTicks
         .filter(b => b.x > (z as SegZone).x1 && b.x < (z as SegZone).x2)
@@ -664,7 +933,7 @@ export const KineticMap: React.FC = () => {
       return renderSeg(z as SegZone, i, segsBlocks);
     }
     if (z.type === 'SW')  return renderSwitch(z as SwitchZone, i);
-    if (z.type === 'ST')  return renderStation(z as StationZone, i);
+    if (z.type === 'ST')  return renderStation(z as StationZone, i, dynamicZones);
     return null;
   });
 
@@ -690,12 +959,12 @@ export const KineticMap: React.FC = () => {
       <div className="sch-scroll">
         <svg
           style={{
-            width:     `${SVG_W * zoomLevel}px`,
+            width:     `${svgW * zoomLevel}px`,
             height:    `${SVG_H * zoomLevel}px`,
             minHeight: '100%',
             display:   'block',
           }}
-          viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+          viewBox={`0 0 ${svgW} ${SVG_H}`}
           preserveAspectRatio="xMinYMid meet"
           overflow="visible"
           onClick={() => { setSelectedTrain(null); setSelectedZone(null); }}
@@ -712,7 +981,35 @@ export const KineticMap: React.FC = () => {
           {/* Zones (segments → switches → stations) */}
           {zoneElems}
 
-          {/* Block section boundaries are shown as 3 px gaps within each SEG zone */}
+          {/* ── TRAINS ────────────────────────────────────────────────── */}
+          {trainStates.map(train => {
+            const isSel      = selectedTrainId  === train.train_id;
+            const isCommit   = committedTrainId === train.train_id;
+            const isHover    = hoveredTrain     === train.train_id;
+            const isConflict = conflicts.includes(train.edge_id);
+            const isHalted   = train.status === 'Halted';
+            const isAI       = topology?.edges.some(
+              e => e.id === train.edge_id && aiAffectedEdges.has(e.id)
+            ) ?? false;
+
+            return (
+              <TrainBadge
+                key={train.train_id}
+                train={train}
+                getPos={getPos}
+                isSel={isSel}
+                isCommit={isCommit}
+                isHover={isHover}
+                isConflict={isConflict}
+                isHalted={isHalted}
+                isAI={isAI}
+                tickIntervalS={tickIntervalS}
+                actionLabel={actionLabel}
+                setHoveredTrain={setHoveredTrain}
+                setSelectedTrain={setSelectedTrain}
+              />
+            );
+          })}
 
           {/* ── MAINTENANCE BLOCKS HIGHLIGHT ────────────────────────────── */}
           {Array.from(activeBlocks.values()).filter(blk => {
@@ -740,7 +1037,7 @@ export const KineticMap: React.FC = () => {
             // Determine cap for the zone this block is in to set height
             const midX = (src.x + tgt.x) / 2;
             let cap = 2;
-            const zone = ZONES.find(z => midX >= z.x1 && midX <= z.x2);
+            const zone = dynamicZones.find(z => midX >= z.x1 && midX <= z.x2);
             if (zone && (zone.type === 'SEG' || zone.type === 'ST')) cap = zone.cap;
             
             const boxH = cap * TRACK_GAP + 10;
@@ -755,95 +1052,6 @@ export const KineticMap: React.FC = () => {
                   stroke={color} strokeWidth={1}
                   rx={2}
                 />
-              </g>
-            );
-          })}
-
-          {/* ── TRAINS ────────────────────────────────────────────────── */}
-          {trainStates.map(train => {
-            const pos = getPos(train);
-            if (!pos) return null;
-
-            const isSel      = selectedTrainId  === train.train_id;
-            const isCommit   = committedTrainId === train.train_id;
-            const isHover    = hoveredTrain     === train.train_id;
-            const isConflict = conflicts.includes(train.edge_id);
-            const isHalted   = train.status === 'Halted';
-            const isAI       = topology?.edges.some(
-              e => e.id === train.edge_id && aiAffectedEdges.has(e.id)
-            ) ?? false;
-
-            const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
-            const txtCol = '#e2e8f0';
-            const bW     = 50;   // train badge width
-            const bH     = 14;   // train badge height
-
-            // Draw train trailing from its head position so it doesn't visually bleed into the next segment
-            const isUp = train.direction === "UP" || train.direction === -1;
-            const trainX = isUp ? pos.x : pos.x - bW;
-            const tCx = trainX + bW / 2;
-
-            return (
-              <g
-                key={train.train_id}
-                onClick={(e) => { e.stopPropagation(); setSelectedTrain(train.train_id); }}
-                onMouseEnter={() => setHoveredTrain(train.train_id)}
-                onMouseLeave={() => setHoveredTrain(null)}
-                style={{ cursor: 'pointer' }}
-              >
-                {/* Conflict flash ring */}
-                {isConflict && (
-                  <rect
-                    x={trainX - 4} y={pos.y - bH / 2 - 4}
-                    width={bW + 8} height={bH + 8}
-                    fill="none" stroke="#ef4444" strokeWidth={1}
-                    strokeDasharray="3 2" rx={2}
-                    className="sch-conflict-anim"
-                  />
-                )}
-
-                {/* Committed ring */}
-                {isCommit && (
-                  <rect
-                    x={trainX - 5} y={pos.y - bH / 2 - 5}
-                    width={bW + 10} height={bH + 10}
-                    fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3}
-                    className="sch-commit-anim"
-                  />
-                )}
-
-                {/* Train badge */}
-                <rect
-                  x={trainX} y={pos.y - bH / 2}
-                  width={bW} height={bH}
-                  fill={`${fill}22`}
-                  stroke={fill}
-                  strokeWidth={isSel ? 1.5 : 1}
-                  rx={2}
-                />
-
-                {/* Train ID */}
-                <text x={tCx} y={pos.y + 4}
-                  textAnchor="middle"
-                  fill={fill}
-                  className="sch-train-id"
-                  opacity={isHover || isSel || isCommit ? 1 : 0.85}>
-                  {train.train_id}
-                </text>
-
-                {/* Committed action tag */}
-                {isCommit && (
-                  <>
-                    <rect
-                      x={tCx - 22} y={pos.y - bH / 2 - 15}
-                      width={44} height={12}
-                      fill="#22c55e" rx={2} />
-                    <text x={tCx} y={pos.y - bH / 2 - 5}
-                      textAnchor="middle" className="sch-commit-tag">
-                      {actionLabel}
-                    </text>
-                  </>
-                )}
               </g>
             );
           })}
@@ -943,62 +1151,8 @@ export const KineticMap: React.FC = () => {
                   <span className="sch-td-label">Km Mark</span>
                   <span className="sch-td-value">{STATION_META[(selectedZone as StationZone).stId].km} km</span>
                 </div>
-                <div className="sch-td-row">
-                  <span className="sch-td-label">Loops</span>
-                  <span className="sch-td-value">{STATION_META[(selectedZone as StationZone).stId].loops}</span>
-                </div>
               </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ── TRAIN DETAIL PANEL ────────────────────────────────────────── */}
-      {selectedTrain && (
-        <div className="sch-train-detail-panel">
-          <div className="sch-td-header">
-            <span className="sch-td-title">TRAIN {selectedTrain.train_id}</span>
-            <button className="sch-td-close" onClick={() => setSelectedTrain(null)}>×</button>
-          </div>
-          <div className="sch-td-content">
-            <div className="sch-td-row">
-              <span className="sch-td-label">Status</span>
-              <span className={`sch-td-value sch-td-status--${selectedTrain.status.toLowerCase()}`}>{selectedTrain.status}</span>
-            </div>
-            <div className="sch-td-row">
-              <span className="sch-td-label">Direction</span>
-              <span className="sch-td-value">{selectedTrain.direction || 'N/A'}</span>
-            </div>
-            <div className="sch-td-row">
-              <span className="sch-td-label">Position</span>
-              <span className="sch-td-value">{Math.round(selectedTrain.position_percentage * 100)}% on edge</span>
-            </div>
-            <div className="sch-td-row">
-              <span className="sch-td-label">Edge ID</span>
-              <span className="sch-td-value" title={selectedTrain.edge_id}>
-                {selectedTrain.edge_id.length > 15 ? selectedTrain.edge_id.substring(0, 15) + '...' : selectedTrain.edge_id}
-              </span>
-            </div>
-            {selectedTrain.path && selectedTrain.path.length > 0 && (
-              <div className="sch-td-row">
-                <span className="sch-td-label">Path Length</span>
-                <span className="sch-td-value">{selectedTrain.path.length} segments left</span>
-              </div>
-            )}
-            <div className="sch-td-actions" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              <button 
-                onClick={() => handleForceAction(selectedTrain.train_id, 1)}
-                style={{ flex: 1, padding: '6px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
-              >
-                Force Move
-              </button>
-              <button 
-                onClick={() => handleForceAction(selectedTrain.train_id, 0)}
-                style={{ flex: 1, padding: '6px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
-              >
-                Force Stop
-              </button>
-            </div>
           </div>
         </div>
       )}
