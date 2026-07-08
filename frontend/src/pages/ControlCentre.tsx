@@ -4,6 +4,7 @@ import { KineticMap } from '../components/KineticMap/KineticMap';
 import { MareyTimeline } from '../components/MareyTimeline/MareyTimeline';
 import { useMaintenanceStore } from '../store/useMaintenanceStore';
 import { useMapStore } from '../store/useMapStore';
+import { apiUrl } from '../lib/api';
 import './ControlCentre.css';
 
 type ScenarioResult = {
@@ -118,7 +119,7 @@ const ControlCentre: React.FC = () => {
     setIsLoadingLogs(true);
     const loadLogs = async () => {
       try {
-        const res = await fetch(`/api/v1/system/audit-logs?limit=${logLimit}`);
+        const res = await fetch(apiUrl(`/api/v1/system/audit-logs?limit=${logLimit}`));
         if(res.ok) {
           const data = await res.json();
           const logs = (data.logs || []).map((l: any) => ({
@@ -151,7 +152,7 @@ const ControlCentre: React.FC = () => {
 
     setIsRecalculating(true);
     try {
-        const res = await fetch('/api/v1/simulation/analyze', {
+        const res = await fetch(apiUrl('/api/v1/simulation/analyze'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -197,7 +198,7 @@ const ControlCentre: React.FC = () => {
             forced_actions: forcedActions,
             latencies: latencies
         };
-        const res = await fetch('/api/v1/simulation/deploy', {
+        const res = await fetch(apiUrl('/api/v1/simulation/deploy'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)

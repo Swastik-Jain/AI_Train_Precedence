@@ -15,10 +15,11 @@ def get_fleet_live(state: SimulationState) -> Dict[str, Any]:
     for t_id, cfg in state.fleet_registry.items():
         live = state.train_states.get(t_id, {})
         status = live.get("status", "Scheduled")
-        edge_id = live.get("edge_id")
-        if not edge_id or edge_id == "—":
-            direction = cfg.get("direction", "DOWN")
-            edge_id = "edge-0-1" if direction == "DOWN" else "edge-83-999"
+        # None (not a placeholder edge string) means "no live position yet" —
+        # i.e. this train hasn't been through start_inference()/a tick since.
+        # Let the frontend decide how to display that, rather than fabricating
+        # a real-looking edge_id here.
+        edge_id = live.get("edge_id") if live.get("edge_id") not in (None, "—") else None
         result.append({
             **cfg,
             "edge_id"            : edge_id,

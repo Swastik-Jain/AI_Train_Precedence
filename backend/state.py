@@ -23,6 +23,7 @@ class SimulationState:
         self.system_lockdown: bool = False
         self.or_shield_enabled: bool = True
         self.ai_auto_commit: bool = False
+        self.consecutive_inference_errors: int = 0
         self.autopilot_mode: bool = True
         self.explain_before_act_mode: bool = False
         
@@ -32,6 +33,7 @@ class SimulationState:
         self.is_sim_running: bool = True
         self.last_punctuality: float = 100.0
         self.sim_lock = asyncio.Lock()
+        self.shutdown_inference_flag: bool = False
         
         # Operator Loop Action Tables
         self.latest_model_proposal: Dict[str, int] = {}

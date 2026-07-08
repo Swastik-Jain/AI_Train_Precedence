@@ -49,7 +49,7 @@ const DashboardLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { 
     isLockdown, isSafetyShield,
-    networkFluidity, haltedPct, activeTrains,
+    networkFluidity, haltedPct, activeTrains, isBackendReachable,
     fetchStatus, setLockdown, setSafetyShield 
   } = useSystemStore();
   const mapConnected = useMapStore(state => state.isConnected);
@@ -68,7 +68,7 @@ const DashboardLayout: React.FC = () => {
 
   const deriveSystemStatus = () => {
     if (isLockdown) return { label: 'Emergency Lockdown', style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: true };
-    if (!mapConnected) return { label: 'Backend Offline', style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: false };
+    if (!mapConnected && !isBackendReachable) return { label: 'Backend Offline', style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: false };
     if (networkFluidity === 'Degraded') return { label: `Network Degraded · ${haltedPct.toFixed(0)}% halted`, style: 'text-red-600 bg-red-50', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', pulsing: true };
     if (conflicts && conflicts.length > 0) return { label: `Conflict Detected · ${conflicts.length} edge${conflicts.length > 1 ? 's' : ''}`, style: 'text-amber-600 bg-amber-50', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', pulsing: true };
     if (networkFluidity === 'Warning') return { label: `Network Warning · ${haltedPct.toFixed(0)}% halted`, style: 'text-amber-600 bg-amber-50', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', pulsing: false };

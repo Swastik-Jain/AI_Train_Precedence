@@ -1156,6 +1156,48 @@ export const KineticMap: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── TRAIN DETAIL PANEL ────────────────────────────────────────── */}
+      {selectedTrain && (
+        <div className="sch-train-detail-panel" style={{ bottom: '20px', left: selectedZone ? '320px' : '20px', right: 'auto', top: 'auto', width: '280px' }}>
+          <div className="sch-td-header">
+            <span className="sch-td-title">TRAIN: {selectedTrain.train_id}</span>
+            <button className="sch-td-close" onClick={() => setSelectedTrain(null)}>×</button>
+          </div>
+          <div className="sch-td-content">
+            <div className="sch-td-row">
+              <span className="sch-td-label">Status</span>
+              <span className="sch-td-value">{selectedTrain.status}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Direction</span>
+              <span className="sch-td-value">{selectedTrain.direction}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Edge ID</span>
+              <span className="sch-td-value">{selectedTrain.edge_id}</span>
+            </div>
+            <div className="sch-td-row">
+              <span className="sch-td-label">Position</span>
+              <span className="sch-td-value">{(selectedTrain.position_percentage * 100).toFixed(1)}%</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', padding: '12px', borderTop: '1px solid #333' }}>
+            <button 
+              style={{ flex: 1, padding: '6px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+              onClick={() => handleForceAction(selectedTrain.train_id, 0)}
+            >
+              Stop
+            </button>
+            <button 
+              style={{ flex: 1, padding: '6px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+              onClick={() => handleForceAction(selectedTrain.train_id, 1)}
+            >
+              Proceed
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -15,7 +15,7 @@ interface FleetTrain {
   deadline: number;
   direction: string;
   speed_kmh?: number;
-  edge_id: string;
+  edge_id: string | null;
   position_percentage: number;
   status: 'Moving' | 'Halted' | 'Blocked' | 'Scheduled' | string;
   added_at: string;
@@ -405,7 +405,9 @@ const FleetStatus: React.FC = () => {
                           {train.status}
                         </span>
                       </td>
-                      <td className="fs-edge-id">{train.edge_id}</td>
+                      <td className="fs-edge-id">
+                        {train.edge_id ?? <span className="fs-edge-id-pending">Not deployed</span>}
+                      </td>
                       <td>
                         <div className="fs-progress-wrap">
                           <div className="fs-progress-bar">

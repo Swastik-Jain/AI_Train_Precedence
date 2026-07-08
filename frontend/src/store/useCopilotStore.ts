@@ -177,13 +177,12 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
     // Suggestion management
     // -----------------------------------------------------------------------
     addSuggestion: (s) =>
-      set((state) => ({
-        activeSuggestions: [
-          s,
-          // Keep only up to 5 pending suggestions in the queue
-          ...state.activeSuggestions.filter((x) => x.recommendation_id !== s.recommendation_id).slice(0, 4),
-        ],
-      })),
+      set((state) => {
+        const rest = state.activeSuggestions.filter((x) => x.recommendation_id !== s.recommendation_id);
+        // Keep only up to 5 total suggestions in the queue, newest at the end
+        const next = [...rest, s].slice(-5);
+        return { activeSuggestions: next };
+      }),
 
     removeSuggestion: (id) =>
       set((state) => ({
@@ -252,18 +251,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => {
         console.log('[ORBIT] Co-pilot WebSocket connected');
       };
 
-      const handleDisconnect = () => {
-        set({ isConnected: false });
-        socket = null;
-        console.log('[ORBIT] Co-pilot WebSocket disconnected. Reconnecting in 3s...');
-        setTimeout(() => get().connectCopilotWS(), 3000);
-      };
 
-      socket.onclose = handleDisconnect;
-      socket.onerror = () => {
-        // Socket will close after error, handled by onclose
-        console.warn('[ORBIT] Co-pilot WebSocket error');
-      };
 
       socket.onmessage = (event) => {
         try {
