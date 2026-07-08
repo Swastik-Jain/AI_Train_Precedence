@@ -178,6 +178,7 @@
 .fs-speed { font-variant-numeric: tabular-nums; color: var(--c-on-surface, #0f172a); }
 .fs-speed small { color: var(--c-dim, #64748b); font-size: 0.7rem; }
 .fs-edge-id { font-family: monospace; font-size: 0.76rem; color: var(--c-dim, #64748b); }
+.fs-edge-id-pending { color: var(--c-dim, #64748b); font-style: italic; }
 .fs-progress-wrap { display: flex; align-items: center; gap: 8px; }
 .fs-progress-bar { width: 60px; height: 5px; background: var(--c-outline, #e2e8f0); border-radius: 999px; overflow: hidden; }
 .fs-progress-fill { height: 100%; background: #8B5CF6; border-radius: 999px; transition: width 0.4s ease; }

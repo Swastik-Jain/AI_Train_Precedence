@@ -28,15 +28,6 @@ async def broadcast_copilot(payload: dict):
             dead_sockets.add(ws)
     state.copilot_websockets.difference_update(dead_sockets)
 
-@router.websocket("/ws/traffic")
-async def traffic_websocket(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_text(f"Message text was: {data}")
-    except Exception as e:
-        print(f"Traffic WS disconnected: {e}")
 
 @router.websocket("/ws/topology")
 async def topology_websocket(websocket: WebSocket):

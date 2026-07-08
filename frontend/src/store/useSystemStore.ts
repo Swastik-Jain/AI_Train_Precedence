@@ -7,6 +7,7 @@ interface SystemState {
   networkFluidity: 'Nominal' | 'Warning' | 'Degraded' | '-';
   haltedPct: number;
   activeTrains: number;
+  isBackendReachable: boolean;
   fetchStatus: () => Promise<void>;
   setLockdown: (enabled: boolean) => Promise<void>;
   setSafetyShield: (enabled: boolean) => Promise<void>;
@@ -18,6 +19,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   networkFluidity: '-',
   haltedPct: 0,
   activeTrains: 0,
+
+  isBackendReachable: true,
 
   fetchStatus: async () => {
     try {
@@ -35,10 +38,14 @@ export const useSystemStore = create<SystemState>((set, get) => ({
           networkFluidity: telemetryData.network_fluidity || '-',
           haltedPct: telemetryData.halted_pct || 0,
           activeTrains: telemetryData.active_trains || 0,
+          isBackendReachable: true,
         });
+      } else {
+        set({ isBackendReachable: false });
       }
     } catch (e) {
       console.error("Failed to fetch system status or telemetry:", e);
+      set({ isBackendReachable: false });
     }
   },
 

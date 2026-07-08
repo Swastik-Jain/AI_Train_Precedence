@@ -982,8 +982,7 @@ async def simulate_trains_bg():
                             
                                 # Let this tick finish processing normally to prevent the fallback physics 
                                 # engine from destroying train statuses mid-tick. Turn it off at the end.
-                                global _SHUTDOWN_INFERENCE_FLAG
-                                _SHUTDOWN_INFERENCE_FLAG = True
+                                state.shutdown_inference_flag = True
 
                     except Exception as e:
                         import traceback
@@ -1128,9 +1127,9 @@ async def simulate_trains_bg():
         await _broadcast_topology(payload)
         
         async with _SIM_LOCK:
-            if globals().get("_SHUTDOWN_INFERENCE_FLAG"):
+            if state.shutdown_inference_flag:
                 INFERENCE_ACTIVE = False
-                globals()["_SHUTDOWN_INFERENCE_FLAG"] = False
+                state.shutdown_inference_flag = False
                 # Clear all train positions from the map immediately
                 for state in TRAIN_STATES.values():
                     if state.get("status") not in ("Finished", "Scheduled"):

@@ -51,7 +51,7 @@ export const MareyTimeline: React.FC<MareyTimelineProps> = ({ scenarios = [], hi
   const { activeBlocks } = useMaintenanceStore();
   const { trainStates } = useMapStore();
 
-  const currentSimTime = useMapStore(s => s.simTime) || 0;
+  const currentSimTime = useMapStore(s => s.simTick) || 0;
 
   const totalW = W - PAD_LEFT - PAD_RIGHT;
   const timePct = scheduleMaxTime > 0 ? Math.min(Math.max(currentSimTime / scheduleMaxTime, 0), 1) : 0;

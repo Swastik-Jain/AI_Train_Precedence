@@ -128,6 +128,7 @@ def start_inference(state: SimulationState) -> Dict[str, Any]:
     )
     state.inference_obs     = env.reset()
     state.inference_actions = None
+    state.sim_tick           = 0
     state.inference_active   = True
 
     print(f"[ORBIT] 🚀 Inference started. {len(state.train_states)} trains seeded from OR schedule.")
@@ -205,7 +206,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                     end = datetime.fromisoformat(block.get("end_time", "").replace("Z", "+00:00"))
                     if now_dt > end:
                         expired_blocks.append(b_id)
-                except Exception as e:
+                except (ValueError, TypeError, AttributeError) as e:
                     print(f"[WARN] Failed to parse end_time for maintenance block {b_id}: {e}")
                     pass # If it fails to parse, leave it until manually removed
                 
@@ -246,10 +247,6 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             # ── Get observation and predict ────────────────────────
                             if state.inference_obs is None:
                                 state.inference_obs = env.reset()
-
-                            # Pass                            if hasattr(inner_env, 'sim_speed_factor'):
-                                pass
-                            inner_env.sim_speed_factor = config.SIM_SPEED_FACTOR
 
                             action_masks = np.array(env.env_method("get_action_mask"))
                             action, _ = model.predict(
@@ -299,10 +296,12 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
 
                             # Step 2: OR-Shield validates the intent to prevent crashes
                             if state.or_shield_enabled:
+                                node_km = {nid: info.get('km', 0.0) for nid, info in inner_env.track_map.items()}
                                 safe_actions, decision_meta = state.or_shield.optimize_decision(
                                     trains=inner_env.trains,
                                     ai_actions=desired_actions,
                                     track_map=inner_env.track_map,
+                                    node_km=node_km,
                                     raw_actions=raw_actions,
                                 )
                             else:
@@ -324,25 +323,6 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             terminated = step_result[2]
                             infos = step_result[3] if len(step_result) > 3 else [{}]
 
-                            # ── Detect removed trains (finished/deadlocked) ────────
-                            # The physics engine removes finished trains from its active list.
-                            # We must catch this and mark them as Finished in the live map,
-                            # otherwise they stay stuck as 'Moving' forever and inflate traffic counts.
-                            current_rl_train_ids = {t['id'] for t in inner_env.trains}
-                            for t_id, live in list(state.train_states.items()):
-                                if t_id not in current_rl_train_ids and live.get('status') not in ('Finished', 'Scheduled', 'Expired'):
-                                    live['status'] = 'Finished'
-                                    live['finish_time'] = state.sim_tick
-                                    live['speed_kmh'] = 0
-                                    # Move off-screen visually
-                                    dir_val = live.get('direction', 'DOWN')
-                                    if dir_val == "UP" or dir_val == 1:
-                                        live['edge_id'] = "edge-0-1"
-                                        live['position_percentage'] = 0.0
-                                    else:
-                                        live['edge_id'] = "edge-83-999"
-                                        live['position_percentage'] = 1.0
-
                             # ── Read RL env train positions back into state.train_states ─
                             # The RL env manages its own complete, valid train state.
                             # We map RL node positions → edge IDs for the live map.
@@ -359,42 +339,23 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
 
                                 # Build edge_id — topology ends at node 83 → 999
                                 direction_str = live.get('direction', 'DOWN')
-                            
+
                                 if node_id == 999 or node_id == 998:
                                     edge_id = "edge-83-999"
                                 elif node_id == 0:
                                     edge_id = "edge-0-1"
                                 else:
+                                    # Use the RL env's own committed next-node — this is the
+                                    # real MAIN/DIVERT decision train_env.py made for this
+                                    # train this step, not a re-derived guess.
+                                    committed_next = rl_train.get('committed_next_node')
+                                    if committed_next is None:
+                                        committed_next = node_id  # end of line / no data — draw a self-loop-ish fallback rather than crash
+
                                     if direction_str == "UP":
-                                        prev_opts = state.raw_track_map.get(node_id, {}).get("prev", [])
-                                        path = live.get("path", [])
-                                        target_node = None
-                                        if path and node_id in path:
-                                            idx = path.index(node_id)
-                                            if idx + 1 < len(path):
-                                                target_node = path[idx + 1]
-                                        
-                                        if target_node is not None and target_node in prev_opts:
-                                            edge_id = f"edge-{target_node}-{node_id}"
-                                        elif prev_opts:
-                                            edge_id = f"edge-{prev_opts[0]}-{node_id}"
-                                        else:
-                                            edge_id = f"edge-{node_id - 1}-{node_id}"
+                                        edge_id = f"edge-{committed_next}-{node_id}"
                                     else:
-                                        next_opts = state.raw_track_map.get(node_id, {}).get("next", [])
-                                        path = live.get("path", [])
-                                        target_node = None
-                                        if path and node_id in path:
-                                            idx = path.index(node_id)
-                                            if idx + 1 < len(path):
-                                                target_node = path[idx + 1]
-                                                
-                                        if target_node is not None and target_node in next_opts:
-                                            edge_id = f"edge-{node_id}-{target_node}"
-                                        elif next_opts:
-                                            edge_id = f"edge-{node_id}-{next_opts[0]}"
-                                        else:
-                                            edge_id = f"edge-{node_id}-{node_id + 1}"
+                                        edge_id = f"edge-{node_id}-{committed_next}"
 
                                 live['edge_id']    = edge_id
                                 live['speed_kmh']  = speed
@@ -407,23 +368,22 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                     try:
                                         acc_val = float(inner_env._movement_acc[i])
                                         
-                                        # Determine next node to find edge length
-                                        target_node = None
-                                        if direction_str == "UP":
-                                            prev_opts = state.raw_track_map.get(node_id, {}).get("prev", [])
-                                            target_node = prev_opts[0] if prev_opts else (node_id - 1)
-                                        else:
-                                            next_opts = state.raw_track_map.get(node_id, {}).get("next", [])
-                                            target_node = next_opts[0] if next_opts else (node_id + 1)
-                                            
+                                        # Use the RL env's own committed next-node (same field the
+                                        # edge_id resolution above reads) so the progress percentage
+                                        # is measured along the edge actually being displayed,
+                                        # not a re-guessed one.
+                                        target_node = rl_train.get('committed_next_node')
+                                        if target_node is None:
+                                            target_node = node_id - 1 if direction_str == "UP" else node_id + 1
+
                                         km1 = inner_env.get_node_km(node_id) if hasattr(inner_env, 'get_node_km') else 0
                                         km2 = inner_env.get_node_km(target_node) if hasattr(inner_env, 'get_node_km') else 1
                                         
                                         dist_to_next = max(0.1, abs(km2 - km1))
                                         pct = acc_val / dist_to_next
                                         pct = max(0.0, min(pct, 0.999))  # defensive clamp
-                                    except (IndexError, Exception):
-                                        pass
+                                    except (TypeError, ValueError, KeyError, AttributeError) as e:
+                                        print(f"[WARN] position_percentage calc failed for {t_id}: {e}")
                             
                                 # UP trains traverse the edge in reverse (high→low km).
                                 if direction_str == "UP":
@@ -469,12 +429,38 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             
                                 # Let this tick finish processing normally to prevent the fallback physics 
                                 # engine from destroying train statuses mid-tick. Turn it off at the end.
-                                _SHUTDOWN_INFERENCE_FLAG = True
+                                state.shutdown_inference_flag = True
+                            
+                            state.consecutive_inference_errors = 0
 
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
                         print(f"[ORBIT] ⚠️  Inference sync error: {e}")
+
+                        state.consecutive_inference_errors += 1
+                        _push_audit_log({
+                            "t": system_service._now_iso(),
+                            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                            "source": "INFERENCE_ENGINE",
+                            "action": f"Inference tick failed ({state.consecutive_inference_errors} consecutive): {e}",
+                            "operator": "SYSTEM",
+                            "status": "Error",
+                            "statusType": "error",
+                        })
+
+                        if state.consecutive_inference_errors >= 5:
+                            state.inference_active = False
+                            state.consecutive_inference_errors = 0
+                            _push_audit_log({
+                                "t": system_service._now_iso(),
+                                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                                "source": "INFERENCE_ENGINE",
+                                "action": "Inference auto-stopped after 5 consecutive tick failures — check server logs.",
+                                "operator": "SYSTEM",
+                                "status": "Halted",
+                                "statusType": "error",
+                            })
 
                 # ── Drive map movement for ALL trains (inference + fallback) ───────
                 # When inference is active, RL action determines speed (stop vs move).
@@ -516,7 +502,10 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 if state.inference_active:
                                     state.sticky_actions[t_id] = (0, state.sim_tick + 2)
                                 continue
-                    except (ValueError, IndexError):
+                    except ValueError:
+                        # curr_edge isn't in this train's static reference path — expected
+                        # whenever the train is on a loop/divert edge not covered by the
+                        # DOWN_PATH/UP_PATH reference list. Not an error.
                         pass
 
                     # ── Per-train simulation clock ────────────────────────────────
@@ -620,15 +609,15 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                 if env:
                     inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
                     payload["token_trains"] = inner_env.ghat_token.status().get("trains_in_block", [])
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARN] Failed to read ghat token status for broadcast: {e}")
 
         await broadcast_topology(payload)
         
         async with state.sim_lock:
-            if globals().get("_SHUTDOWN_INFERENCE_FLAG"):
+            if state.shutdown_inference_flag:
                 state.inference_active = False
-                globals()["_SHUTDOWN_INFERENCE_FLAG"] = False
+                state.shutdown_inference_flag = False
                 # Clear all train positions from the map immediately
                 for t_state in state.train_states.values():
                     if t_state.get("status") not in ("Finished", "Scheduled"):

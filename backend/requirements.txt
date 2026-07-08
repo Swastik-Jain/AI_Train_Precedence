@@ -23,3 +23,6 @@ python-dotenv
 # Database
 sqlalchemy
 psycopg2-binary
+# Testing
+pytest
+pytest-asyncio

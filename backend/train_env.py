@@ -283,6 +283,7 @@ class TrainDispatchEnv(gym.Env):
             train['dwell_rem']       = 0
             train['finished']        = False
             train['finish_step']     = None   # set to sim_time when train reaches destination
+            train['committed_next_node'] = None  # which node's edge this train is currently on / about to enter — set every step(), read by simulation_service.py for the visual edge mapping
             train['banker_attached'] = False
             train['banker_wait']     = 0
             train['visited_nodes']   = set()
@@ -977,6 +978,11 @@ class TrainDispatchEnv(gym.Env):
             node_data  = self.track_map.get(pos, {})
             track_limit = node_data.get('speed', train['max_speed'])
 
+            # Default "next" target for display purposes — the main/through track.
+            # Overwritten below with the real committed target for MAIN/DIVERT moves.
+            _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+            train['committed_next_node'] = _display_next_opts[0] if _display_next_opts else pos
+
             # ── Banker attach/detach wait ─────────────────────────────────
             if train.get('banker_wait', 0) > 0:
                 train['banker_wait'] -= 1
@@ -1139,6 +1145,11 @@ class TrainDispatchEnv(gym.Env):
                                         reward += 0.8
                     else:
                         target_node = main_target
+
+                    # This is the authoritative "which edge is this train on" value —
+                    # overwrites the display-only default set above, now reflecting
+                    # the real MAIN vs DIVERT decision for this step.
+                    train['committed_next_node'] = target_node
 
                     # Determine physical distance to target block
                     dist_to_next = abs(self.get_node_km(target_node) - self.get_node_km(pos))
