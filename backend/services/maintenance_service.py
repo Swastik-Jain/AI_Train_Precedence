@@ -107,6 +107,8 @@ async def apply_block(state: SimulationState, block: InfrastructureBlock, broadc
 
     impact = _resolve_reroute_strategy(state, block.element_id)
 
+    sync_blocks_to_rl_env(state)
+
     if broadcast_topology:
         await broadcast_topology({
             "type": "MAINTENANCE_BLOCK_APPLIED",

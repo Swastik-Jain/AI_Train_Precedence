@@ -337,7 +337,7 @@ async def deploy_simulation(payload: dict, state):
     
     constraints_count = len(forced_actions) + len(latencies)
     # Audit Log
-    system_service.push_audit_log({
+    system_service.push_audit_log(state, {
         "t": system_service._now_iso(),
         "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
         "source": "SIMULATION_SANDBOX",

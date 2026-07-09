@@ -11,6 +11,7 @@ import {
   LogOut,
   ChevronRight,
   Menu,
+  X,
 } from 'lucide-react';
 import { useSystemStore } from '../store/useSystemStore';
 import { useMapStore } from '../store/useMapStore';
@@ -86,7 +87,7 @@ const DashboardLayout: React.FC = () => {
       {/* Overlay for mobile when sidebar is open */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/50 z-40 md:hidden"
+          className="fixed inset-0 bg-slate-900/50 z-40"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
@@ -98,8 +99,15 @@ const DashboardLayout: React.FC = () => {
         role="navigation"
         aria-label="Control Center navigation"
       >
-        <div className="dash__sidebar-header">
-          <p className="dash__sidebar-title" style={{ whiteSpace: 'nowrap' }}>Control Center</p>
+        <div className="dash__sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <p className="dash__sidebar-title" style={{ whiteSpace: 'nowrap', margin: 0 }}>Control Center</p>
+          <button 
+            className="dash-menu-close"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Close Menu"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <nav className="dash__nav">
@@ -110,7 +118,10 @@ const DashboardLayout: React.FC = () => {
                 key={item.id}
                 id={`nav-${item.id}`}
                 className={`dash__nav-item${active ? ' dash__nav-item--active' : ''}`}
-                onClick={() => navigate(item.route)}
+                onClick={() => {
+                  navigate(item.route);
+                  setIsSidebarOpen(false);
+                }}
                 aria-current={active ? 'page' : undefined}
               >
                 <item.icon

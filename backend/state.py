@@ -29,6 +29,7 @@ class SimulationState:
         
         # Simulation Control
         self.sim_tick: int = 0
+        self.inference_sim_time: int = 0  # RL env's episodic time (resets each episode, unlike sim_tick)
         self.tick_interval_s: float = DEFAULT_TICK_INTERVAL_S
         self.is_sim_running: bool = True
         self.last_punctuality: float = 100.0

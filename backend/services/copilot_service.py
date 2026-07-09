@@ -229,17 +229,25 @@ def _compute_impact_minutes(state: SimulationState, train_id: str, rl_action: in
 
     if rl_action == 0:  # STOP
         delay = -2
-        if idx != -1 and idx + 1 < len(path):
-            next_edge = path[idx + 1]
-            trains_ahead = [s for s in state.train_states.values() if s.get("edge_id") == next_edge and s.get("train_id") != train_id]
-            if trains_ahead:
-                ahead_speed = trains_ahead[0].get("speed_kmh", 0)
-                if ahead_speed == 0:
-                    delay = -5  # Blocked by a stopped train
-                else:
-                    # Slower train ahead -> wait longer
-                    delay = -max(1, int(60 / max(ahead_speed, 10)))
-        return delay
+        if idx != -1:
+            # Impact on trains behind us
+            edges_behind = path[max(0, idx - 5):idx]
+            trains_behind = [s for s in state.train_states.values() if s.get("edge_id") in edges_behind and s.get("train_id") != train_id]
+            
+            # Additional delay penalty per train stuck behind us
+            delay -= len(trains_behind) * 3
+            
+            if idx + 1 < len(path):
+                next_edge = path[idx + 1]
+                trains_ahead = [s for s in state.train_states.values() if s.get("edge_id") == next_edge and s.get("train_id") != train_id]
+                if trains_ahead:
+                    ahead_speed = trains_ahead[0].get("speed_kmh", 0)
+                    if ahead_speed == 0:
+                        delay -= 3  # Blocked by a stopped train
+                    else:
+                        # Slower train ahead -> wait longer
+                        delay -= max(1, int(30 / max(ahead_speed, 10)))
+        return max(delay, -25)  # Cap at realistic max delay
 
     elif rl_action == 2:  # DIVERT
         saved = 3
@@ -258,6 +266,18 @@ def _compute_impact_minutes(state: SimulationState, train_id: str, rl_action: in
                     saved += 5 + int(speed_diff * 0.3)
                     
         return min(saved, 45) # Cap at realistic maximum
+
+    elif rl_action == 1:  # PROCEED / MAIN
+        saved = 2
+        if idx != -1:
+            # If we proceed, we save ourselves time, and any train queued behind us
+            edges_behind = path[max(0, idx - 5):idx]
+            trains_behind = [s for s in state.train_states.values() if s.get("edge_id") in edges_behind and s.get("train_id") != train_id]
+            
+            # Each train behind us is saved from being delayed further
+            saved += len(trains_behind) * 3
+            
+        return min(saved, 30) # Cap at realistic maximum
 
     return 0
 
@@ -518,7 +538,7 @@ async def simulate_trains_bg():
             expired = [c_id for c_id, c in list(DYNAMIC_CONSTRAINTS.items()) if c.get('expires_at', float('inf')) < now_ts]
             for c_id in expired:
                 del DYNAMIC_CONSTRAINTS[c_id]
-                _push_audit_log({
+                _push_audit_log(state, {
                     "t": _now_iso(),
                     "source": "SIMULATION_ENGINE",
                     "action": f"Constraint {c_id} automatically expired",
@@ -551,7 +571,7 @@ async def simulate_trains_bg():
                     "type": "MAINTENANCE_CLEARED",
                     "element_id": b_id,
                 }))
-                _push_audit_log({
+                _push_audit_log(state, {
                     "t": _now_iso(),
                     "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
                     "source": f"SIMULATION_ENGINE",
@@ -778,7 +798,7 @@ async def simulate_trains_bg():
                                         "operator"  : "System",
                                         "details"   : f"Simulation finished due to: {reason}",
                                     }
-                                    _push_audit_log(audit_entry)
+                                    _push_audit_log(state, audit_entry)
                                     asyncio.create_task(_broadcast_copilot({
                                         "type": "audit_log",
                                         "log": audit_entry
