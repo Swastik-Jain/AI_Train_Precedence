@@ -1,4 +1,5 @@
 import { apiUrl, wsUrl } from '../../lib/api';
+import { motion } from 'framer-motion';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
@@ -72,120 +73,38 @@ const STATION_META: Record<string, StMeta> = {
 // ─────────────────────────────────────────────────────────────────────────────
 const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, tickIntervalS, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
   const pos = getPos(train);
-  const [currentPos, setCurrentPos] = useState(pos);
-  const [transitionDuration, setTransitionDuration] = useState(tickIntervalS);
-  
-  // Update target when position changes, calculate speed-based duration
-  useEffect(() => {
-    if (!pos) return;
-    
-    // If this is the first render, just snap
-    if (!currentPos) {
-      setCurrentPos(pos);
-      return;
-    }
-    
-    // Calculate distance between current DOM target and new target
-    const dx = pos.x - currentPos.x;
-    const dy = pos.y - currentPos.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    
-    // Default visual speed: pixels per second
-    const EXPECTED_PX_PER_SEC = 40;
-    
-    // Standard duration is tickIntervalS. If the distance implies a crazy speed, 
-    // clamp it by making the duration speed-based.
-    const impliedSpeed = dist / tickIntervalS;
-    
-    let duration = tickIntervalS;
-    if (impliedSpeed > EXPECTED_PX_PER_SEC * 1.5) {
-       // It's jumping too fast across a stretched visual segment (e.g. slope).
-       // Make it take longer so visual speed is capped.
-       duration = dist / EXPECTED_PX_PER_SEC;
-    }
-    
-    // Prevent mid-flight retargeting from resetting to full duration if we are very close
-    if (dist < 5) {
-       duration = 0.1; // Quick snap for tiny adjustments
-    }
-    
-    setTransitionDuration(duration);
-    setCurrentPos(pos);
-  }, [pos?.x, pos?.y, tickIntervalS]);
-
-  if (!currentPos) return null;
+  if (!pos) return null;
 
   const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
-  const isUp = train.direction === "UP" || train.direction === -1;
-  const trainX = isUp ? currentPos.x : currentPos.x - bW;
+  const isUp = train.direction === "UP" || train.direction === -1 || train.direction === 1;
+  const trainX = isUp ? pos.x : pos.x - bW;
 
   return (
-    <g
-      onClick={(e) => { e.stopPropagation(); setSelectedTrain(train.train_id); }}
+    <motion.g
+      onClick={(e: any) => { e.stopPropagation(); setSelectedTrain(train.train_id); }}
       onMouseEnter={() => setHoveredTrain(train.train_id)}
       onMouseLeave={() => setHoveredTrain(null)}
-      style={{ 
-        cursor: 'pointer',
-        transform: `translate(${trainX}px, ${currentPos.y}px)`,
-        transition: `transform ${transitionDuration}s linear`
+      initial={false}
+      animate={{ x: trainX, y: pos.y }}
+      transition={{ 
+        x: { type: "tween", duration: tickIntervalS, ease: "linear" },
+        y: { type: "spring", stiffness: 90, damping: 15 } 
       }}
+      style={{ cursor: 'pointer' }}
     >
-      {/* Conflict flash ring */}
-      {isConflict && (
-        <rect
-          x={-4} y={-bH / 2 - 4}
-          width={bW + 8} height={bH + 8}
-          fill="none" stroke="#ef4444" strokeWidth={1}
-          strokeDasharray="3 2" rx={2}
-          className="sch-conflict-anim"
-        />
-      )}
-
-      {/* Committed ring */}
-      {isCommit && (
-        <rect
-          x={-5} y={-bH / 2 - 5}
-          width={bW + 10} height={bH + 10}
-          fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3}
-          className="sch-commit-anim"
-        />
-      )}
-
-      {/* Train badge */}
-      <rect
-        x={0} y={-bH / 2}
-        width={bW} height={bH}
-        fill={`${fill}22`}
-        stroke={fill}
-        strokeWidth={isSel ? 1.5 : 1}
-        rx={2}
-      />
-
-      {/* Train ID */}
-      <text x={bW / 2} y={4}
-        textAnchor="middle"
-        fill={fill}
-        className="sch-train-id"
-        opacity={isHover || isSel || isCommit ? 1 : 0.85}>
-        {train.train_id}
-      </text>
-
-      {/* Committed action tag */}
+      {isConflict && <rect x={-4} y={-bH / 2 - 4} width={bW + 8} height={bH + 8} fill="none" stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" rx={2} className="sch-conflict-anim" />}
+      {isCommit && <rect x={-5} y={-bH / 2 - 5} width={bW + 10} height={bH + 10} fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3} className="sch-commit-anim" />}
+      <rect x={0} y={-bH / 2} width={bW} height={bH} fill={`${fill}22`} stroke={fill} strokeWidth={isSel ? 1.5 : 1} rx={2} />
+      <text x={bW / 2} y={4} textAnchor="middle" fill={fill} className="sch-train-id" opacity={isHover || isSel || isCommit ? 1 : 0.85}>{train.train_id}</text>
       {isCommit && (
         <>
-          <rect
-            x={bW / 2 - 22} y={-bH / 2 - 15}
-            width={44} height={12}
-            fill="#22c55e" rx={2} />
-          <text x={bW / 2} y={-bH / 2 - 5}
-            textAnchor="middle" className="sch-commit-tag">
-            {actionLabel}
-          </text>
+          <rect x={bW / 2 - 22} y={-bH / 2 - 15} width={44} height={12} fill="#22c55e" rx={2} />
+          <text x={bW / 2} y={-bH / 2 - 5} textAnchor="middle" className="sch-commit-tag">{actionLabel}</text>
         </>
       )}
-    </g>
+    </motion.g>
   );
 };
 
@@ -261,27 +180,21 @@ export const KineticMap: React.FC = () => {
     const km = node.km || 0;
     if (!dynamicZones.length || !topology) return getSxForKm(km);
 
-    // 1. If it's a segment block, interpolate strictly within its physical SEG zone bounds
     if (node.type === 'MAIN_BLOCK' || node.type === 'GHAT_BLOCK') {
-      const seg = dynamicZones.find(z => z.type === 'SEG' && z.startKm !== undefined && z.endKm !== undefined && km > z.startKm && km < z.endKm) as SegZone | undefined;
+      const seg = dynamicZones.find(z => z.type === 'SEG' && z.startKm !== undefined && z.endKm !== undefined && km >= z.startKm && km <= z.endKm) as SegZone | undefined;
       if (seg && seg.startKm !== undefined && seg.endKm !== undefined) {
         const span = seg.endKm - seg.startKm;
         if (span === 0) return seg.x1;
-        const t = (km - seg.startKm) / span;
-        return seg.x1 + t * (seg.x2 - seg.x1);
+        return seg.x1 + ((km - seg.startKm) / span) * (seg.x2 - seg.x1);
       }
     }
 
-    // 2. If it's a station node, place it relative to the ST footprint
-    const stationTypes = [
-      'SWITCH', 'CROSSING_LOOP', 'TERMINUS', 'MAJOR_JUNCTION',
-      'STATION', 'ORIGIN', 'DESTINATION', 'PLATFORM', 'LOOP',
-    ];
+    const stationTypes = ['SWITCH', 'CROSSING_LOOP', 'TERMINUS', 'MAJOR_JUNCTION', 'STATION', 'ORIGIN', 'DESTINATION', 'PLATFORM', 'LOOP'];
     if (stationTypes.includes(node.type)) {
       const stZones = dynamicZones.filter(z => z.type === 'ST') as StationZone[];
       const stZone = stZones.find(z => {
          const meta = STATION_META[z.stId];
-         const zKm = meta ? meta.km : (topology.nodes.find(n => (n as any).stId === z.stId || n.id === z.stId)?.km ?? null);
+         const zKm = meta ? meta.km : (topology.nodes.find(n => ((n as any).stId || n.id) === z.stId)?.km ?? null);
          return zKm === km;
       });
 
@@ -290,11 +203,16 @@ export const KineticMap: React.FC = () => {
             const connectedEdges = topology.edges.filter(e => e.source === node.id || e.target === node.id);
             let connectsLeft = false;
             let connectsRight = false;
+            const thisStId = (node as any).stId;
+            
             for (const e of connectedEdges) {
               const otherId = e.source === node.id ? e.target : e.source;
               const otherNode = topology.nodes.find(n => n.id === otherId);
-              if (otherNode && (otherNode.km || 0) < km) connectsLeft = true;
-              if (otherNode && (otherNode.km || 0) > km) connectsRight = true;
+              if (!otherNode) continue;
+              if ((otherNode as any).stId !== thisStId) {
+                if (e.target === node.id) connectsLeft = true;
+                if (e.source === node.id) connectsRight = true;
+              }
             }
             if (connectsLeft && !connectsRight) return stZone.x1;
             if (connectsRight && !connectsLeft) return stZone.x2;
@@ -302,7 +220,6 @@ export const KineticMap: React.FC = () => {
          return (stZone.x1 + stZone.x2) / 2;
       }
     }
-
     return getSxForKm(km);
   };
 
@@ -415,106 +332,47 @@ export const KineticMap: React.FC = () => {
     if (!src || !tgt || !srcNode || !tgtNode) return null;
 
     const x = src.x + (tgt.x - src.x) * train.position_percentage;
+    let currentY = MAIN_Y;
 
-    // Check if it's a loop or platform
-    const isPlatform = srcNode.type === 'PLATFORM' || tgtNode.type === 'PLATFORM';
-    const isLoop = srcNode.type === 'LOOP' || tgtNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' || tgtNode.type === 'CROSSING_LOOP';
-
-    if (isPlatform || isLoop) {
-      const stNode = isPlatform ? (srcNode.type === 'PLATFORM' ? srcNode : tgtNode) : (srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' ? srcNode : tgtNode);
-      const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stNode.stId) as StationZone | undefined;
-      
-      if (stZone && stNode) {
-        const stCap = stZone.cap;
-        
-        let targetY = MAIN_Y;
-        if (isPlatform && stNode.platform_index !== undefined) {
-          targetY = trackY(stNode.platform_index, stCap);
-        } else if (isLoop && stNode.loop_index !== undefined) {
-          targetY = trackY(0, stCap) - (stNode.loop_index + 1) * TRACK_GAP;
-        }
-
-        // Fix early platform snap & missing slope traversal:
-        // If transitioning from a SWITCH (entry track) to a PLATFORM/LOOP, interpolate the Y coordinate
-        const otherNode = isPlatform ? (srcNode.type === 'PLATFORM' ? tgtNode : srcNode) : (srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP' ? tgtNode : srcNode);
-        
-        if (otherNode.type === 'SWITCH') {
-          const capAtSwitch = resolveEdgeCap(train.edge_id, src.x);
-          const startY = trackY(trainTrackAt(train, capAtSwitch), capAtSwitch);
-          
-          // Determine the X coordinates of the slope/curve region
-          const zIndex = dynamicZones.findIndex(z => z === stZone);
-          const prevZone = dynamicZones[zIndex - 1];
-          const nextZone = dynamicZones[zIndex + 1];
-          const meta = STATION_META[stZone.stId] || { loopLeft: 'inside', loopRight: 'inside' };
-          const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
-          const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
-
-          let curveStartX = 0;
-          let curveEndX = 0;
-          let curveStartY = 0;
-          let curveEndY = 0;
-
-          // Which side of the station is the switch on?
-          if (otherNode.km < stNode.km) {
-            // Left side entry
-            curveStartX = actualLoopLeft === 'segment' ? stZone.x1 - LOOP_OFF : stZone.x1;
-            curveEndX = curveStartX + LOOP_OFF;
-            curveStartY = startY;
-            curveEndY = targetY;
-          } else {
-            // Right side exit
-            curveEndX = actualLoopRight === 'segment' ? stZone.x2 + LOOP_OFF : stZone.x2;
-            curveStartX = curveEndX - LOOP_OFF;
-            curveStartY = startY;
-            curveEndY = targetY;
-          }
-
-          let currentY = targetY;
-          
-          // Find Y by treating the bezier as a smoothstep-like function of X
-          if (x >= curveStartX && x <= curveEndX) {
-             const tX = (x - curveStartX) / (curveEndX - curveStartX);
-             // A cubic bezier with C1=C2=center is mathematically exactly:
-             // y(t) = y0*(1 - 3t^2 + 2t^3) + y1*(3t^2 - 2t^3)
-             // But x(t) is also a cubic. For small angles, smoothstep(tX) is an almost perfect approximation of the geometric curve.
-             const smoothT = tX * tX * (3 - 2 * tX);
-             currentY = curveStartY + (curveEndY - curveStartY) * smoothT;
-          } else if (otherNode.km < stNode.km && x < curveStartX) {
-             currentY = curveStartY;
-          } else if (otherNode.km > stNode.km && x > curveEndX) {
-             currentY = curveStartY;
-          }
-
-          return { x, y: currentY };
-        }
-        
-        return { x, y: targetY };
-      }
+    if (srcNode.type === 'PLATFORM' && srcNode.platform_index !== undefined) {
+        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (srcNode as any).stId) as StationZone | undefined;
+        currentY = trackY(srcNode.platform_index, stZone?.cap || 1);
+    } else if ((srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP') && srcNode.loop_index !== undefined) {
+        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (srcNode as any).stId) as StationZone | undefined;
+        currentY = trackY(0, stZone?.cap || 1) - (srcNode.loop_index + 1) * TRACK_GAP;
+    } else if (tgtNode.type === 'PLATFORM' && tgtNode.platform_index !== undefined) {
+        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (tgtNode as any).stId) as StationZone | undefined;
+        currentY = trackY(tgtNode.platform_index, stZone?.cap || 1);
+    } else if ((tgtNode.type === 'LOOP' || tgtNode.type === 'CROSSING_LOOP') && tgtNode.loop_index !== undefined) {
+        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (tgtNode as any).stId) as StationZone | undefined;
+        currentY = trackY(0, stZone?.cap || 1) - (tgtNode.loop_index + 1) * TRACK_GAP;
+    } else {
+        const cap = resolveEdgeCap(train.edge_id, x);
+        const trackIdx = trainTrackAt(train, cap);
+        currentY = trackY(trackIdx, cap);
     }
 
-    // Use source-node-aware cap so the badge always sits on a drawn track line.
-    const cap = resolveEdgeCap(train.edge_id, x);
-    const trackIdx = trainTrackAt(train, cap);
-    const y = trackY(trackIdx, cap);
-
-    return { x, y };
+    return { x, y: currentY };
   };
 
   // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
   const trainTrackAt = (train: TrainState, cap: number): number => {
     if (cap <= 1) return 0;
-    const isUp = train.direction === "UP";
+    const isUp = train.direction === "UP" || train.direction === 1 || train.direction === -1; 
     
-    let hash = 0;
-    for (let i = 0; i < train.train_id.length; i++) hash += train.train_id.charCodeAt(i);
+    const peers = trainStates
+      .filter(t => t.edge_id === train.edge_id && t.direction === train.direction)
+      .sort((a, b) => a.train_id.localeCompare(b.train_id));
+      
+    const myIndex = peers.findIndex(t => t.train_id === train.train_id);
+    const order = Math.max(0, myIndex);
     
     if (isUp) {
       const available = Math.ceil(cap / 2);
-      return hash % available;
+      return order % available;
     } else {
       const available = Math.floor(cap / 2);
-      return (cap - available) + (hash % available);
+      return (cap - available) + (order % available);
     }
   };
 
@@ -615,79 +473,71 @@ export const KineticMap: React.FC = () => {
     );
   };
 
-  // ── Render: SWITCH ──────────────────────────────────────────────────────────
+  // ── Render: SWITCH (Bezier Throat) ──────────────────────────────────────────
   const renderSwitch = (z: SwitchZone, key: number) => {
     const { fromCap, toCap, x1, x2 } = z;
     const elems: React.ReactNode[] = [];
-    const converge = fromCap >= toCap;
+    const cx = (x1 + x2) / 2;
 
-    if (converge) {
-      // Convergence: iterate from-tracks
+    // Helper: Connects outer tracks gracefully to the nearest incoming track without crossing lines
+    const getClosestSource = (destIdx: number, destTotal: number, srcTotal: number) => {
+        return Math.min(Math.max(0, destIdx - Math.floor((destTotal - srcTotal) / 2)), srcTotal - 1);
+    };
+
+    if (fromCap >= toCap) {
+      // Convergence (e.g., 4 tracks narrowing to 3)
       for (let i = 0; i < fromCap; i++) {
-        const j = mapIdx(fromCap, toCap, i);
+        const j = getClosestSource(i, fromCap, toCap);
         elems.push(
-          <line key={i}
-            x1={x1} y1={trackY(i, fromCap)}
-            x2={x2} y2={trackY(j, toCap)}
-            stroke="#484848" strokeWidth={2} strokeLinecap="round"
-          />
+          <path key={`conv-${i}`}
+            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
+            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
         );
       }
-      // Merge markers at x2
+      
+      // Draw merge markers
       const seen = new Set<number>();
       for (let i = 0; i < fromCap; i++) {
-        const j = mapIdx(fromCap, toCap, i);
-        const mergeCount = Array.from({ length: fromCap }, (_, k) => k)
-          .filter(k => mapIdx(fromCap, toCap, k) === j).length;
+        const j = getClosestSource(i, fromCap, toCap);
+        const mergeCount = Array.from({ length: fromCap }, (_, k) => k).filter(k => getClosestSource(k, fromCap, toCap) === j).length;
         if (mergeCount > 1 && !seen.has(j)) {
           seen.add(j);
-          const sy = trackY(j, toCap);
-          elems.push(
-            <rect key={`swm${j}`} x={x2-4} y={sy-4} width={8} height={8}
-              fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />
-          );
+          elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
         }
       }
+      
     } else {
-      // Divergence: iterate to-tracks
+      // Divergence (e.g., 2 tracks expanding to 4)
       for (let j = 0; j < toCap; j++) {
-        const i = mapIdx(toCap, fromCap, j);
+        const i = getClosestSource(j, toCap, fromCap);
         elems.push(
-          <line key={j}
-            x1={x1} y1={trackY(i, fromCap)}
-            x2={x2} y2={trackY(j, toCap)}
-            stroke="#484848" strokeWidth={2} strokeLinecap="round"
-          />
+          <path key={`div-${j}`}
+            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
+            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
         );
       }
-      // Diverge markers at x1
+      
+      // Draw diverge markers
       const seen = new Set<number>();
       for (let j = 0; j < toCap; j++) {
-        const i = mapIdx(toCap, fromCap, j);
-        const divCount = Array.from({ length: toCap }, (_, k) => k)
-          .filter(k => mapIdx(toCap, fromCap, k) === i).length;
+        const i = getClosestSource(j, toCap, fromCap);
+        const divCount = Array.from({ length: toCap }, (_, k) => k).filter(k => getClosestSource(k, toCap, fromCap) === i).length;
         if (divCount > 1 && !seen.has(i)) {
           seen.add(i);
-          const sy = trackY(i, fromCap);
-          elems.push(
-            <rect key={`swd${i}`} x={x1-4} y={sy-4} width={8} height={8}
-              fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />
-          );
+          elems.push(<rect key={`swd${i}`} x={x1-4} y={trackY(i, fromCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
         }
       }
     }
 
     return (
-      <g 
-        key={`sw-${key}`}
-        style={{ cursor: 'pointer' }}
-        onClick={(e) => { e.stopPropagation(); setSelectedZone(z); setSelectedTrain(null); }}
-      >
+      <g key={`sw-${key}`} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setSelectedZone(z); setSelectedTrain(null); }}>
+        {/* Invisible hit-box for clicking the zone */}
         <rect x={z.x1} y={MAIN_Y - 40} width={Math.max(1, z.x2 - z.x1)} height={80} fill="transparent" />
         {elems}
       </g>
     );
   };
+
 
   // ── Render: STATION ─────────────────────────────────────────────────────────
   const renderStation = (z: StationZone, zKey: number, allZones: Zone[]) => {

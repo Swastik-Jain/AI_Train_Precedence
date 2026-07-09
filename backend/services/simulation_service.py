@@ -127,8 +127,12 @@ def start_inference(state: SimulationState) -> Dict[str, Any]:
         schedule=formatted_schedule
     )
     state.inference_obs     = env.reset()
+    from services.maintenance_service import sync_blocks_to_rl_env
+    sync_blocks_to_rl_env(state)
+    state.inference_obs     = np.array(env.env_method("_get_observation"))
     state.inference_actions = None
     state.sim_tick           = 0
+    state.inference_sim_time = 0   # reset episodic clock alongside RL env
     state.inference_active   = True
 
     print(f"[ORBIT] 🚀 Inference started. {len(state.train_states)} trains seeded from OR schedule.")
@@ -183,7 +187,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
             expired = [c_id for c_id, c in list(state.dynamic_constraints.items()) if c.get('expires_at', float('inf')) < now_ts]
             for c_id in expired:
                 del state.dynamic_constraints[c_id]
-                _push_audit_log({
+                _push_audit_log(state, {
                     "t": system_service._now_iso(),
                     "source": "SIMULATION_ENGINE",
                     "action": f"Constraint {c_id} automatically expired",
@@ -193,10 +197,11 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                 })
             
             # Prune Finished trains to prevent unbounded state growth
-            finished_trains = [t_id for t_id, live in state.train_states.items() if live.get("status") == "Finished"]
-            for t_id in finished_trains:
-                state.train_states.pop(t_id, None)
-                state.fleet_registry.pop(t_id, None)
+            # (Disabled so that dashboard_service can continue to count them for punctuality)
+            # finished_trains = [t_id for t_id, live in state.train_states.items() if live.get("status") == "Finished"]
+            # for t_id in finished_trains:
+            #     state.train_states.pop(t_id, None)
+            #     state.fleet_registry.pop(t_id, None)
             
             # Prune expired maintenance blocks
             expired_blocks = []
@@ -216,7 +221,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                     "type": "MAINTENANCE_CLEARED",
                     "element_id": b_id,
                 }))
-                _push_audit_log({
+                _push_audit_log(state, {
                     "t": system_service._now_iso(),
                     "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
                     "source": f"SIMULATION_ENGINE",
@@ -229,7 +234,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
 
             # If any blocks were expired, re-sync the RL env track_map
             if expired_blocks:
-                _sync_blocks_to_rl_env()
+                _sync_blocks_to_rl_env(state)
 
             if state.system_lockdown:
                 for t_id, t_state in state.train_states.items():
@@ -247,6 +252,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             # ── Get observation and predict ────────────────────────
                             if state.inference_obs is None:
                                 state.inference_obs = env.reset()
+                                _sync_blocks_to_rl_env(state)
+                                state.inference_obs = np.array(env.env_method("_get_observation"))
 
                             action_masks = np.array(env.env_method("get_action_mask"))
                             action, _ = model.predict(
@@ -259,10 +266,22 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             try:
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
-                                    action_tensor = torch.tensor(act_list).to(model.device)
-                                    log_probs = dist.log_prob(action_tensor)
-                                    probs = torch.exp(log_probs).cpu().numpy()
-                                state.inference_action_probs = list(probs)
+                                    probs_list = []
+                                    if hasattr(dist, "distribution") and isinstance(dist.distribution, list):
+                                        # MultiDiscrete case
+                                        for d, a in zip(dist.distribution, act_list):
+                                            p = torch.exp(d.log_prob(torch.tensor(a).to(model.device))).item()
+                                            probs_list.append(p)
+                                    else:
+                                        # Discrete or fallback
+                                        action_tensor = torch.tensor(act_list).to(model.device)
+                                        log_probs = dist.log_prob(action_tensor)
+                                        p_arr = torch.exp(log_probs).cpu().numpy()
+                                        if p_arr.ndim == 0:
+                                            probs_list = [p_arr.item()] * len(act_list)
+                                        else:
+                                            probs_list = list(p_arr)
+                                state.inference_action_probs = probs_list
                             except Exception as e:
                                 print(f"[ORBIT] ⚠️  Inference probability extraction error: {e}")
                                 state.inference_action_probs = [0.85] * len(act_list)
@@ -322,6 +341,11 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             state.inference_obs = step_result[0]
                             terminated = step_result[2]
                             infos = step_result[3] if len(step_result) > 3 else [{}]
+                            # ── Capture RL env episodic sim_time (resets each episode) ──
+                            # state.sim_tick is a global wall-clock that NEVER resets.
+                            # Deadlines in fleet_registry are relative to episode start (0).
+                            # We MUST use the RL env's own sim_time for correct comparisons.
+                            state.inference_sim_time = getattr(inner_env, 'sim_time', state.sim_tick)
 
                             # ── Read RL env train positions back into state.train_states ─
                             # The RL env manages its own complete, valid train state.
@@ -392,7 +416,10 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 live['position_percentage'] = pct
                                 if finished:
                                     live['status'] = 'Finished'
-                                    live['finish_time'] = state.sim_tick
+                                    if 'finish_step' not in live or live['finish_step'] is None:
+                                        live['finish_step'] = rl_train.get('finish_step')
+                                    if 'finish_time' not in live:
+                                        live['finish_time'] = state.sim_tick
                                 elif node_id in (0, 998):
                                     live['status'] = 'Scheduled'
                                 elif rl_train.get('banker_wait', 0) > 0:
@@ -418,13 +445,15 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                         "operator"  : "System",
                                         "details"   : f"Simulation finished due to: {reason}",
                                     }
-                                    _push_audit_log(audit_entry)
+                                    _push_audit_log(state, audit_entry)
                                     asyncio.create_task(broadcast_copilot({
                                         "type": "audit_log",
                                         "log": audit_entry
                                     }))
 
                                 state.inference_obs = env.reset()
+                                _sync_blocks_to_rl_env(state)
+                                state.inference_obs = np.array(env.env_method("_get_observation"))
                                 state.inference_raw_actions = None
                             
                                 # Let this tick finish processing normally to prevent the fallback physics 
@@ -439,7 +468,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                         print(f"[ORBIT] ⚠️  Inference sync error: {e}")
 
                         state.consecutive_inference_errors += 1
-                        _push_audit_log({
+                        _push_audit_log(state, {
                             "t": system_service._now_iso(),
                             "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
                             "source": "INFERENCE_ENGINE",
@@ -452,7 +481,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                         if state.consecutive_inference_errors >= 5:
                             state.inference_active = False
                             state.consecutive_inference_errors = 0
-                            _push_audit_log({
+                            _push_audit_log(state, {
                                 "t": system_service._now_iso(),
                                 "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
                                 "source": "INFERENCE_ENGINE",

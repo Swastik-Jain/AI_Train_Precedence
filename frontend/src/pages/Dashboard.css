@@ -289,7 +289,19 @@
   color: var(--c-primary);
 }
 
+.dash-menu-close {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--c-on-surface);
+  padding: 4px;
+}
+
 @media (max-width: 900px) {
+  .dash-menu-close {
+    display: block;
+  }
   .dash__sidebar {
     position: fixed;
     transform: translateX(-100%);
@@ -305,5 +317,12 @@
   }
   .dash-menu-toggle {
     display: block;
+  }
+  .dash-middle-section {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .dash-middle-section > div:first-child {
+    min-height: 60vh;
   }
 }

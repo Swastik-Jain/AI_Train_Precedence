@@ -1,7 +1,6 @@
 import random
 from typing import Dict, Any
 import config
-from ai.config import SECTION_LENGTH_KM
 from services import system_service
 from services import maintenance_service
 
@@ -28,7 +27,8 @@ def get_telemetry(state):
         if dir_val is None:
             dir_val = state.fleet_registry.get(t_id, {}).get("direction", "DOWN")
             
-        if dir_val == "UP" or dir_val == 1:
+        dir_str = "DOWN" if dir_val in (1, "DOWN") else "UP"
+        if dir_str == "UP":
             incoming_trains += 1
         else:
             outgoing_trains += 1
@@ -36,61 +36,105 @@ def get_telemetry(state):
         if t_state.get("status") in ("Blocked", "Halted"):
             halted_trains += 1
 
-    DELAY_THRESHOLD = 10.0
+    # ── Punctuality Calculation ──────────────────────────────────────────────
+    # The RL environment (train_env.py) tracks time in sim_time (steps since
+    # episode start). state.sim_tick mirrors this — both start at 0 and
+    # increment by 1 each simulation step.
+    # Deadlines are in the same sim_time unit (set in ai/config.py).
+    #
+    # For FINISHED trains: compare finish_step vs deadline directly.
+    # For RUNNING trains:  estimate whether the train can make its deadline
+    #                      by looking at progress (edge position within the
+    #                      84-node corridor) scaled to remaining time.
+    # ────────────────────────────────────────────────────────────────────────
+    DELAY_THRESHOLD = 15.0          # ticks of tolerance (generous buffer)
     on_time_trains = 0
     evaluated_trains = 0
 
     for t_id, t_state in state.train_states.items():
-        if t_state.get("status") == "Scheduled":
+        status = t_state.get("status", "Scheduled")
+        if status == "Scheduled":
             continue
-            
+
         reg = state.fleet_registry.get(t_id, {})
-        deadline = reg.get("deadline", 120)
+        deadline   = reg.get("deadline", 9999)   # sim-ticks, same unit as sim_tick
         start_time = reg.get("start_time", 0)
 
         delay = 0.0
-        if t_state.get("status") == "Finished":
-            t_actual = t_state.get("finish_time", state.sim_tick)
-            delay = max(0.0, t_actual - deadline)
+
+        if status == "Finished" or t_state.get("finished", False):
+            # --- Finished trains: use locked-in finish tick ---
+            t_actual = t_state.get("finish_step")
+            if t_actual is None:
+                t_actual = t_state.get("finish_time")
+            if t_actual is None:
+                # Truly unknown — assume on-time to avoid penalising prematurely
+                t_actual = deadline
+            delay = max(0.0, float(t_actual) - float(deadline))
+
         else:
-            curr_edge = t_state.get("edge_id")
-            if curr_edge and curr_edge.startswith("edge-"):
-                try:
+            # --- Running trains: progress-based estimation ---
+            # Nodes 0..83 → edge-{n}-{n+1}, node 83 → edge-83-999
+            # Map current edge to a node index [0..83]
+            curr_edge = t_state.get("edge_id", "")
+            node_progress = None
+            try:
+                if curr_edge and curr_edge.startswith("edge-"):
                     parts = curr_edge.split("-")
                     if len(parts) >= 3:
-                        source_node = int(parts[1])
-                        target_node = int(parts[2])
-                        source_km = state.raw_track_map.get(source_node, {}).get("km", 0.0)
-                        target_km = state.raw_track_map.get(target_node, {}).get("km", 0.0)
+                        src_node = int(parts[1])
                         edge_pct = t_state.get("position_percentage", 0.0)
-                        current_km = source_km + edge_pct * (target_km - source_km)
-                        
-                        direction = reg.get("direction", "DOWN")
-                        if direction == "DOWN":
-                            dist_remaining_km = max(0.0, SECTION_LENGTH_KM - current_km)
-                        else:
-                            dist_remaining_km = max(0.0, current_km)
-                        
-                        train_sim_time = state.sim_tick
-                        time_remaining_budget = deadline - train_sim_time
-                        
-                        if dist_remaining_km <= 0:
-                            delay = 0.0
-                        elif time_remaining_budget <= 0:
-                            # Already late, estimate 1 min per km (60 km/h) for remaining
-                            delay = -time_remaining_budget + dist_remaining_km * 1.0
-                        else:
-                            # Assuming avg speed 60km/h (1 min per km) for remainder
-                            expected_time_to_finish = dist_remaining_km * 1.0
-                            estimated_finish = train_sim_time + expected_time_to_finish
-                            delay = max(0.0, estimated_finish - deadline)
-                except Exception as e:
-                    print(f"[WARN] Failed to calculate delay for train {t_id}: {e}")
+                        # Node index along 84-node corridor (0..83)
+                        node_progress = src_node + edge_pct
+            except Exception:
+                pass
+
+            if node_progress is not None:
+                direction_raw = reg.get("direction", t_state.get("direction", "DOWN"))
+                direction_str = "DOWN" if direction_raw in (1, "DOWN") else "UP"
+
+                # Nodes go 0→83 for DOWN, 0→83 means reverse for UP (starts at 83)
+                # Fraction of journey COMPLETED (0.0=just started, 1.0=done)
+                TOTAL_NODES = 84.0
+                if direction_str == "DOWN":
+                    frac_done = node_progress / TOTAL_NODES
+                else:
+                    # UP trains travel from node 83→0 through the corridor
+                    # Their position comes in as source node of the edge they
+                    # are currently on.  A freshly-started UP train is near 83.
+                    frac_done = (TOTAL_NODES - node_progress) / TOTAL_NODES
+
+                frac_done = max(0.0, min(frac_done, 1.0))
+                frac_remaining = 1.0 - frac_done
+
+                # Time elapsed since train started, and remaining budget
+                # Use inference_sim_time (episodic, resets to 0 each episode)
+                # NOT sim_tick (global wall clock that never resets).
+                ep_time        = getattr(state, 'inference_sim_time', state.sim_tick)
+                elapsed        = ep_time - start_time
+                total_budget   = deadline - start_time          # ticks allocated
+                time_remaining = deadline - ep_time
+
+                if frac_done < 0.01:
+                    # Train just spawned — give it the benefit of the doubt
                     delay = 0.0
+                elif time_remaining <= 0:
+                    # Already past deadline and still running
+                    delay = float(-time_remaining) + frac_remaining * (total_budget * 0.5)
+                elif elapsed > 0 and frac_done > 0:
+                    # Extrapolate: at current pace, when will train finish?
+                    ticks_per_frac   = elapsed / frac_done
+                    estimated_finish = ep_time + (frac_remaining * ticks_per_frac)
+                    delay = max(0.0, estimated_finish - deadline)
+                else:
+                    delay = 0.0
+            else:
+                # Edge info unavailable — assume on-time
+                delay = 0.0
 
         if delay <= DELAY_THRESHOLD:
             on_time_trains += 1
-            
+
         evaluated_trains += 1
 
     if evaluated_trains > 0:

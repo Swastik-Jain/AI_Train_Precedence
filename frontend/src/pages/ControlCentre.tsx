@@ -349,21 +349,27 @@ const ControlCentre: React.FC = () => {
                                     onChange={e => {
                                         const val = parseInt(e.target.value);
                                         setSelectedDuration(val);
-                                    }}
-                                />
-                                <button 
-                                    className="px-4 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1 text-on-surface"
-                                    onClick={() => {
-                                        if (delayTrainId && selectedDuration > 0) {
-                                            setLatencies(prev => ({ ...prev, [delayTrainId]: selectedDuration }));
-                                        } else if (delayTrainId && selectedDuration === 0) {
+                                        if (delayTrainId && val > 0) {
+                                            setLatencies(prev => ({ ...prev, [delayTrainId]: val }));
+                                        } else if (delayTrainId && val === 0) {
                                             setLatencies(prev => { const n = {...prev}; delete n[delayTrainId]; return n; });
                                         }
                                     }}
-                                >
-                                    <span className="material-symbols-outlined text-[16px]">add</span> Add
-                                </button>
+                                />
                             </div>
+                            
+                            {Object.keys(latencies).length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {Object.entries(latencies).map(([tid, dur]) => (
+                                        <div key={tid} className="text-[10px] bg-surface-container pl-2 pr-1 py-0.5 rounded-full flex items-center gap-1 border border-outline-variant/10">
+                                            <span><span className="font-mono font-bold text-violet-600">{tid}</span>: {dur}m</span>
+                                            <button onClick={() => setLatencies(prev => { const n = {...prev}; delete n[tid]; return n; })} className="text-slate-400 hover:text-rose-500 flex items-center">
+                                                <span className="material-symbols-outlined text-[12px]">close</span>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Force Action */}
@@ -386,18 +392,15 @@ const ControlCentre: React.FC = () => {
                                     </select>
                                     <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">expand_more</span>
                                 </div>
-                                <button className="px-4 py-2 bg-surface-container border border-outline-variant/20 rounded-md text-sm font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1 text-on-surface">
-                                    <span className="material-symbols-outlined text-[16px]">add</span> Add
-                                </button>
                             </div>
                             
                             {Object.keys(forcedActions).length > 0 && (
-                                <div className="flex flex-col gap-2 mt-3">
+                                <div className="flex flex-wrap gap-1 mt-2">
                                     {Object.entries(forcedActions).map(([tid, act]) => (
-                                        <div key={tid} className="text-xs bg-surface-container px-3 py-2 rounded-md flex items-center justify-between border border-outline-variant/10">
+                                        <div key={tid} className="text-[10px] bg-surface-container pl-2 pr-1 py-0.5 rounded-full flex items-center gap-1 border border-outline-variant/10">
                                             <span><span className="font-mono font-bold text-violet-600">{tid}</span>: {['HOLD','MAIN','DIVERT'][act]}</span>
-                                            <button onClick={() => setForcedActions(prev => { const n = {...prev}; delete n[tid]; return n; })} className="text-slate-400 hover:text-rose-500">
-                                                <span className="material-symbols-outlined text-[16px]">close</span>
+                                            <button onClick={() => setForcedActions(prev => { const n = {...prev}; delete n[tid]; return n; })} className="text-slate-400 hover:text-rose-500 flex items-center">
+                                                <span className="material-symbols-outlined text-[12px]">close</span>
                                             </button>
                                         </div>
                                     ))}
