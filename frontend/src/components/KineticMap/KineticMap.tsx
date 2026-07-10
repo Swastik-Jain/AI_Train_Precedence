@@ -334,18 +334,40 @@ export const KineticMap: React.FC = () => {
     const x = src.x + (tgt.x - src.x) * train.position_percentage;
     let currentY = MAIN_Y;
 
-    if (srcNode.type === 'PLATFORM' && srcNode.platform_index !== undefined) {
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (srcNode as any).stId) as StationZone | undefined;
-        currentY = trackY(srcNode.platform_index, stZone?.cap || 1);
-    } else if ((srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP') && srcNode.loop_index !== undefined) {
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (srcNode as any).stId) as StationZone | undefined;
-        currentY = trackY(0, stZone?.cap || 1) - (srcNode.loop_index + 1) * TRACK_GAP;
-    } else if (tgtNode.type === 'PLATFORM' && tgtNode.platform_index !== undefined) {
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (tgtNode as any).stId) as StationZone | undefined;
-        currentY = trackY(tgtNode.platform_index, stZone?.cap || 1);
-    } else if ((tgtNode.type === 'LOOP' || tgtNode.type === 'CROSSING_LOOP') && tgtNode.loop_index !== undefined) {
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === (tgtNode as any).stId) as StationZone | undefined;
-        currentY = trackY(0, stZone?.cap || 1) - (tgtNode.loop_index + 1) * TRACK_GAP;
+    // Helper to dynamically assign node IDs to visual tracks (top to bottom)
+    const getStationNodeY = (node: Node) => {
+        const stId = (node as any).stId;
+        if (!stId) return null;
+        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stId) as StationZone | undefined;
+        if (!stZone) return null;
+        
+        const meta = STATION_META[stId] || { loops: 0 };
+        // Sort all platform/loop nodes inside this station by ID
+        const pNodes = topology.nodes
+            .filter(n => ((n as any).stId === stId) && ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(n.type))
+            .sort((a, b) => parseInt(a.id) - parseInt(b.id));
+            
+        const idx = pNodes.findIndex(n => n.id === node.id);
+        if (idx === -1) return null;
+
+        const cap = stZone.cap;
+        const loops = meta.loops;
+        const availableYs: number[] = [];
+        const topTrackY = trackY(0, cap);
+        
+        // Map Y coordinates from top (Loops) to bottom (Mainlines)
+        for (let l = loops - 1; l >= 0; l--) availableYs.push(topTrackY - (l + 1) * TRACK_GAP);
+        for (let i = 0; i < cap; i++) availableYs.push(trackY(i, cap));
+        
+        return availableYs[idx % availableYs.length];
+    };
+
+    const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
+
+    if (isStNode(srcNode.type)) {
+        currentY = getStationNodeY(srcNode) ?? MAIN_Y;
+    } else if (isStNode(tgtNode.type)) {
+        currentY = getStationNodeY(tgtNode) ?? MAIN_Y;
     } else {
         const cap = resolveEdgeCap(train.edge_id, x);
         const trackIdx = trainTrackAt(train, cap);
@@ -563,10 +585,12 @@ export const KineticMap: React.FC = () => {
       const p = getPos(t);
       return p !== null && p.x >= x1 && p.x <= x2;
     });
-    const trackOccupancy = new Map<number, TrainState>();
+    
+    // Map train occupancy to precise physical Y coordinates instead of hashed tracks
+    const trackOccupancyByY = new Map<number, TrainState>();
     stTrains.forEach(t => {
-      const ti = trainTrackAt(t, cap);
-      if (!trackOccupancy.has(ti)) trackOccupancy.set(ti, t);
+      const p = getPos(t);
+      if (p) trackOccupancyByY.set(Math.round(p.y), t);
     });
 
     const elems: React.ReactNode[] = [];
@@ -656,8 +680,9 @@ export const KineticMap: React.FC = () => {
     // 4) Individual platform markers (small rects above each main track)
     for (let i = 0; i < cap; i++) {
       const y = trackY(i, cap);
-      const occ = trackOccupancy.get(i);
-      const occTrain = occ;
+      // Fetch occupancy physically by Y coordinate
+      const occTrain = trackOccupancyByY.get(Math.round(y)); 
+      
       const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
       const isHalted   = occTrain?.status === 'Halted';
       const pfFill   = !occTrain ? 'rgba(35,38,45,0.6)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
@@ -665,16 +690,8 @@ export const KineticMap: React.FC = () => {
 
       elems.push(
         <g key={`pf${i}`}>
-          <rect
-            x={cx - PF_W / 2} y={y - PF_H - 2}
-            width={PF_W} height={PF_H}
-            fill={pfFill} stroke={pfStroke} strokeWidth={1} rx={1}
-          />
-          <text x={cx} y={y - PF_H / 2 + 2}
-            textAnchor="middle" className="sch-pf-label"
-            fill={!occTrain ? '#555' : pfStroke}>
-            PF{i + 1}
-          </text>
+          <rect x={cx - PF_W / 2} y={y - PF_H - 2} width={PF_W} height={PF_H} fill={pfFill} stroke={pfStroke} strokeWidth={1} rx={1} />
+          <text x={cx} y={y - PF_H / 2 + 2} textAnchor="middle" className="sch-pf-label" fill={!occTrain ? '#555' : pfStroke}>PF{i + 1}</text>
         </g>
       );
     }
@@ -683,15 +700,18 @@ export const KineticMap: React.FC = () => {
     const lpCx = cx; // Perfectly align with PF markers in the visually expanded box
     for (let l = 0; l < meta.loops; l++) {
       const sidY = topTrackY - (l + 1) * TRACK_GAP;
+      // Fetch occupancy physically by Y coordinate
+      const occTrain = trackOccupancyByY.get(Math.round(sidY));
+
+      const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
+      const isHalted   = occTrain?.status === 'Halted';
+      const pfFill   = !occTrain ? 'rgba(35,38,45,0.6)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
+      const pfStroke = !occTrain ? '#333' : isConflict ? '#ef4444' : isHalted ? '#f59e0b' : '#22c55e';
+
       elems.push(
         <g key={`lpf${l}`}>
-          <rect x={lpCx - PF_W / 2} y={sidY - PF_H - 2}
-            width={PF_W} height={PF_H}
-            fill="rgba(35,38,45,0.6)" stroke="#333" strokeWidth={1} rx={1} />
-          <text x={lpCx} y={sidY - PF_H / 2 + 2}
-            textAnchor="middle" className="sch-pf-label" fill="#555">
-            LP{l + 1}
-          </text>
+          <rect x={lpCx - PF_W / 2} y={sidY - PF_H - 2} width={PF_W} height={PF_H} fill={pfFill} stroke={pfStroke} strokeWidth={1} rx={1} />
+          <text x={lpCx} y={sidY - PF_H / 2 + 2} textAnchor="middle" className="sch-pf-label" fill={!occTrain ? '#555' : pfStroke}>LP{l + 1}</text>
         </g>
       );
     }
