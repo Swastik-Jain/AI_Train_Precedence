@@ -1,4 +1,4 @@
-import { apiUrl, wsUrl } from '../lib/api';
+import { apiUrl } from '../lib/api';
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './FleetStatus.css';
@@ -67,9 +67,8 @@ const fadeUp = {
 interface AddTrainModalProps { onClose: () => void; onAdded: () => void; }
 const AddTrainModal: React.FC<AddTrainModalProps> = ({ onClose, onAdded }) => {
   const [form, setForm] = useState({
-    train_id  : '',
+    numeric_id: '',
     train_type: 'Express',
-    max_speed : 110,
     start_time: 0,
     deadline  : 120,
     direction : 1,
@@ -79,13 +78,51 @@ const AddTrainModal: React.FC<AddTrainModalProps> = ({ onClose, onAdded }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.train_id.trim()) { setError('Train ID is required'); return; }
+    if (!form.numeric_id.trim()) { setError('Train numeric ID is required'); return; }
     setLoading(true); setError(null);
+    
+    const getTrainPrefix = (type: string) => {
+      switch (type) {
+        case 'Vande Bharat': return 'VB';
+        case 'Rajdhani': return 'RJ';
+        case 'Superfast': return 'SF';
+        case 'Express': return 'EX';
+        case 'Local': return 'LC';
+        case 'Suburban': return 'SB';
+        case 'Passenger': return 'PS';
+        case 'Freight (WAG-9)': return 'FR';
+        default: return 'TR';
+      }
+    };
+    
+    const getTrainSpeed = (type: string) => {
+      switch (type) {
+        case 'Vande Bharat': return 160;
+        case 'Rajdhani': return 130;
+        case 'Superfast': return 110;
+        case 'Express': return 100;
+        case 'Local': return 80;
+        case 'Suburban': return 80;
+        case 'Passenger': return 60;
+        case 'Freight (WAG-9)': return 75;
+        default: return 100;
+      }
+    };
+
+    const payload = {
+      train_id: `${getTrainPrefix(form.train_type)}-${form.numeric_id}`,
+      train_type: form.train_type,
+      max_speed: getTrainSpeed(form.train_type),
+      start_time: form.start_time,
+      deadline: form.deadline,
+      direction: form.direction,
+    };
+
     try {
       const res = await fetch(apiUrl('/api/v1/fleet'), {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify(form),
+        body   : JSON.stringify(payload),
       });
       if (!res.ok) {
         const body = await res.json();
@@ -114,9 +151,9 @@ const AddTrainModal: React.FC<AddTrainModalProps> = ({ onClose, onAdded }) => {
 
         <form onSubmit={handleSubmit} className="fs-modal-form">
           <div className="fs-form-row">
-            <label>Train ID <span className="fs-required">*</span></label>
-            <input className="fs-input" placeholder="e.g. VB-202" value={form.train_id}
-              onChange={e => setForm(f => ({ ...f, train_id: e.target.value }))} />
+            <label>Train Numeric ID <span className="fs-required">*</span></label>
+            <input className="fs-input" type="number" placeholder="e.g. 202" value={form.numeric_id}
+              onChange={e => setForm(f => ({ ...f, numeric_id: e.target.value }))} />
           </div>
 
           <div className="fs-form-row">
@@ -128,12 +165,7 @@ const AddTrainModal: React.FC<AddTrainModalProps> = ({ onClose, onAdded }) => {
           </div>
 
           <div className="fs-form-grid">
-            <div className="fs-form-row">
-              <label>Max Speed (km/h)</label>
-              <input className="fs-input" type="number" min={30} max={200} value={form.max_speed}
-                onChange={e => setForm(f => ({ ...f, max_speed: +e.target.value }))} />
-            </div>
-            <div className="fs-form-row">
+            <div className="fs-form-row" style={{ gridColumn: 'span 2' }}>
               <label>Direction</label>
               <select className="fs-input" value={form.direction}
                 onChange={e => setForm(f => ({ ...f, direction: +e.target.value }))}>
@@ -277,6 +309,10 @@ const FleetStatus: React.FC = () => {
   }, [fetchFleet]);
 
   const handleGenerateSchedule = async () => {
+    if (fleet.length === 0) {
+      alert('Please add at least 1 train before generating a schedule.');
+      return;
+    }
     setSchedLoad(true); setSchedError(null); setShowSched(true);
     try {
       const res = await fetch(apiUrl('/api/v1/fleet/generate-schedule'), { method: 'POST' });
@@ -285,6 +321,20 @@ const FleetStatus: React.FC = () => {
       else          { setSchedule(data); }
     } catch { setSchedError('Network error — backend offline?'); }
     finally   { setSchedLoad(false); }
+  };
+
+  const handleDeleteTrain = async (train_id: string) => {
+    if (!window.confirm(`Are you sure you want to delete train ${train_id}?`)) return;
+    try {
+      const res = await fetch(apiUrl(`/api/v1/fleet/${train_id}`), { method: 'DELETE' });
+      if (res.ok) {
+        fetchFleet();
+      } else {
+        alert('Failed to delete train');
+      }
+    } catch {
+      alert('Network error');
+    }
   };
 
   // ── Derived stats ──────────────────────────────────────────────────────────
@@ -306,10 +356,16 @@ const FleetStatus: React.FC = () => {
           <button className="fs-btn fs-btn--ghost" onClick={handleGenerateSchedule} disabled={schedLoading}>
             {schedLoading
               ? <><span className="fs-spinner" /> Generating…</>
-              : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>auto_schedule</span> Generate OR Schedule</>
+              : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>auto_schedule</span> Generate Schedule</>
             }
           </button>
-          <button className="fs-btn fs-btn--primary" onClick={() => setAddModal(true)}>
+          <button className="fs-btn fs-btn--primary" onClick={() => {
+            if (fleet.length >= 25) {
+              alert("Trains count cannot exceed 25 because the model cannot handle more than 25 trains.");
+            } else {
+              setAddModal(true);
+            }
+          }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
             Add Train
           </button>
@@ -354,32 +410,37 @@ const FleetStatus: React.FC = () => {
           <span className="fs-count-badge">{fleet.length} trains</span>
         </div>
 
-        {loading ? (
-          <div className="fs-loading">
-            <div className="fs-loading-spinner" />
-            <p>Loading fleet from ORBIT backend…</p>
-          </div>
-        ) : fleet.length === 0 ? (
-          <div className="fs-empty">
-            <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.3 }}>train</span>
-            <p>No trains in fleet. Click <strong>Add Train</strong> to begin.</p>
-          </div>
-        ) : (
-          <div className="fs-table-wrap">
-            <table className="fs-table">
-              <thead>
+        <div className="fs-table-wrap">
+          <table className="fs-table">
+            <thead>
+              <tr>
+                <th>Train ID</th>
+                <th>Type</th>
+                <th>Priority</th>
+                <th>Max Speed</th>
+                <th>Status</th>
+                <th>Current Edge</th>
+                <th>Position</th>
+                <th>Start / Deadline</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
                 <tr>
-                  <th>Train ID</th>
-                  <th>Type</th>
-                  <th>Priority</th>
-                  <th>Max Speed</th>
-                  <th>Status</th>
-                  <th>Current Edge</th>
-                  <th>Position</th>
-                  <th>Start / Deadline</th>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div className="fs-loading-spinner" style={{ display: 'inline-block', marginRight: '10px' }} />
+                    <p style={{ display: 'inline-block', margin: 0 }}>Loading fleet from ORBIT backend…</p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
+              ) : fleet.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.3, display: 'block', marginBottom: '10px' }}>train</span>
+                    <p style={{ margin: 0 }}>No trains in fleet. Click <strong>Add Train</strong> to begin.</p>
+                  </td>
+                </tr>
+              ) : (
                 <AnimatePresence>
                   {fleet.map((train, i) => (
                     <motion.tr key={train.train_id}
@@ -421,13 +482,18 @@ const FleetStatus: React.FC = () => {
                         <span className="fs-times-sep">→</span>
                         <span>{train.deadline}′</span>
                       </td>
+                      <td>
+                        <button className="fs-btn fs-btn--ghost fs-btn--sm" style={{ color: '#ef4444', padding: '4px 8px' }} onClick={() => handleDeleteTrain(train.train_id)} title="Delete train">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                        </button>
+                      </td>
                     </motion.tr>
                   ))}
                 </AnimatePresence>
-              </tbody>
-            </table>
-          </div>
-        )}
+              )}
+            </tbody>
+          </table>
+        </div>
       </motion.section>
 
       {/* ── OR Schedule Panel ────────────────────────────────────────────────── */}

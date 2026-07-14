@@ -56,10 +56,47 @@ app.include_router(copilot.router)
 app.include_router(maintenance.router)
 app.include_router(sandbox.router)
 
+import crud
+import json
 
 @app.on_event("startup")
 async def startup_event():
-    # Pass dependencies to background tasks
     state = get_state()
+    
+    # Load fleet registry from database
+    db = database.SessionLocal()
+    try:
+        trains = crud.load_all_fleet_trains(db)
+        for t in trains:
+            path_list = []
+            try:
+                path_list = json.loads(t.path)
+            except Exception:
+                pass
+            
+            state.fleet_registry[t.train_id] = {
+                "train_id": t.train_id,
+                "train_type": t.train_type,
+                "max_speed": t.max_speed,
+                "priority": t.priority,
+                "start_time": t.start_time,
+                "deadline": t.deadline,
+                "direction": t.direction,
+                "path": path_list,
+                "added_at": t.added_at
+            }
+            # Also prepopulate train_states so the simulation can track them
+            state.train_states[t.train_id] = {
+                "train_id": t.train_id,
+                "edge_id": path_list[0] if path_list else "edge-0-1",
+                "position_percentage": 0.0,
+                "status": "Scheduled",
+                "path": path_list,
+                "direction": t.direction,
+            }
+    finally:
+        db.close()
+    
+    # Pass dependencies to background tasks
     asyncio.create_task(simulate_trains_bg(state, broadcast_topology, broadcast_copilot, sync_blocks_to_rl_env, push_audit_log))
     asyncio.create_task(copilot_suggestion_bg(state, broadcast_copilot, _write_feedback, _make_suggestion))

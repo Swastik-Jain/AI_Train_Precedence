@@ -1,6 +1,8 @@
 from typing import Dict, Any, List
 from fastapi import HTTPException
 from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+import crud
 
 from state import SimulationState
 from config import TRAIN_TYPES, PRIORITY_MAP, DOWN_PATH, UP_PATH
@@ -63,14 +65,18 @@ def _seed_fleet_registry(state: SimulationState):
                 "added_at": _now_iso()
             }
 
-def remove_train(state: SimulationState, train_id: str) -> Dict[str, Any]:
+def remove_train(state: SimulationState, train_id: str, db: Session = None) -> Dict[str, Any]:
     state.fleet_registry.pop(train_id, None)
     removed = state.train_states.pop(train_id, None)
     if removed is None:
         raise HTTPException(status_code=404, detail=f"Train '{train_id}' not found.")
+    
+    if db:
+        crud.remove_fleet_train(db, train_id)
+        
     return {"status": "removed", "train_id": train_id}
 
-async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn) -> Dict[str, Any]:
+async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn, db: Session = None) -> Dict[str, Any]:
     if req.train_id in state.fleet_registry or req.train_id in state.train_states:
         raise HTTPException(status_code=409, detail=f"Train '{req.train_id}' already exists.")
     if req.train_type not in TRAIN_TYPES:
@@ -96,7 +102,7 @@ async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn) 
         "train_id"           : req.train_id,
         "edge_id"            : default_path[0] if default_path else "edge-0-1",
         "position_percentage": 0.0,
-        "status"             : "Moving",
+        "status"             : "Scheduled",
         "path"               : default_path,
         "direction"          : dir_str,
     }
@@ -108,6 +114,9 @@ async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn) 
             "conflicts": [],
             "maintenance_blocks": list(state.active_blocks.values()),
         })
+
+    if db:
+        crud.add_fleet_train(db, cfg)
 
     return {"status": "added", "train": cfg, "timestamp": cfg["added_at"]}
 
@@ -157,36 +166,7 @@ def generate_schedule(state: SimulationState) -> Dict[str, Any]:
     from ai.map_generator import STATIONS, generate_realistic_section
     from ai.config import generate_daily_schedule, ARCHETYPE_BY_NAME
 
-    if len(state.fleet_registry) < 25:
-        needed = 25 - len(state.fleet_registry)
-        fleet, schedule_map = generate_daily_schedule(num_trains=needed)
-        for t in fleet:
-            t_sched = schedule_map.get(t['id'], {})
-            base_id = t['id']
-            unique_id = base_id
-            counter = 1
-            while unique_id in state.fleet_registry:
-                unique_id = f"{base_id}-{counter}"
-                counter += 1
-            t['id'] = unique_id
-            t['train_id'] = unique_id
-            t['path'] = []
-            t['train_type'] = t.get('archetype', 'Express')
-            t['start_time'] = t_sched.get('start_time', 0)
-            t['deadline'] = t_sched.get('deadline', 100)
-            dir_str = "UP" if "UP" in unique_id else "DOWN"
-            t['direction'] = t.get('direction', dir_str)
-            state.fleet_registry[t['id']] = t
-    elif not state.fleet_registry:
-        fleet, schedule_map = generate_daily_schedule(num_trains=25)
-        for t in fleet:
-            t_sched = schedule_map.get(t['id'], {})
-            t['path'] = []
-            t['train_id'] = t['id']
-            t['train_type'] = t.get('archetype', 'Express')
-            t['start_time'] = t_sched.get('start_time', 0)
-            t['deadline'] = t_sched.get('deadline', 100)
-            state.fleet_registry[t['id']] = t
+
 
     topo_nodes = {n["id"]: n for n in state.network_topology.get("nodes", [])}
     track_map  = {}
