@@ -254,7 +254,7 @@ const Dashboard: React.FC = () => {
                 {isGeneratingSchedule ? (
                   <><div className="w-4 h-4 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />Solving Math…</>
                 ) : (
-                  <><span className="material-symbols-outlined text-[16px]">polyline</span>Generate Route Paths</>
+                  <><span className="material-symbols-outlined text-[16px]">polyline</span>Generate Schedule</>
                 )}
               </button>
             </div>

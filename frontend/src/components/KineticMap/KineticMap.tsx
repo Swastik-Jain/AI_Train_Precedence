@@ -382,19 +382,20 @@ export const KineticMap: React.FC = () => {
     if (cap <= 1) return 0;
     const isUp = train.direction === "UP" || train.direction === 1 || train.direction === -1; 
     
-    const peers = trainStates
-      .filter(t => t.edge_id === train.edge_id && t.direction === train.direction)
-      .sort((a, b) => a.train_id.localeCompare(b.train_id));
-      
-    const myIndex = peers.findIndex(t => t.train_id === train.train_id);
-    const order = Math.max(0, myIndex);
-    
+    // Create a stable numeric hash from the train_id string
+    let hash = 0;
+    for (let i = 0; i < train.train_id.length; i++) {
+      hash = train.train_id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    // Ensure positive hash
+    hash = Math.abs(hash);
+
     if (isUp) {
       const available = Math.ceil(cap / 2);
-      return order % available;
+      return hash % available;
     } else {
       const available = Math.floor(cap / 2);
-      return (cap - available) + (order % available);
+      return (cap - available) + (hash % available);
     }
   };
 
@@ -580,17 +581,41 @@ export const KineticMap: React.FC = () => {
     const visualX2 = actualLoopRight === 'segment' ? x2 + LOOP_OFF : x2;
     const cx       = (visualX1 + visualX2) / 2;
 
-    // Which trains are at this station? (track occupancy)
+    // FIX: Match occupancy based on logical backend data, not visual Y-pixels
     const stTrains = trainStates.filter(t => {
-      const p = getPos(t);
-      return p !== null && p.x >= x1 && p.x <= x2;
+      if (!topology) return false;
+      const edge = topology.edges.find(e => e.id === t.edge_id);
+      if (!edge) return false;
+      
+      const srcNode = topology.nodes.find(n => n.id === edge.source);
+      const tgtNode = topology.nodes.find(n => n.id === edge.target);
+      
+      // Is this train physically on an edge that touches THIS specific station?
+      const touchesStation = (srcNode as any)?.stId === z.stId || (tgtNode as any)?.stId === z.stId;
+      return touchesStation;
     });
-    
-    // Map train occupancy to precise physical Y coordinates instead of hashed tracks
-    const trackOccupancyByY = new Map<number, TrainState>();
+
+    const trackOccupancy = new Map<number, TrainState>();
+    const loopOccupancy = new Map<number, TrainState>();
+
     stTrains.forEach(t => {
-      const p = getPos(t);
-      if (p) trackOccupancyByY.set(Math.round(p.y), t);
+      const edge = topology!.edges.find(e => e.id === t.edge_id);
+      const srcNode = topology!.nodes.find(n => n.id === edge?.source);
+      const tgtNode = topology!.nodes.find(n => n.id === edge?.target);
+
+      // Check if train is specifically on a platform node
+      if (srcNode?.type === 'PLATFORM' && (srcNode as any).stId === z.stId) {
+        trackOccupancy.set(srcNode.platform_index!, t);
+      } else if (tgtNode?.type === 'PLATFORM' && (tgtNode as any).stId === z.stId) {
+        trackOccupancy.set(tgtNode.platform_index!, t);
+      }
+      
+      // Check if train is specifically on a loop node
+      if ((srcNode?.type === 'LOOP' || srcNode?.type === 'CROSSING_LOOP') && (srcNode as any).stId === z.stId) {
+        loopOccupancy.set(srcNode.loop_index!, t);
+      } else if ((tgtNode?.type === 'LOOP' || tgtNode?.type === 'CROSSING_LOOP') && (tgtNode as any).stId === z.stId) {
+        loopOccupancy.set(tgtNode.loop_index!, t);
+      }
     });
 
     const elems: React.ReactNode[] = [];
@@ -677,11 +702,11 @@ export const KineticMap: React.FC = () => {
       if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
     }
 
-    // 4) Individual platform markers (small rects above each main track)
+    // 4) Individual platform markers
     for (let i = 0; i < cap; i++) {
       const y = trackY(i, cap);
-      // Fetch occupancy physically by Y coordinate
-      const occTrain = trackOccupancyByY.get(Math.round(y)); 
+      // Fetch occupancy logically by platform index!
+      const occTrain = trackOccupancy.get(i); 
       
       const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
       const isHalted   = occTrain?.status === 'Halted';
@@ -696,12 +721,12 @@ export const KineticMap: React.FC = () => {
       );
     }
 
-    // 5) Loop siding platform markers — positioned above each loop track line
-    const lpCx = cx; // Perfectly align with PF markers in the visually expanded box
+    // 5) Loop siding platform markers
+    const lpCx = cx;
     for (let l = 0; l < meta.loops; l++) {
       const sidY = topTrackY - (l + 1) * TRACK_GAP;
-      // Fetch occupancy physically by Y coordinate
-      const occTrain = trackOccupancyByY.get(Math.round(sidY));
+      // Fetch occupancy logically by loop index!
+      const occTrain = loopOccupancy.get(l);
 
       const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
       const isHalted   = occTrain?.status === 'Halted';

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 import uuid as _uuid
-from database import TrainPosition, AuditLog
+from database import TrainPosition, AuditLog, FleetTrain
+import json
 
 
 def getRecentTrainLog(db: Session, limit: int = 50):
@@ -46,3 +47,29 @@ def get_recent_audit_logs(db: Session, limit: int = 200, skip: int = 0):
         .all()
     )
 
+def load_all_fleet_trains(db: Session):
+    return db.query(FleetTrain).all()
+
+def add_fleet_train(db: Session, cfg: dict):
+    train = FleetTrain(
+        train_id=cfg["train_id"],
+        train_type=cfg.get("train_type", ""),
+        max_speed=cfg.get("max_speed", 100),
+        priority=cfg.get("priority", 5),
+        start_time=cfg.get("start_time", 0),
+        deadline=cfg.get("deadline", 120),
+        direction=cfg.get("direction", "DOWN"),
+        path=json.dumps(cfg.get("path", [])),
+        added_at=cfg.get("added_at", "")
+    )
+    db.add(train)
+    db.commit()
+    db.refresh(train)
+    return train
+
+def remove_fleet_train(db: Session, train_id: str):
+    train = db.query(FleetTrain).filter(FleetTrain.train_id == train_id).first()
+    if train:
+        db.delete(train)
+        db.commit()
+    return train

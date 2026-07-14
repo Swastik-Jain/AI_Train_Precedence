@@ -44,6 +44,29 @@ class AuditLog(Base):
     status      = Column(String)                           # e.g. "Committed", "Rejected"
     status_type = Column(String)                           # e.g. "success", "warning", "error"
 
-# 7. Helper to create tables
+# 7. Define the FleetRegistry Table
+class FleetTrain(Base):
+    __tablename__ = "fleet_registry"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    train_id   = Column(String, unique=True, index=True)
+    train_type = Column(String)
+    max_speed  = Column(Integer)
+    priority   = Column(Integer)
+    start_time = Column(Integer)
+    deadline   = Column(Integer)
+    direction  = Column(String)
+    path       = Column(Text) # JSON string
+    added_at   = Column(String)
+
+# 8. Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# 9. Helper to create tables
 def init_db():
     Base.metadata.create_all(bind=engine)
