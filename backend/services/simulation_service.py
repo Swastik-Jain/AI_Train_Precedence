@@ -267,8 +267,13 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
                                     probs_list = []
-                                    if hasattr(dist, "distribution") and isinstance(dist.distribution, list):
-                                        # MultiDiscrete case
+                                    if hasattr(dist, "distributions") and isinstance(dist.distributions, list):
+                                        # MultiDiscrete case (newer SB3 / sb3-contrib)
+                                        for d, a in zip(dist.distributions, act_list):
+                                            p = torch.exp(d.log_prob(torch.tensor(a).to(model.device))).item()
+                                            probs_list.append(p)
+                                    elif hasattr(dist, "distribution") and isinstance(dist.distribution, list):
+                                        # MultiDiscrete case (older SB3)
                                         for d, a in zip(dist.distribution, act_list):
                                             p = torch.exp(d.log_prob(torch.tensor(a).to(model.device))).item()
                                             probs_list.append(p)
@@ -403,7 +408,13 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                         km1 = inner_env.get_node_km(node_id) if hasattr(inner_env, 'get_node_km') else 0
                                         km2 = inner_env.get_node_km(target_node) if hasattr(inner_env, 'get_node_km') else 1
                                         
-                                        dist_to_next = max(0.1, abs(km2 - km1))
+                                        node_st = inner_env.track_map.get(node_id, {}).get('station')
+                                        tgt_st = inner_env.track_map.get(target_node, {}).get('station')
+                                        if node_st and tgt_st and node_st == tgt_st:
+                                            dist_to_next = max(1.0, abs(km2 - km1))
+                                        else:
+                                            dist_to_next = max(0.1, abs(km2 - km1))
+                                            
                                         pct = acc_val / dist_to_next
                                         pct = max(0.0, min(pct, 0.999))  # defensive clamp
                                     except (TypeError, ValueError, KeyError, AttributeError) as e:

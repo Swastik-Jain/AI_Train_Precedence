@@ -122,11 +122,7 @@ const DecisionCard: React.FC<{
   const isExpired = age >= TTL || suggestion.status === 'expired';
 
   const pm = PRIORITY_META[suggestion.priority_level] ?? PRIORITY_META[3];
-  const impactText =
-    suggestion.impact_analysis >= 0
-      ? `+${suggestion.impact_analysis}min saved`
-      : `${suggestion.impact_analysis}min delay`;
-  const impactColor = suggestion.impact_analysis >= 0 ? '#16a34a' : '#dc2626';
+
 
   const handleOverride = useCallback(async () => {
     if (approveState !== 'idle' || isExpired) return;
@@ -195,21 +191,10 @@ const DecisionCard: React.FC<{
         </div>
       </div>
 
-      {/* Action Description */}
-      <p className="copilot-action">{suggestion.decided_action}</p>
-
-      {/* Gauge + Impact Row */}
-      <div className="copilot-data-row">
+      {/* Action Description & Gauge */}
+      <div className="copilot-action-row">
+        <p className="copilot-action">{suggestion.decided_action}</p>
         <ConfidenceGauge score={suggestion.confidence_score} />
-        <div className="copilot-impact-block">
-          <span className="copilot-impact-label">Impact</span>
-          <span className="copilot-impact-value" style={{ color: impactColor }}>
-            {impactText}
-          </span>
-          <span className="copilot-ts">
-            {new Date(suggestion.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </span>
-        </div>
       </div>
 
       {/* Inline Modification Panel */}

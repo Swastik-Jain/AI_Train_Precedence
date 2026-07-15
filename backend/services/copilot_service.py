@@ -627,8 +627,14 @@ async def simulate_trains_bg():
                                     action_tensor_batched = torch.tensor(act_np).to(model.device)
                                     
                                     probs_list = []
-                                    if hasattr(dist, 'distribution') and isinstance(dist.distribution, list):
-                                        # MultiDiscrete
+                                    if hasattr(dist, 'distributions') and isinstance(dist.distributions, list):
+                                        # MultiDiscrete (newer SB3 / sb3-contrib)
+                                        for i, d in enumerate(dist.distributions):
+                                            lp = d.log_prob(action_tensor_batched[:, i])
+                                            p = torch.exp(lp).cpu().numpy()[0]
+                                            probs_list.append(float(p))
+                                    elif hasattr(dist, 'distribution') and isinstance(dist.distribution, list):
+                                        # MultiDiscrete (older SB3)
                                         for i, d in enumerate(dist.distribution):
                                             lp = d.log_prob(action_tensor_batched[:, i])
                                             p = torch.exp(lp).cpu().numpy()[0]

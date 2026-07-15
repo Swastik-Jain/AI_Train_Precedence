@@ -181,8 +181,25 @@ class SmartOptimizer:
                     safe_actions[i] = 1
                     _log.debug(f"Loop wake-up: {train['id']} exiting {node_type}")
 
+            # ── Layer 1.5: Main fallback to Loop ──────────────────────────
+            elif act == 1:
+                if main_occ >= dir_cap:
+                    # MAIN is full. Check if any loop is available.
+                    loop_available = False
+                    for ln in loop_targets:
+                        ln_cap = track_map.get(ln, {}).get('capacity', 1)
+                        ln_dir_cap = max(1, ln_cap // 2) if ln_cap > 1 else ln_cap
+                        ln_occ = current_occ[ln][direction] + claimed_occ[ln][direction]
+                        if ln_occ < ln_dir_cap:
+                            loop_available = True
+                            break
+                    if loop_available:
+                        act = 2
+                        safe_actions[i] = 2
+                        _log.debug(f"Main fallback: {train['id']} MAIN full, using LOOP")
+
             # ── Layer 2: Divert fallback ──────────────────────────────────
-            elif act == 2:
+            if act == 2:
                 loop_available = False
                 for ln in loop_targets:
                     ln_cap = track_map.get(ln, {}).get('capacity', 1)

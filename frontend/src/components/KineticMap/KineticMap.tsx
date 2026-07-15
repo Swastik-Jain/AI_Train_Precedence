@@ -9,6 +9,8 @@ import { topologyToZones } from '../../utils/topologyToZones';
 import type { Zone, SegZone, StationZone, SwitchZone } from '../../utils/topologyToZones';
 import './KineticMap.css';
 
+const getNodeStId = (node: any) => node?.station || node?.stId || node?.id;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,7 +80,7 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
   const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
-  const isUp = train.direction === "UP" || train.direction === -1 || train.direction === 1;
+  const isUp = train.direction === "UP" || train.direction === 1;
   const trainX = isUp ? pos.x : pos.x - bW;
 
   return (
@@ -90,7 +92,9 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
       animate={{ x: trainX, y: pos.y }}
       transition={{ 
         x: { type: "tween", duration: tickIntervalS, ease: "linear" },
-        y: { type: "spring", stiffness: 90, damping: 15 } 
+        // Use tween for Y too — spring caused visual "teleport" when train switched
+        // from a segment edge (Y=MAIN_Y) to a platform edge (Y=platformY).
+        y: { type: "tween", duration: tickIntervalS * 0.5, ease: "easeInOut" }
       }}
       style={{ cursor: 'pointer' }}
     >
@@ -151,11 +155,11 @@ export const KineticMap: React.FC = () => {
     for (const z of stZones) {
       const meta = STATION_META[z.stId];
       const zKm = meta ? meta.km : (stationNodes.find(n => {
-        const nStId = (n as any).stId || n.id;
+        const nStId = getNodeStId(n);
         return nStId === z.stId;
       })?.km ?? null);
       if (zKm !== null && zKm !== undefined) {
-        anchors.push({ km: zKm, sx: z.x1 });
+        anchors.push({ km: zKm, sx: (z.x1 + z.x2) / 2 });
       }
     }
     anchors.sort((a, b) => a.km - b.km);
@@ -193,8 +197,12 @@ export const KineticMap: React.FC = () => {
     if (stationTypes.includes(node.type)) {
       const stZones = dynamicZones.filter(z => z.type === 'ST') as StationZone[];
       const stZone = stZones.find(z => {
+         const nodeStId = getNodeStId(node);
+         if (nodeStId) return nodeStId === z.stId;
+         
+         // Fallback for nodes that might lack station ID directly
          const meta = STATION_META[z.stId];
-         const zKm = meta ? meta.km : (topology.nodes.find(n => ((n as any).stId || n.id) === z.stId)?.km ?? null);
+         const zKm = meta ? meta.km : (topology.nodes.find(n => getNodeStId(n) === z.stId)?.km ?? null);
          return zKm === km;
       });
 
@@ -203,13 +211,13 @@ export const KineticMap: React.FC = () => {
             const connectedEdges = topology.edges.filter(e => e.source === node.id || e.target === node.id);
             let connectsLeft = false;
             let connectsRight = false;
-            const thisStId = (node as any).stId;
+            const thisStId = getNodeStId(node);
             
             for (const e of connectedEdges) {
               const otherId = e.source === node.id ? e.target : e.source;
               const otherNode = topology.nodes.find(n => n.id === otherId);
               if (!otherNode) continue;
-              if ((otherNode as any).stId !== thisStId) {
+              if (getNodeStId(otherNode) !== thisStId) {
                 if (e.target === node.id) connectsLeft = true;
                 if (e.source === node.id) connectsRight = true;
               }
@@ -295,6 +303,12 @@ export const KineticMap: React.FC = () => {
       return tgtNode.capacity || 2;
     }
 
+    // ST zones: if the train is physically within a station zone, it MUST use that station's
+    // capacity so it snaps to one of the valid station tracks (instead of falling back to a 
+    // mainline capacity of 1 or 2 and floating between tracks).
+    const stZone = dynamicZones.find(z => z.type === 'ST' && posX >= z.x1 && posX <= z.x2) as StationZone | undefined;
+    if (stZone) return stZone.cap;
+
     // PLATFORM / LOOP edges — siding, always single-track
     if (
       (srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP')) ||
@@ -321,6 +335,8 @@ export const KineticMap: React.FC = () => {
     return 2;
   };
 
+  const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
+
   const getPos = (train: TrainState): { x: number; y: number } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
@@ -331,47 +347,106 @@ export const KineticMap: React.FC = () => {
     const tgt = nodePos.get(edge.target);
     if (!src || !tgt || !srcNode || !tgtNode) return null;
 
-    const x = src.x + (tgt.x - src.x) * train.position_percentage;
+    // Use raw position_percentage linearly — the cubic ease-in-out that was
+    // here before caused trains to visually sprint through the narrow station
+    // box (slow-fast-slow mapping over the short platform edge distance).
+    const p = train.position_percentage;
+    const x = src.x + (tgt.x - src.x) * p;
     let currentY = MAIN_Y;
 
     // Helper to dynamically assign node IDs to visual tracks (top to bottom)
     const getStationNodeY = (node: Node) => {
-        const stId = (node as any).stId;
+        const stId = getNodeStId(node);
         if (!stId) return null;
         const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stId) as StationZone | undefined;
         if (!stZone) return null;
-        
-        const meta = STATION_META[stId] || { loops: 0 };
-        // Sort all platform/loop nodes inside this station by ID
-        const pNodes = topology.nodes
-            .filter(n => ((n as any).stId === stId) && ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(n.type))
-            .sort((a, b) => parseInt(a.id) - parseInt(b.id));
-            
-        const idx = pNodes.findIndex(n => n.id === node.id);
-        if (idx === -1) return null;
-
         const cap = stZone.cap;
-        const loops = meta.loops;
-        const availableYs: number[] = [];
-        const topTrackY = trackY(0, cap);
-        
-        // Map Y coordinates from top (Loops) to bottom (Mainlines)
-        for (let l = loops - 1; l >= 0; l--) availableYs.push(topTrackY - (l + 1) * TRACK_GAP);
-        for (let i = 0; i < cap; i++) availableYs.push(trackY(i, cap));
-        
-        return availableYs[idx % availableYs.length];
+        if (node.type === 'PLATFORM' && node.platform_index !== undefined) {
+            return trackY(node.platform_index, cap);
+        }
+        if ((node.type === 'LOOP' || node.type === 'CROSSING_LOOP') && node.loop_index !== undefined) {
+            const topTrackY = trackY(0, cap);
+            return topTrackY - (node.loop_index + 1) * TRACK_GAP;
+        }
+        return MAIN_Y;
     };
-
-    const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
 
     if (isStNode(srcNode.type)) {
         currentY = getStationNodeY(srcNode) ?? MAIN_Y;
     } else if (isStNode(tgtNode.type)) {
         currentY = getStationNodeY(tgtNode) ?? MAIN_Y;
     } else {
-        const cap = resolveEdgeCap(train.edge_id, x);
-        const trackIdx = trainTrackAt(train, cap);
-        currentY = trackY(trackIdx, cap);
+        const swZone = dynamicZones.find(z => z.type === 'SW' && x >= z.x1 && x <= z.x2) as SwitchZone | undefined;
+        if (swZone) {
+            let leftY: number | null = null;
+            let rightY: number | null = null;
+            const leftStZone = dynamicZones.find(z => z.type === 'ST' && z.x2 === swZone.x1) as StationZone | undefined;
+            const rightStZone = dynamicZones.find(z => z.type === 'ST' && z.x1 === swZone.x2) as StationZone | undefined;
+            // CRITICAL BUG FIX: train.path is a list of EDGE IDs (e.g. "edge-10-1000"),
+            // NOT node IDs. The old code did topology.nodes.find(n => n.id === "edge-10-1000")
+            // which always returned undefined, so leftY/rightY were never set from path.
+            // Fix: resolve each path edge to find platform/loop node endpoints.
+            if (train.path) {
+                outer: for (const edgeId of train.path) {
+                    const pathEdge = topology.edges.find(e => e.id === edgeId);
+                    if (!pathEdge) continue;
+                    for (const nId of [pathEdge.source, pathEdge.target]) {
+                        const node = topology.nodes.find(n => n.id === nId);
+                        if (!node || !isStNode(node.type)) continue;
+                        const nStId = getNodeStId(node);
+                        if (leftStZone && leftStZone.stId === nStId && leftY === null) {
+                            const y = getStationNodeY(node);
+                            if (y !== null) leftY = y;
+                        }
+                        if (rightStZone && rightStZone.stId === nStId && rightY === null) {
+                            const y = getStationNodeY(node);
+                            if (y !== null) rightY = y;
+                        }
+                    }
+                    // Short-circuit once both sides are resolved
+                    if (leftY !== null && rightY !== null) break outer;
+                }
+            }
+            const baseLeftTrack = trainTrackAt(train, swZone.fromCap);
+            const baseRightTrack = trainTrackAt(train, swZone.toCap);
+            let leftTrack = baseLeftTrack;
+            if (leftY !== null) {
+                leftTrack = Math.max(0, Math.min(swZone.fromCap - 1, Math.round((leftY - MAIN_Y) / TRACK_GAP + (swZone.fromCap - 1) / 2)));
+            }
+            let rightTrack = baseRightTrack;
+            if (rightY !== null) {
+                rightTrack = Math.max(0, Math.min(swZone.toCap - 1, Math.round((rightY - MAIN_Y) / TRACK_GAP + (swZone.toCap - 1) / 2)));
+            }
+            const getClosestSource = (destIdx: number, destTotal: number, srcTotal: number) => {
+                return Math.min(Math.max(0, destIdx - Math.floor((destTotal - srcTotal) / 2)), srcTotal - 1);
+            };
+            if (leftY === null) {
+                if (swZone.fromCap < swZone.toCap) {
+                    leftTrack = getClosestSource(rightTrack, swZone.toCap, swZone.fromCap);
+                }
+                // For single-track ghat (fromCap=1): train is on the centre rail → MAIN_Y.
+                // For multi-track → multi-track transitions without path info: snap to nearest
+                // inner track (closest to MAIN_Y) to avoid floating between rail lines.
+                leftY = swZone.fromCap <= 1
+                    ? MAIN_Y
+                    : trackY(leftTrack, swZone.fromCap);
+            }
+            if (rightY === null) {
+                if (swZone.fromCap >= swZone.toCap) {
+                    rightTrack = getClosestSource(leftTrack, swZone.fromCap, swZone.toCap);
+                }
+                rightY = swZone.toCap <= 1
+                    ? MAIN_Y
+                    : trackY(rightTrack, swZone.toCap);
+            }
+            const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
+            const smoothT = t * t * (3 - 2 * t);
+            currentY = leftY + (rightY - leftY) * smoothT;
+        } else {
+            const cap = resolveEdgeCap(train.edge_id, x);
+            const trackIdx = trainTrackAt(train, cap);
+            currentY = trackY(trackIdx, cap);
+        }
     }
 
     return { x, y: currentY };
@@ -591,7 +666,7 @@ export const KineticMap: React.FC = () => {
       const tgtNode = topology.nodes.find(n => n.id === edge.target);
       
       // Is this train physically on an edge that touches THIS specific station?
-      const touchesStation = (srcNode as any)?.stId === z.stId || (tgtNode as any)?.stId === z.stId;
+      const touchesStation = getNodeStId(srcNode) === z.stId || getNodeStId(tgtNode) === z.stId;
       return touchesStation;
     });
 
@@ -604,16 +679,16 @@ export const KineticMap: React.FC = () => {
       const tgtNode = topology!.nodes.find(n => n.id === edge?.target);
 
       // Check if train is specifically on a platform node
-      if (srcNode?.type === 'PLATFORM' && (srcNode as any).stId === z.stId) {
+      if (srcNode?.type === 'PLATFORM' && getNodeStId(srcNode) === z.stId) {
         trackOccupancy.set(srcNode.platform_index!, t);
-      } else if (tgtNode?.type === 'PLATFORM' && (tgtNode as any).stId === z.stId) {
+      } else if (tgtNode?.type === 'PLATFORM' && getNodeStId(tgtNode) === z.stId) {
         trackOccupancy.set(tgtNode.platform_index!, t);
       }
       
       // Check if train is specifically on a loop node
-      if ((srcNode?.type === 'LOOP' || srcNode?.type === 'CROSSING_LOOP') && (srcNode as any).stId === z.stId) {
+      if ((srcNode?.type === 'LOOP' || srcNode?.type === 'CROSSING_LOOP') && getNodeStId(srcNode) === z.stId) {
         loopOccupancy.set(srcNode.loop_index!, t);
-      } else if ((tgtNode?.type === 'LOOP' || tgtNode?.type === 'CROSSING_LOOP') && (tgtNode as any).stId === z.stId) {
+      } else if ((tgtNode?.type === 'LOOP' || tgtNode?.type === 'CROSSING_LOOP') && getNodeStId(tgtNode) === z.stId) {
         loopOccupancy.set(tgtNode.loop_index!, t);
       }
     });
