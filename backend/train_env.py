@@ -1153,7 +1153,15 @@ class TrainDispatchEnv(gym.Env):
 
                     # Determine physical distance to target block
                     dist_to_next = abs(self.get_node_km(target_node) - self.get_node_km(pos))
-                    dist_to_next = max(0.1, dist_to_next) # minimum threshold to consume accumulator and prevent infinite loop
+                    
+                    # Force a 1.0km physical distance for intra-station movements so trains 
+                    # don't instantly teleport across the 180px station graphic in one tick.
+                    node_st = self.track_map.get(pos, {}).get('station')
+                    tgt_st = self.track_map.get(target_node, {}).get('station')
+                    if node_st and tgt_st and node_st == tgt_st:
+                        dist_to_next = max(1.0, dist_to_next)
+                    else:
+                        dist_to_next = max(0.1, dist_to_next) # minimum threshold
 
                     if self._movement_acc[i] < dist_to_next:
                         current_positions.append(pos)

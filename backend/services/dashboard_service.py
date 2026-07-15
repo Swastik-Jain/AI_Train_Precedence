@@ -115,18 +115,11 @@ def get_telemetry(state):
                 total_budget   = deadline - start_time          # ticks allocated
                 time_remaining = deadline - ep_time
 
-                if frac_done < 0.01:
-                    # Train just spawned — give it the benefit of the doubt
-                    delay = 0.0
-                elif time_remaining <= 0:
-                    # Already past deadline and still running
-                    delay = float(-time_remaining) + frac_remaining * (total_budget * 0.5)
-                elif elapsed > 0 and frac_done > 0:
-                    # Extrapolate: at current pace, when will train finish?
-                    ticks_per_frac   = elapsed / frac_done
-                    estimated_finish = ep_time + (frac_remaining * ticks_per_frac)
-                    delay = max(0.0, estimated_finish - deadline)
+                if time_remaining <= 0:
+                    # Time expired - strictly late
+                    delay = float(-time_remaining)
                 else:
+                    # Still within budget - considered on time until deadline passes
                     delay = 0.0
             else:
                 # Edge info unavailable — assume on-time

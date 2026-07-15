@@ -22,11 +22,10 @@ export function topologyToZones(topology: {
   // Group multiple platform nodes at the same location into a single macro-station
   const stations: typeof rawStations = [];
   for (const n of rawStations) {
-    // @ts-ignore
-    const stId = n.stId;
+    const stId = (n as any).station || (n as any).stId || n.id;
     const existing = stations.find(s => 
       // @ts-ignore
-      (stId && (s as any).stId === stId) || Math.abs((s.km || 0) - (n.km || 0)) < 0.1
+      (stId && ((s as any).station === stId || (s as any).stId === stId)) || Math.abs((s.km || 0) - (n.km || 0)) < 0.1
     );
     if (existing) {
       if (n.type !== 'LOOP') {
@@ -49,13 +48,16 @@ export function topologyToZones(topology: {
     const maxCap = connectedEdges.reduce((max, e) => Math.max(max, e.capacity || 2), 2);
     const stCap = st.capacity || maxCap;
 
-    const stWidth = 140;
+    // 180 px gives trains enough visual room to stop visibly under the
+    // platform marker (PF rect) during dwell instead of racing through a
+    // narrow 140 px box at near-full speed.
+    const stWidth = 180;
     zones.push({
       type: 'ST',
       x1: currentX,
       x2: currentX + stWidth,
       cap: stCap,
-      stId: (st as any).stId || st.id,
+      stId: (st as any).station || (st as any).stId || st.id,
       isLeft: i === 0,
       isRight: i === stations.length - 1,
     });
