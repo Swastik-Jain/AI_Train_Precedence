@@ -4,12 +4,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
 import { useMaintenanceStore } from '../../store/useMaintenanceStore';
-import type { TrainState, TopologyData, Node } from '../../store/useMapStore';
+import { usePresentationStore, INTRA_STATION_TWEEN_DURATION_S, EDGE_DEBOUNCE_TICKS } from '../../store/usePresentationStore';
+import type { TrainState, Node } from '../../store/useMapStore';
 import { topologyToZones } from '../../utils/topologyToZones';
+import { getNodeStId, isIntraStationMove } from '../../utils/topologyHelpers';
 import type { Zone, SegZone, StationZone, SwitchZone } from '../../utils/topologyToZones';
 import './KineticMap.css';
 
-const getNodeStId = (node: any) => node?.station || node?.stId || node?.id;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -73,15 +75,30 @@ const STATION_META: Record<string, StMeta> = {
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
-const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, tickIntervalS, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
-  const pos = getPos(train);
-  if (!pos) return null;
+const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
+  const trainState = usePresentationStore(state => state.trains[train.train_id]);
+  
+  // If the store hasn't initialized yet, fallback to raw getPos so it doesn't blink
+  const rawPos = getPos(train);
+  if (!rawPos) return null;
+
+  let targetX = rawPos.x;
+  let targetY = rawPos.y;
+  let durationS = 0; // immediate snap on first render
+  let ease = "linear";
+
+  if (trainState) {
+    targetX = trainState.targetX;
+    targetY = trainState.targetY;
+    durationS = trainState.durationS;
+    ease = trainState.ease;
+  }
 
   const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
   const isUp = train.direction === "UP" || train.direction === 1;
-  const trainX = isUp ? pos.x : pos.x - bW;
+  const trainX = isUp ? targetX : targetX - bW;
 
   return (
     <motion.g
@@ -89,12 +106,10 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
       onMouseEnter={() => setHoveredTrain(train.train_id)}
       onMouseLeave={() => setHoveredTrain(null)}
       initial={false}
-      animate={{ x: trainX, y: pos.y }}
+      animate={{ x: trainX, y: targetY }}
       transition={{ 
-        x: { type: "tween", duration: tickIntervalS, ease: "linear" },
-        // Use tween for Y too — spring caused visual "teleport" when train switched
-        // from a segment edge (Y=MAIN_Y) to a platform edge (Y=platformY).
-        y: { type: "tween", duration: tickIntervalS * 0.5, ease: "easeInOut" }
+        x: { type: "tween", duration: durationS, ease: ease as any },
+        y: { type: "tween", duration: durationS, ease: ease as any }
       }}
       style={{ cursor: 'pointer' }}
     >
@@ -489,6 +504,160 @@ export const KineticMap: React.FC = () => {
     });
     return result;
   }, [topology]);
+
+  useEffect(() => {
+    if (!topology || !trainStates.length) return;
+    const store = usePresentationStore.getState();
+
+    trainStates.forEach(train => {
+      const pos = getPos(train);
+      const targetPos = getPos({ ...train, position_percentage: 1 });
+      if (!pos || !targetPos) return;
+      
+      const currentTrainState = store.trains[train.train_id];
+      
+      if (!currentTrainState) {
+        store.initializeTrainPresentation(train.train_id, {
+          lastConfirmedEdge: train.edge_id,
+          targetX: pos.x,
+          targetY: pos.y,
+          animationMode: 'initial',
+          durationS: 0,
+          ease: 'linear'
+        });
+        return;
+      }
+
+      let rawEdgeChanged = currentTrainState.lastConfirmedEdge !== train.edge_id;
+      let isGenuinePhysicalMove = false;
+
+      // Determine if a raw edge change is a genuine physical move (the current node changed)
+      // or just a display-default next-hop flip (current node unchanged).
+      if (rawEdgeChanged && currentTrainState.lastConfirmedEdge) {
+        const getSourceNode = (eid: string, dir: string | number) => {
+          const parts = eid.split('-');
+          if (parts.length !== 3) return null;
+          const isUp = dir === "UP" || dir === 1 || dir === -1;
+          // UP trains move from target to source (higher node to lower node)
+          // edge_id format: edge-{lower}-{higher} => parts[1] is lower, parts[2] is higher
+          // UP current node is higher (parts[2]), DOWN current node is lower (parts[1])
+          return isUp ? parts[2] : parts[1];
+        };
+        const oldCurrentNode = getSourceNode(currentTrainState.lastConfirmedEdge, train.direction ?? "DOWN");
+        const newCurrentNode = getSourceNode(train.edge_id, train.direction ?? "DOWN");
+        if (oldCurrentNode && newCurrentNode && oldCurrentNode !== newCurrentNode) {
+          isGenuinePhysicalMove = true;
+        }
+      }
+
+      // Debounce bookkeeping
+      let acceptedEdge = currentTrainState.lastConfirmedEdge || train.edge_id;
+      let newCandidateEdge = currentTrainState.candidateEdge;
+      let newCandidateCount = currentTrainState.candidateCount || 0;
+
+      if (rawEdgeChanged) {
+        if (isGenuinePhysicalMove) {
+          // Immediately accept physical movement to avoid artificial lag
+          acceptedEdge = train.edge_id;
+          newCandidateEdge = undefined;
+          newCandidateCount = 0;
+        } else {
+          // It's a display-default flip, so debounce it
+          if (train.edge_id === currentTrainState.candidateEdge) {
+            newCandidateCount += 1;
+            if (newCandidateCount >= EDGE_DEBOUNCE_TICKS) {
+              acceptedEdge = train.edge_id;
+              newCandidateEdge = undefined;
+              newCandidateCount = 0;
+            }
+          } else {
+            newCandidateEdge = train.edge_id;
+            newCandidateCount = 1;
+          }
+        }
+      } else {
+        newCandidateEdge = undefined;
+        newCandidateCount = 0;
+      }
+
+      // Evaluate physics against the accepted (debounced) edge to prevent jumping
+      const debouncedTrain = { ...train, edge_id: acceptedEdge };
+      const acceptedPos = getPos(debouncedTrain);
+      const acceptedTargetPos = getPos({ ...debouncedTrain, position_percentage: 1 });
+      if (!acceptedPos || !acceptedTargetPos) return;
+
+      const edgeChanged = currentTrainState.lastConfirmedEdge !== acceptedEdge;
+      const edge = topology.edges.find((e: any) => e.id === acceptedEdge);
+
+      // Secondary backstop: status check for stationary states.
+      // Primary trigger for animation remains node/edge changes.
+      const stationaryStatuses = ['Banker Ops', 'Boarding', 'Waiting at Signal', 'Halted'];
+      const isStationaryStatus = stationaryStatuses.includes(train.status);
+
+      let mode: any = 'physics';
+      let duration = tickIntervalS;
+      let ease = 'linear';
+      let nextX = acceptedPos.x;
+      let nextY = acceptedPos.y;
+
+      if (edgeChanged && edge) {
+        if (isIntraStationMove(topology, edge.source, edge.target)) {
+          mode = 'cosmetic';
+          duration = INTRA_STATION_TWEEN_DURATION_S;
+          ease = 'easeInOut';
+          nextX = acceptedTargetPos.x;
+          nextY = acceptedTargetPos.y;
+        }
+      } else if (!edgeChanged) {
+        if (currentTrainState.animationMode === 'cosmetic') {
+          mode = 'cosmetic';
+          duration = currentTrainState.durationS;
+          ease = currentTrainState.ease;
+          nextX = currentTrainState.targetX;
+          nextY = currentTrainState.targetY;
+        }
+      }
+
+      if (mode !== 'cosmetic' && isStationaryStatus) {
+        mode = 'dwell';
+        duration = 0;
+        nextX = currentTrainState.targetX;
+        nextY = currentTrainState.targetY;
+      }
+
+      if (mode === 'dwell' || (isStationaryStatus && !edgeChanged)) {
+         store.updateTrainPresentation(train.train_id, {
+           animationMode: 'dwell',
+           durationS: 0,
+           candidateEdge: newCandidateEdge,
+           candidateCount: newCandidateCount
+         });
+      } else {
+         const shouldUpdate = 
+           currentTrainState.lastConfirmedEdge !== acceptedEdge ||
+           currentTrainState.targetX !== nextX ||
+           currentTrainState.targetY !== nextY ||
+           currentTrainState.animationMode !== mode ||
+           currentTrainState.durationS !== duration ||
+           currentTrainState.candidateEdge !== newCandidateEdge ||
+           currentTrainState.candidateCount !== newCandidateCount;
+
+         if (shouldUpdate) {
+           store.updateTrainPresentation(train.train_id, {
+             lastConfirmedEdge: acceptedEdge,
+             targetX: nextX,
+             targetY: nextY,
+             animationMode: mode,
+             durationS: duration,
+             ease: ease,
+             candidateEdge: newCandidateEdge,
+             candidateCount: newCandidateCount
+           });
+         }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trainStates, topology, tickIntervalS]);
 
   // ── Render: SEG ─────────────────────────────────────────────────────────────
   const renderSeg = (z: SegZone, key: number, blockXs: number[] = []) => {

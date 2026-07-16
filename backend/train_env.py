@@ -1146,10 +1146,7 @@ class TrainDispatchEnv(gym.Env):
                     else:
                         target_node = main_target
 
-                    # This is the authoritative "which edge is this train on" value —
-                    # overwrites the display-only default set above, now reflecting
-                    # the real MAIN vs DIVERT decision for this step.
-                    train['committed_next_node'] = target_node
+                    # (committed_next_node assignment moved down to commit phase to prevent UI oscillation)
 
                     # Determine physical distance to target block
                     dist_to_next = abs(self.get_node_km(target_node) - self.get_node_km(pos))
@@ -1206,6 +1203,7 @@ class TrainDispatchEnv(gym.Env):
                     old_pos = pos
                     self._move_train(train, old_pos, target_node)
                     train['position'] = target_node
+                    train['committed_next_node'] = target_node
                     pos = target_node
                     node_data = self.track_map.get(pos, {}) # update node_data for next iteration
                     self._movement_acc[i] -= dist_to_next
