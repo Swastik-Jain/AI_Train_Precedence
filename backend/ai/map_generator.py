@@ -563,6 +563,64 @@ class GhatTokenSystem:
         if not self.trains_in_block:
             self.token_direction = None   # block free, direction released
 
+    def compute_queue(self, track_map: dict, occupied_by_node: dict, side: str) -> list[str]:
+        if not self.token_block_ids:
+            return []
+        
+        if side not in ('KSR', 'IGP'):
+            raise ValueError("side must be 'KSR' or 'IGP'")
+            
+        entry_start = None
+        if side == 'KSR':
+            candidates = []
+            for tid in self.token_block_ids:
+                prev_nodes = track_map.get(tid, {}).get('prev', [])
+                if any(p not in self.token_block_ids for p in prev_nodes):
+                    candidates.append(tid)
+            if candidates:
+                gate_node = min(candidates)
+                prev_nodes = track_map.get(gate_node, {}).get('prev', [])
+                valid_prev = [p for p in prev_nodes if p not in self.token_block_ids]
+                if valid_prev:
+                    entry_start = valid_prev[0]
+        else: # 'IGP'
+            candidates = []
+            for tid in self.token_block_ids:
+                next_nodes = track_map.get(tid, {}).get('next', [])
+                if any(n not in self.token_block_ids for n in next_nodes):
+                    candidates.append(tid)
+            if candidates:
+                gate_node = max(candidates)
+                next_nodes = track_map.get(gate_node, {}).get('next', [])
+                valid_next = [n for n in next_nodes if n not in self.token_block_ids]
+                if valid_next:
+                    entry_start = valid_next[0]
+                    
+        if entry_start is None:
+            return []
+            
+        expected_direction = 'DOWN' if side == 'KSR' else 'UP'
+        link_key = 'prev' if side == 'KSR' else 'next'
+        max_hops = 8 if side == 'KSR' else 9
+        
+        current = entry_start
+        hops = 0
+        result = []
+        
+        while current is not None and hops < max_hops:
+            train = occupied_by_node.get(current)
+            if train is None or train.get('direction') != expected_direction:
+                break
+            result.append(train.get('train_id'))
+            
+            neighbors = track_map.get(current, {}).get(link_key, [])
+            if not neighbors:
+                break
+            current = neighbors[0]
+            hops += 1
+            
+        return result
+
     def is_occupied(self) -> bool:
         return len(self.trains_in_block) > 0
 

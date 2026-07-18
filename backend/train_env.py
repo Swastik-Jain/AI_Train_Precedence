@@ -681,7 +681,7 @@ class TrainDispatchEnv(gym.Env):
                     look_ahead_ok = False
                     # Use a low-noise print or just one that we can easily grep
                     if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
-                         print(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+                         _log.debug(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
 
             # Token block check — applies before capacity check
             if self._is_in_token_block(main_target):
@@ -1242,7 +1242,7 @@ class TrainDispatchEnv(gym.Env):
                         if not self._next_section_has_room(target_node, direction, directional_check=False):
                             look_ahead_ok = False
                             if train.get('speed', 0) > 0 or act != 0:
-                                print(f"[LOOK-AHEAD DENIAL] Train {train['id']} ({direction}) denied entry into chokepoint Node {target_node} because the next section is full.")
+                                _log.debug(f"[LOOK-AHEAD DENIAL] Train {train['id']} ({direction}) denied entry into chokepoint Node {target_node} because the next section is full.")
 
                     if commit_occ >= commit_cap or not look_ahead_ok:
                         train['speed'] = 0

@@ -55,7 +55,11 @@ class NewTrainRequest(BaseModel):
     max_speed: int  = 110                 # km/h
     priority: Optional[int] = None        # auto-derived from type if omitted
     start_time: int = 0                   # minutes from session start
-    deadline: int   = 120                 # minutes from session start
+    deadline: int   = 120                 # accepted for backward compatibility;
+                                          # server recomputes this from
+                                          # max_speed + corridor distance
+                                          # in fleet_service.add_train —
+                                          # this value is not used.
     direction: int  = 1                   # 1 = forward
 
 class SimSpeedRequest(BaseModel):

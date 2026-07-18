@@ -156,15 +156,13 @@ def run_fcfs(
             if rew <= -70:
                 ep_collision = True
                 
-            kasara_data = env.station_nodes.get('KASARA', {})
-            igatpuri_data = env.station_nodes.get('IGATPURI', {})
-            ghat_nodes = kasara_data.get('platforms', []) + igatpuri_data.get('platforms', [])
-            for key in ['switch_in', 'switch_out']:
-                if key in kasara_data: ghat_nodes.append(kasara_data[key])
-                if key in igatpuri_data: ghat_nodes.append(igatpuri_data[key])
-            for t in env.trains:
-                if not t['finished'] and t['position'] in ghat_nodes and t['speed'] == 0 and t.get('dwell_rem', 0) == 0:
-                    ghat_wait_ep += 1
+            occupied_by_node = {
+                t['position']: {'train_id': t['id'], 'direction': t.get('direction', 'DOWN')}
+                for t in env.trains if not t['finished']
+            }
+            ksr_q = env.ghat_token.compute_queue(env.track_map, occupied_by_node, 'KSR')
+            igp_q = env.ghat_token.compute_queue(env.track_map, occupied_by_node, 'IGP')
+            ghat_wait_ep += len(ksr_q) + len(igp_q)
 
         finished    = [t for t in env.trains if t['finished']]
         unfinished  = [t for t in env.trains if not t['finished']]
