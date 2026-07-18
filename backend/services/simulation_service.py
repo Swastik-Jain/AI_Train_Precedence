@@ -368,8 +368,12 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
 
                                 # Build edge_id — topology ends at node 83 → 999
                                 direction_str = live.get('direction', 'DOWN')
+                                committed_next = rl_train.get('committed_next_node')
 
-                                if node_id == 999 or node_id == 998:
+                                if not committed_next:
+                                    # Fallbacks if RL engine hasn't chosen next node yet
+                                    edge_id = live.get('path', ['edge-0-1'])[0]
+                                elif node_id == 999 or node_id == 998:
                                     edge_id = "edge-83-999"
                                 elif node_id == 0:
                                     edge_id = "edge-0-1"
@@ -387,6 +391,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                         edge_id = f"edge-{node_id}-{committed_next}"
 
                                 live['edge_id']    = edge_id
+                                live['position_node'] = node_id
                                 live['speed_kmh']  = speed
                             
                                 # Smooth continuous position extraction.
@@ -598,39 +603,53 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             if not (state.inference_active and t_state.get('status') == 'Waiting at Signal' and t_state.get('override_action') is None):
                                 t_state['status'] = 'Halted'
 
+            if state.sim_tick % 100 == 0:
+                print(f"[HEARTBEAT] Sim tick: {state.sim_tick}")
 
-            edges_occupied: Dict[str, list] = {}
+            # Collect trains by their real physical position (node_id)
+            nodes_occupied: Dict[int, list] = {}
             for t_id, t_state in state.train_states.items():
                 if t_state.get('status') not in ('Finished', 'Scheduled'):
-                    edges_occupied.setdefault(t_state['edge_id'], []).append(t_state)
+                    real_node = t_state.get('position_node', t_state.get('position', 0))
+                    nodes_occupied.setdefault(real_node, []).append(t_state)
 
             conflicts: set = set()
+            train_conflicts: set = set()
+            
             # Active maintenance blocks are also surfaced as conflicts for the map
             for element_id, blk in state.active_blocks.items():
                 if blk.get('severity') == 'TOTAL_BLOCK':
                     conflicts.add(element_id)
 
-            for e_id, trains in edges_occupied.items():
-                # Find edge capacity
-                cap = 1
-                for edge_info in state.network_topology.get('edges', []):
-                    if edge_info['id'] == e_id:
-                        cap = edge_info.get('capacity', 1)
-                        break
-            
-                if len(trains) > cap:
-                    conflicts.add(e_id)
-                    for t in trains:
-                        if t['status'] != 'Blocked':
-                            t['status'] = 'Halted'
+            # Node-based train-crowding check using identical logic to physics engine
+            try:
+                _, env = _get_sim_brain(state)
+                inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
+            except Exception:
+                inner_env = None
 
-            for e_id, trains in edges_occupied.items():
-                if e_id not in conflicts:
-                    for t in trains:
-                        # If they were Halted due to a physical conflict, they can now resume moving.
-                        # We do NOT overwrite 'Waiting at Signal' or 'Boarding' or 'Scheduled'.
-                        if t['status'] == 'Halted':
-                            t['status'] = 'Moving'
+            if inner_env:
+                for node_id, trains in nodes_occupied.items():
+                    node_cap = inner_env.track_map.get(node_id, {}).get('capacity', 1)
+                    node_occ = inner_env.get_node_occupancy(node_id)
+                
+                    # Using the identical condition that train_env.py uses to block moves
+                    if len(trains) > node_cap:
+                        for t in trains:
+                            train_conflicts.add(t['train_id'])
+                            if t['status'] != 'Blocked':
+                                t['status'] = 'Halted'
+
+            # Resume trains that are no longer over physical capacity
+            for t_id, t_state in state.train_states.items():
+                if t_id not in train_conflicts:
+                    # If they were Halted due to a physical conflict, they can now resume moving.
+                    # We do NOT overwrite 'Waiting at Signal' or 'Boarding' or 'Scheduled'.
+                    if t_state.get('status') == 'Halted':
+                        t_state['status'] = 'Moving'
+
+            if hasattr(state, '_active_conflicts'):
+                state._active_conflicts.intersection_update(conflicts)
 
         payload = {
             "type": "topology_update",
@@ -639,6 +658,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
             "trains": [t for t in state.train_states.values() if t.get("status") not in ("Scheduled", "Finished")],
             "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in state.train_states.values() if t.get("status") != "Finished"],
             "conflicts": list(conflicts),
+            "train_conflicts": list(train_conflicts),
             "maintenance_blocks": list(state.active_blocks.values()),
             "token_trains": [],
         }
@@ -668,6 +688,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                     "trains": [],
                     "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in state.train_states.values() if t.get("status") != "Finished"],
                     "conflicts": [],
+                    "train_conflicts": [],
                     "maintenance_blocks": list(state.active_blocks.values()),
                 })
 

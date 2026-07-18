@@ -13,8 +13,8 @@ SUGGESTION_TTL_TICKS = 20
 COPILOT_SUGGESTIONS_MAX_SIZE = 100
 
 # Canonical corridor paths
-DOWN_PATH: List[str] = [f"edge-{k}-{k+1}" for k in range(83)] + ["edge-83-999"]
-UP_PATH:   List[str] = ["edge-83-999"] + [f"edge-{k}-{k+1}" for k in reversed(range(83))]
+DOWN_PATH: List[str] = [f"edge-{k}-{k+1}" for k in range(195)] + ["edge-195-999"]
+UP_PATH:   List[str] = ["edge-195-999"] + [f"edge-{k}-{k+1}" for k in reversed(range(195))]
 
 # Fleet config defaults
 TRAIN_TYPES = ["Vande Bharat", "Rajdhani", "Superfast", "Express",

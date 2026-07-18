@@ -21,6 +21,7 @@ export const EDGE_DEBOUNCE_TICKS = 2; // How many consecutive ticks a new displa
 export interface TrainPresentationState {
   train_id: string;
   lastConfirmedEdge: string | null;
+  lastConfirmedNode?: number | null;
   
   // The logical target positions for framer-motion to animate towards.
   targetX: number;
