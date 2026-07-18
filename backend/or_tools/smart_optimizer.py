@@ -64,6 +64,7 @@ class SmartOptimizer:
         ghat_token=None,           # GhatTokenSystem | None
         node_km: dict = None,      # node_id → km, for direction resolution
         raw_actions: list = None,
+        safe_to_proceed_fn=None,   # Shared TrainSimulationEnv.is_safe_to_proceed(train, target, occ)
     ) -> tuple:
         """
         Apply heuristic safety rules on top of RL action proposals.
@@ -160,7 +161,18 @@ class SmartOptimizer:
             # Even if the RL agent chose HOLD (rl_original_action == 0), there
             # is no strategic reason to wait on a mainline segment.
             if act == 0 and node_type in MAINLINE_TYPES and not is_forced_stop:
-                if main_occ < main_cap and not token_blocked:
+                # Combine current and claimed occupancy for this check
+                combined_occ = {
+                    n: {d: current_occ[n][d] + claimed_occ[n][d] for d in current_occ[n]}
+                    for n in set(list(current_occ.keys()) + list(claimed_occ.keys()))
+                }
+                
+                if safe_to_proceed_fn:
+                    is_safe = safe_to_proceed_fn(train, main_target, combined_occ)
+                else:
+                    is_safe = (main_occ < main_cap and not token_blocked)
+                
+                if is_safe:
                     act = 1
                     safe_actions[i] = 1
                     _log.debug(

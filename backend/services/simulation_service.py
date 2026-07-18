@@ -328,6 +328,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                     track_map=inner_env.track_map,
                                     node_km=node_km,
                                     raw_actions=raw_actions,
+                                    ghat_token=inner_env.ghat_token,
+                                    safe_to_proceed_fn=inner_env.is_safe_to_proceed
                                 )
                             else:
                                 safe_actions, decision_meta = desired_actions.copy(), {}

@@ -485,7 +485,7 @@ class TrainDispatchEnv(gym.Env):
                 return True
         return False
 
-    def _next_section_has_room(self, candidate_node: int, direction: str, directional_check: bool) -> bool:
+    def _next_section_has_room(self, candidate_node: int, direction: str, directional_check: bool, train_id: str) -> bool:
         """
         Check if the immediate next section after candidate_node has room.
         Used at chokepoint nodes to prevent admitting a train that would instantly get stuck.
@@ -497,6 +497,12 @@ class TrainDispatchEnv(gym.Env):
             return True
             
         next_hop = next_opts[0]
+        
+        # Check token block ownership for the next hop
+        if self._is_in_token_block(next_hop):
+            if self.ghat_token and not self.ghat_token.can_enter(train_id, direction):
+                return False
+                
         cap = self.track_map.get(next_hop, {}).get('capacity', 1)
         
         if directional_check:
@@ -506,6 +512,38 @@ class TrainDispatchEnv(gym.Env):
         else:
             occ = self.get_node_occupancy(next_hop)
             return occ < cap
+
+    def is_safe_to_proceed(self, train: dict, target_node: int, current_occ: dict = None) -> bool:
+        """
+        Unified safety check consulted by both the RL mask and OR-Shield (anti-loiter).
+        Checks token block availability, capacity, and chokepoint look-ahead.
+        """
+        direction = train['direction']
+        
+        # 1. Chokepoint Look-ahead
+        if self._is_chokepoint_node(target_node):
+            if not self._next_section_has_room(target_node, direction, directional_check=True, train_id=train['id']):
+                return False
+                
+        # 2. Token Block Ownership
+        if self._is_in_token_block(target_node):
+            if self.ghat_token and not self.ghat_token.can_enter(train['id'], direction):
+                return False
+                
+        # 3. Capacity Check
+        main_cap = self.track_map.get(target_node, {}).get('capacity', 1)
+        dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+        
+        if current_occ is not None:
+            # current_occ is expected to be a nested dict: {node: {direction: count}}
+            occ = current_occ.get(target_node, {}).get(direction, 0)
+        else:
+            occ = self.get_node_occupancy(target_node, direction)
+            
+        if occ >= dir_cap:
+            return False
+            
+        return True
 
     # ─────────────────────────────────────────────────────────────────────────
     # SIGNAL CHECK — km-based, direction-aware
@@ -677,7 +715,7 @@ class TrainDispatchEnv(gym.Env):
 
             look_ahead_ok = True
             if self._is_chokepoint_node(main_target):
-                if not self._next_section_has_room(main_target, direction, directional_check=True):
+                if not self._next_section_has_room(main_target, direction, directional_check=True, train_id=train['id']):
                     look_ahead_ok = False
                     # Use a low-noise print or just one that we can easily grep
                     if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
@@ -722,7 +760,7 @@ class TrainDispatchEnv(gym.Env):
                 occ = self.get_node_occupancy(loop_n)
                 loop_look_ahead_ok = True
                 if self._is_chokepoint_node(loop_n):
-                    if not self._next_section_has_room(loop_n, direction, directional_check=True):
+                    if not self._next_section_has_room(loop_n, direction, directional_check=True, train_id=train['id']):
                         loop_look_ahead_ok = False
                 if occ < cap and loop_look_ahead_ok:
                     mask[i, 2] = True
@@ -1079,8 +1117,32 @@ class TrainDispatchEnv(gym.Env):
                     continue
                 train['target_speed'] = min(track_limit, train['max_speed'])
             elif act == 2:
-                # DIVERT logic
-                pass
+                next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+                if not next_opts:
+                    reward -= 0.05
+                    current_positions.append(pos)
+                    continue
+                main_target = next_opts[0]
+                loop_targets = [n for n in next_opts if n != main_target]
+                valid_loops = self._get_valid_loops(loop_targets, direction)
+                
+                target_node = None
+                for lnode in valid_loops:
+                    cap = self.track_map.get(lnode, {}).get('capacity', 1)
+                    if self.get_node_occupancy(lnode) < cap:
+                        target_node = lnode
+                        break
+                        
+                if target_node is None:
+                    target_node = main_target
+                    cap = self.track_map.get(target_node, {}).get('capacity', 1)
+                    dir_cap = max(1, cap // 2) if cap > 1 else cap
+                    if self.get_node_occupancy(target_node, direction) >= dir_cap:
+                        reward -= 0.05
+                        current_positions.append(pos)
+                        continue
+                        
+                train['target_speed'] = min(track_limit, train['max_speed'])
             else:
                 train['target_speed'] = 0
 
@@ -1157,14 +1219,6 @@ class TrainDispatchEnv(gym.Env):
                             if not moved_this_step:
                                 reward -= 0.02
                         else:
-                            # Successful divert — apply dwell if scheduled stop
-                            lnode_station = self.track_map.get(target_node, {}).get('station')
-                            if (lnode_station and
-                                    self._is_scheduled_stop(train, lnode_station) and
-                                    self.track_map[target_node]['type'] == 'PLATFORM'):
-                                train['dwell_rem'] = DWELL_TIME_PLATFORM
-                            elif self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
-                                train['dwell_rem'] = DWELL_TIME_LOOP
 
                             if train['priority'] < 5:
                                 main_occ = self.get_node_occupancy(main_target)
@@ -1239,7 +1293,7 @@ class TrainDispatchEnv(gym.Env):
                     
                     look_ahead_ok = True
                     if self._is_chokepoint_node(target_node):
-                        if not self._next_section_has_room(target_node, direction, directional_check=False):
+                        if not self._next_section_has_room(target_node, direction, directional_check=False, train_id=train['id']):
                             look_ahead_ok = False
                             if train.get('speed', 0) > 0 or act != 0:
                                 _log.debug(f"[LOOK-AHEAD DENIAL] Train {train['id']} ({direction}) denied entry into chokepoint Node {target_node} because the next section is full.")
@@ -1290,9 +1344,11 @@ class TrainDispatchEnv(gym.Env):
                                 train['banker_wait_action'] = 'ATTACH'
 
                     if (target_station and
-                            self.track_map[target_node]['type'] == 'PLATFORM' and
+                            self.track_map.get(target_node, {}).get('type') == 'PLATFORM' and
                             self._is_scheduled_stop(train, target_station)):
                         train['dwell_rem'] = DWELL_TIME_PLATFORM
+                    elif act == 2 and self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
+                        train['dwell_rem'] = DWELL_TIME_LOOP
 
                     if target_node not in train['visited_nodes']:
                         train['visited_nodes'].add(target_node)
