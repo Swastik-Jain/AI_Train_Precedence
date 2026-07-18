@@ -32,8 +32,9 @@ export interface TopologyData {
 export interface TrainState {
   train_id: string;
   edge_id: string;
+  position_node: number;
   position_percentage: number;
-  status: 'Moving' | 'Halted' | 'Conflict';
+  status: 'Finished' | 'Scheduled' | 'Banker Ops' | 'Boarding' | 'Waiting at Signal' | 'Moving' | 'Halted';
   path: string[];
   direction?: string | number;
 }
@@ -48,6 +49,7 @@ interface MapState {
   trainStates: TrainState[];
   allTrains: TrainOption[];
   conflicts: string[];
+  trainConflicts: string[];
   tokenTrains: string[];
   /** Edges that just had an AI action committed — shown as green flash */
   committedEdges: Set<string>;
@@ -63,7 +65,7 @@ interface MapState {
   tickIntervalS: number;
   
   setTopology: (topology: TopologyData) => void;
-  updateLiveState: (trains: TrainState[], conflicts: string[], allTrains: TrainOption[]) => void;
+  updateLiveState: (trains: TrainState[], conflicts: string[], trainConflicts: string[], allTrains: TrainOption[]) => void;
   setSelectedTrain: (trainId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
   setIsConnected: (status: boolean) => void;
@@ -81,6 +83,7 @@ export const useMapStore = create<MapState>((set) => {
     trainStates: [],
     allTrains: [],
     conflicts: [],
+    trainConflicts: [],
     tokenTrains: [],
     committedEdges: new Set<string>(),
     selectedTrainId: null,
@@ -95,7 +98,7 @@ export const useMapStore = create<MapState>((set) => {
 
     setTopology: (topology) => set({ topology }),
     
-    updateLiveState: (trainStates, conflicts, allTrains) => set({ trainStates, conflicts, allTrains }),
+    updateLiveState: (trainStates, conflicts, trainConflicts, allTrains) => set({ trainStates, conflicts, trainConflicts, allTrains }),
     
     setSelectedTrain: (selectedTrainId) => set({ selectedTrainId }),
     
@@ -129,9 +132,10 @@ export const useMapStore = create<MapState>((set) => {
         } else if (data.type === 'topology_update') {
           set((state) => ({ 
             trainStates: data.trains || [],
-            allTrains: data.all_trains || [],
             conflicts: data.conflicts || [],
-            tokenTrains: data.token_trains || [],
+            trainConflicts: data.train_conflicts || [],
+            allTrains: data.all_trains || [],
+            tokenTrains: data.token_trains || state.tokenTrains,
             simTick: data.sim_time !== undefined ? data.sim_time : state.simTick,
             tickIntervalS: data.tick_interval_s !== undefined ? data.tick_interval_s : state.tickIntervalS
           }));

@@ -78,20 +78,23 @@ const STATION_META: Record<string, StMeta> = {
 const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
   const trainState = usePresentationStore(state => state.trains[train.train_id]);
   
-  // If the store hasn't initialized yet, fallback to raw getPos so it doesn't blink
-  const rawPos = getPos(train);
-  if (!rawPos) return null;
-
-  let targetX = rawPos.x;
-  let targetY = rawPos.y;
-  let durationS = 0; // immediate snap on first render
-  let ease = "linear";
+  let targetX, targetY, durationS, ease;
 
   if (trainState) {
     targetX = trainState.targetX;
     targetY = trainState.targetY;
     durationS = trainState.durationS;
     ease = trainState.ease;
+  } else {
+    // If the store hasn't initialized yet, fallback to raw getPos so it doesn't blink.
+    // This only runs on the very first render before the store initialization catches up.
+    const rawPos = getPos(train);
+    if (!rawPos) return null;
+
+    targetX = rawPos.x;
+    targetY = rawPos.y;
+    durationS = 0; // immediate snap on first render
+    ease = "linear";
   }
 
   const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
@@ -129,7 +132,7 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
 
 export const KineticMap: React.FC = () => {
   const {
-    topology, trainStates, conflicts,
+    topology, trainStates, trainConflicts,
     connectWebSocket, setSelectedTrain,
     selectedTrainId, committedTrainId, committedAction, zoomLevel,
     tickIntervalS,
@@ -519,6 +522,7 @@ export const KineticMap: React.FC = () => {
       if (!currentTrainState) {
         store.initializeTrainPresentation(train.train_id, {
           lastConfirmedEdge: train.edge_id,
+          lastConfirmedNode: train.position_node,
           targetX: pos.x,
           targetY: pos.y,
           animationMode: 'initial',
@@ -534,18 +538,8 @@ export const KineticMap: React.FC = () => {
       // Determine if a raw edge change is a genuine physical move (the current node changed)
       // or just a display-default next-hop flip (current node unchanged).
       if (rawEdgeChanged && currentTrainState.lastConfirmedEdge) {
-        const getSourceNode = (eid: string, dir: string | number) => {
-          const parts = eid.split('-');
-          if (parts.length !== 3) return null;
-          const isUp = dir === "UP" || dir === 1 || dir === -1;
-          // UP trains move from target to source (higher node to lower node)
-          // edge_id format: edge-{lower}-{higher} => parts[1] is lower, parts[2] is higher
-          // UP current node is higher (parts[2]), DOWN current node is lower (parts[1])
-          return isUp ? parts[2] : parts[1];
-        };
-        const oldCurrentNode = getSourceNode(currentTrainState.lastConfirmedEdge, train.direction ?? "DOWN");
-        const newCurrentNode = getSourceNode(train.edge_id, train.direction ?? "DOWN");
-        if (oldCurrentNode && newCurrentNode && oldCurrentNode !== newCurrentNode) {
+        if (currentTrainState.lastConfirmedNode !== undefined && 
+            currentTrainState.lastConfirmedNode !== train.position_node) {
           isGenuinePhysicalMove = true;
         }
       }
@@ -591,7 +585,7 @@ export const KineticMap: React.FC = () => {
 
       // Secondary backstop: status check for stationary states.
       // Primary trigger for animation remains node/edge changes.
-      const stationaryStatuses = ['Banker Ops', 'Boarding', 'Waiting at Signal', 'Halted'];
+      const stationaryStatuses = ['Scheduled', 'Banker Ops', 'Boarding', 'Waiting at Signal'];
       const isStationaryStatus = stationaryStatuses.includes(train.status);
 
       let mode: any = 'physics';
@@ -635,6 +629,7 @@ export const KineticMap: React.FC = () => {
       } else {
          const shouldUpdate = 
            currentTrainState.lastConfirmedEdge !== acceptedEdge ||
+           currentTrainState.lastConfirmedNode !== train.position_node ||
            currentTrainState.targetX !== nextX ||
            currentTrainState.targetY !== nextY ||
            currentTrainState.animationMode !== mode ||
@@ -645,6 +640,7 @@ export const KineticMap: React.FC = () => {
          if (shouldUpdate) {
            store.updateTrainPresentation(train.train_id, {
              lastConfirmedEdge: acceptedEdge,
+             lastConfirmedNode: train.position_node,
              targetX: nextX,
              targetY: nextY,
              animationMode: mode,
@@ -952,7 +948,7 @@ export const KineticMap: React.FC = () => {
       // Fetch occupancy logically by platform index!
       const occTrain = trackOccupancy.get(i); 
       
-      const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
+      const isConflict = occTrain && trainConflicts.includes(occTrain.train_id);
       const isHalted   = occTrain?.status === 'Halted';
       const pfFill   = !occTrain ? 'rgba(35,38,45,0.6)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
       const pfStroke = !occTrain ? '#333' : isConflict ? '#ef4444' : isHalted ? '#f59e0b' : '#22c55e';
@@ -972,7 +968,7 @@ export const KineticMap: React.FC = () => {
       // Fetch occupancy logically by loop index!
       const occTrain = loopOccupancy.get(l);
 
-      const isConflict = occTrain && conflicts.includes(occTrain.edge_id);
+      const isConflict = occTrain && trainConflicts.includes(occTrain.train_id);
       const isHalted   = occTrain?.status === 'Halted';
       const pfFill   = !occTrain ? 'rgba(35,38,45,0.6)' : isConflict ? 'rgba(60,15,15,0.9)' : isHalted ? 'rgba(60,40,10,0.9)' : 'rgba(10,35,20,0.9)';
       const pfStroke = !occTrain ? '#333' : isConflict ? '#ef4444' : isHalted ? '#f59e0b' : '#22c55e';
@@ -1125,7 +1121,7 @@ export const KineticMap: React.FC = () => {
             const isSel      = selectedTrainId  === train.train_id;
             const isCommit   = committedTrainId === train.train_id;
             const isHover    = hoveredTrain     === train.train_id;
-            const isConflict = conflicts.includes(train.edge_id);
+            const isConflict = trainConflicts.includes(train.train_id);
             const isHalted   = train.status === 'Halted';
             const isAI       = topology?.edges.some(
               e => e.id === train.edge_id && aiAffectedEdges.has(e.id)

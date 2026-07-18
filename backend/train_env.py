@@ -301,13 +301,14 @@ class TrainDispatchEnv(gym.Env):
          self.token_blocks) = generate_realistic_section()
 
         # Add UP-direction staging node (mirror of node 0 for DOWN trains)
-        # Node 998: UP trains wait here before entering Manmad switch_in
-        manmad_switch_in = self.station_nodes['MANMAD']['switch_in']
+        # Node 998: UP trains wait here before entering Manmad switch_out
+        manmad_switch_out = self.station_nodes['MANMAD']['switch_out']
         self.track_map[998] = {
             'type':        'ORIGIN',
             'speed':       0,
             'capacity':    99,
-            'next':        [manmad_switch_in],
+            'prev':        [manmad_switch_out],
+            'next':        [],
             'km':          SECTION_LENGTH_KM,
             'station':     None,
             'token_block': False,
@@ -1203,9 +1204,11 @@ class TrainDispatchEnv(gym.Env):
                     old_pos = pos
                     self._move_train(train, old_pos, target_node)
                     train['position'] = target_node
-                    train['committed_next_node'] = target_node
                     pos = target_node
                     node_data = self.track_map.get(pos, {}) # update node_data for next iteration
+                    
+                    _commit_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+                    train['committed_next_node'] = _commit_next_opts[0] if _commit_next_opts else pos
                     self._movement_acc[i] -= dist_to_next
                     moved_this_step = True
 
