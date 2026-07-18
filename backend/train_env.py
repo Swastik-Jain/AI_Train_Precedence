@@ -472,6 +472,41 @@ class TrainDispatchEnv(gym.Env):
         )
         return free / len(pf_ids)
 
+    def _is_chokepoint_node(self, node_id: int) -> bool:
+        """Return True if this is a SWITCH node bordering a token-block section."""
+        node_data = self.track_map.get(node_id, {})
+        if node_data.get('type') != 'SWITCH':
+            return False
+        for nxt in node_data.get('next', []):
+            if self._is_in_token_block(nxt):
+                return True
+        for prv in node_data.get('prev', []):
+            if self._is_in_token_block(prv):
+                return True
+        return False
+
+    def _next_section_has_room(self, candidate_node: int, direction: str, directional_check: bool) -> bool:
+        """
+        Check if the immediate next section after candidate_node has room.
+        Used at chokepoint nodes to prevent admitting a train that would instantly get stuck.
+        """
+        node_data = self.track_map.get(candidate_node, {})
+        next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+        
+        if not next_opts:
+            return True
+            
+        next_hop = next_opts[0]
+        cap = self.track_map.get(next_hop, {}).get('capacity', 1)
+        
+        if directional_check:
+            dir_cap = max(1, cap // 2) if cap > 1 else cap
+            occ = self.get_node_occupancy(next_hop, direction)
+            return occ < dir_cap
+        else:
+            occ = self.get_node_occupancy(next_hop)
+            return occ < cap
+
     # ─────────────────────────────────────────────────────────────────────────
     # SIGNAL CHECK — km-based, direction-aware
     # ─────────────────────────────────────────────────────────────────────────
@@ -640,6 +675,14 @@ class TrainDispatchEnv(gym.Env):
             # Determine main target (first in next_opts for both directions now)
             main_target = next_opts[0]
 
+            look_ahead_ok = True
+            if self._is_chokepoint_node(main_target):
+                if not self._next_section_has_room(main_target, direction, directional_check=True):
+                    look_ahead_ok = False
+                    # Use a low-noise print or just one that we can easily grep
+                    if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
+                         print(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+
             # Token block check — applies before capacity check
             if self._is_in_token_block(main_target):
                 if not self.ghat_token.can_enter(train['id'], direction):
@@ -650,14 +693,14 @@ class TrainDispatchEnv(gym.Env):
                     main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
                     dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
                     main_occ = self.get_node_occupancy(main_target, direction)
-                    if main_occ < dir_cap:
+                    if main_occ < dir_cap and look_ahead_ok:
                         mask[i, 1] = True
             else:
                 # Normal capacity check for main target
                 main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
                 dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
                 main_occ = self.get_node_occupancy(main_target, direction)
-                if main_occ < dir_cap:
+                if main_occ < dir_cap and look_ahead_ok:
                     mask[i, 1] = True
 
             # DIVERT check — loop/platform nodes (next_opts[1:])
@@ -677,7 +720,11 @@ class TrainDispatchEnv(gym.Env):
             for loop_n in valid_loops:
                 cap = self.track_map.get(loop_n, {}).get('capacity', 1)
                 occ = self.get_node_occupancy(loop_n)
-                if occ < cap:
+                loop_look_ahead_ok = True
+                if self._is_chokepoint_node(loop_n):
+                    if not self._next_section_has_room(loop_n, direction, directional_check=True):
+                        loop_look_ahead_ok = False
+                if occ < cap and loop_look_ahead_ok:
                     mask[i, 2] = True
                     break
 
@@ -1189,7 +1236,15 @@ class TrainDispatchEnv(gym.Env):
                     # Capacity check at commit time
                     commit_occ = self.get_node_occupancy(target_node)
                     commit_cap = self.track_map.get(target_node, {}).get('capacity', 1)
-                    if commit_occ >= commit_cap:
+                    
+                    look_ahead_ok = True
+                    if self._is_chokepoint_node(target_node):
+                        if not self._next_section_has_room(target_node, direction, directional_check=False):
+                            look_ahead_ok = False
+                            if train.get('speed', 0) > 0 or act != 0:
+                                print(f"[LOOK-AHEAD DENIAL] Train {train['id']} ({direction}) denied entry into chokepoint Node {target_node} because the next section is full.")
+
+                    if commit_occ >= commit_cap or not look_ahead_ok:
                         train['speed'] = 0
                         train['target_speed'] = 0
                         self._train_speeds[i] = 0
