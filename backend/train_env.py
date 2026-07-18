@@ -657,6 +657,23 @@ class TrainDispatchEnv(gym.Env):
                 valid_loops.append(lnode)
         return valid_loops
 
+    def _select_divert_target(self, train: dict, loop_targets: list, direction: str):
+        """
+        Returns the first available valid loop node, or None if all are full/invalid.
+        """
+        valid_loops = self._get_valid_loops(loop_targets, direction)
+        for lnode in valid_loops:
+            cap = self.track_map.get(lnode, {}).get('capacity', 1)
+            occ = self.get_node_occupancy(lnode)
+            
+            loop_look_ahead_ok = True
+            if self._is_chokepoint_node(lnode):
+                if not self._next_section_has_room(lnode, direction, directional_check=True, train_id=train['id']):
+                    loop_look_ahead_ok = False
+            
+            if occ < cap and loop_look_ahead_ok:
+                return lnode
+        return None
 
     def get_action_mask(self) -> np.ndarray:
         """
@@ -1124,15 +1141,8 @@ class TrainDispatchEnv(gym.Env):
                     continue
                 main_target = next_opts[0]
                 loop_targets = [n for n in next_opts if n != main_target]
-                valid_loops = self._get_valid_loops(loop_targets, direction)
                 
-                target_node = None
-                for lnode in valid_loops:
-                    cap = self.track_map.get(lnode, {}).get('capacity', 1)
-                    if self.get_node_occupancy(lnode) < cap:
-                        target_node = lnode
-                        break
-                        
+                target_node = self._select_divert_target(train, loop_targets, direction)
                 if target_node is None:
                     target_node = main_target
                     cap = self.track_map.get(target_node, {}).get('capacity', 1)
@@ -1205,15 +1215,7 @@ class TrainDispatchEnv(gym.Env):
                     loop_targets = [n for n in next_opts if n != main_target]
 
                     if act == 2 and loop_targets:
-                        target_node = None
-                        valid_loops = self._get_valid_loops(loop_targets, direction)
-                        for lnode in valid_loops:
-                            cap = self.track_map.get(lnode, {}).get('capacity', 1)
-                            occ = self.get_node_occupancy(lnode)
-                            if occ < cap:
-                                target_node = lnode
-                                break
-
+                        target_node = self._select_divert_target(train, loop_targets, direction)
                         if target_node is None:
                             target_node = main_target
                             if not moved_this_step:
