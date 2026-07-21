@@ -1290,12 +1290,13 @@ class TrainDispatchEnv(gym.Env):
                                 break
 
                     # Capacity check at commit time
-                    commit_occ = self.get_node_occupancy(target_node)
-                    commit_cap = self.track_map.get(target_node, {}).get('capacity', 1)
+                    commit_cap_raw = self.track_map.get(target_node, {}).get('capacity', 1)
+                    commit_cap = max(1, commit_cap_raw // 2) if commit_cap_raw > 1 else commit_cap_raw
+                    commit_occ = self.get_node_occupancy(target_node, direction)
                     
                     look_ahead_ok = True
                     if self._is_chokepoint_node(target_node):
-                        if not self._next_section_has_room(target_node, direction, directional_check=False, train_id=train['id']):
+                        if not self._next_section_has_room(target_node, direction, directional_check=True, train_id=train['id']):
                             look_ahead_ok = False
                             if train.get('speed', 0) > 0 or act != 0:
                                 _log.debug(f"[LOOK-AHEAD DENIAL] Train {train['id']} ({direction}) denied entry into chokepoint Node {target_node} because the next section is full.")

@@ -603,20 +603,38 @@ class GhatTokenSystem:
         link_key = 'prev' if side == 'KSR' else 'next'
         max_hops = 8 if side == 'KSR' else 9
         
-        current = entry_start
-        hops = 0
+        current_layer = [entry_start]
+        visited = {entry_start}
         result = []
+        hops = 0
         
-        while current is not None and hops < max_hops:
-            train = occupied_by_node.get(current)
-            if train is None or train.get('direction') != expected_direction:
-                break
-            result.append(train.get('train_id'))
+        while current_layer and hops < max_hops:
+            next_layer = []
+            layer_has_train = False
+            layer_has_switch = False
             
-            neighbors = track_map.get(current, {}).get(link_key, [])
-            if not neighbors:
+            for node in current_layer:
+                train = occupied_by_node.get(node)
+                is_occupied = (train is not None and train.get('direction') == expected_direction)
+                
+                if is_occupied:
+                    result.append(train.get('train_id'))
+                    layer_has_train = True
+                    
+                node_type = track_map.get(node, {}).get('type')
+                if node_type == 'SWITCH':
+                    layer_has_switch = True
+                    
+                for nxt in track_map.get(node, {}).get(link_key, []):
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        next_layer.append(nxt)
+            
+            # The occupancy chain breaks if this topological layer has NO trains AND NO switches
+            if not layer_has_train and not layer_has_switch:
                 break
-            current = neighbors[0]
+                
+            current_layer = next_layer
             hops += 1
             
         return result

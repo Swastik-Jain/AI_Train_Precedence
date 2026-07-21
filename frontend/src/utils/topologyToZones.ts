@@ -1,5 +1,5 @@
 export type SegZone     = { type:'SEG'; x1:number; x2:number; cap:number; isGhat?:boolean; speed?:number; km?:number; startKm?:number; endKm?:number };
-export type SwitchZone  = { type:'SW';  x1:number; x2:number; fromCap:number; toCap:number };
+export type SwitchZone  = { type:'SW';  x1:number; x2:number; fromCap:number; toCap:number; stId?:string };
 export type StationZone = { type:'ST';  x1:number; x2:number; cap:number; stId:string; isLeft?:boolean; isRight?:boolean };
 export type Zone        = SegZone | SwitchZone | StationZone;
 
@@ -93,7 +93,7 @@ export function topologyToZones(topology: {
       // Switch before segment
       if (stCap !== segCap && stCap > 1 && segCap > 0) {
         const swWidth = 44;
-        zones.push({ type: 'SW', x1: currentX, x2: currentX + swWidth, fromCap: stCap, toCap: segCap });
+        zones.push({ type: 'SW', x1: currentX, x2: currentX + swWidth, fromCap: stCap, toCap: segCap, stId: (st as any).station || (st as any).stId || st.id });
         currentX += swWidth;
       }
 
@@ -115,7 +115,7 @@ export function topologyToZones(topology: {
       
       if (segCap !== nextStCap && nextStCap > 1 && segCap > 0) {
         const swWidth = 44;
-        zones.push({ type: 'SW', x1: currentX, x2: currentX + swWidth, fromCap: segCap, toCap: nextStCap });
+        zones.push({ type: 'SW', x1: currentX, x2: currentX + swWidth, fromCap: segCap, toCap: nextStCap, stId: (nextSt as any).station || (nextSt as any).stId || nextSt.id });
         currentX += swWidth;
       }
     }
