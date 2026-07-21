@@ -176,6 +176,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                 "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in state.train_states.values() if t.get("status") != "Finished"],
                 "conflicts": [],
                 "maintenance_blocks": list(state.active_blocks.values()),
+                "ghat_queue": {"ksr": {"count": 0, "train_ids": []}, "igp": {"count": 0, "train_ids": []}},
             })
             await asyncio.sleep(1.0)
             continue
@@ -327,6 +328,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                     track_map=inner_env.track_map,
                                     node_km=node_km,
                                     raw_actions=raw_actions,
+                                    ghat_token=inner_env.ghat_token,
+                                    safe_to_proceed_fn=inner_env.is_safe_to_proceed
                                 )
                             else:
                                 safe_actions, decision_meta = desired_actions.copy(), {}
@@ -613,6 +616,24 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                     real_node = t_state.get('position_node', t_state.get('position', 0))
                     nodes_occupied.setdefault(real_node, []).append(t_state)
 
+            occupied_by_node = {
+                node_id: trains[0]
+                for node_id, trains in nodes_occupied.items()
+            }
+            ghat_queue = {"ksr": {"count": 0, "train_ids": []}, "igp": {"count": 0, "train_ids": []}}
+            try:
+                _, env = _get_sim_brain(state)
+                if env:
+                    inner_env = env.venv.envs[0] if hasattr(env, 'venv') else env.envs[0]
+                    ksr_ids = inner_env.ghat_token.compute_queue(inner_env.track_map, occupied_by_node, 'KSR')
+                    igp_ids = inner_env.ghat_token.compute_queue(inner_env.track_map, occupied_by_node, 'IGP')
+                    ghat_queue = {
+                        "ksr": {"count": len(ksr_ids), "train_ids": ksr_ids},
+                        "igp": {"count": len(igp_ids), "train_ids": igp_ids},
+                    }
+            except Exception as e:
+                print(f"[WARN] ghat_queue computation failed: {e}")
+
             conflicts: set = set()
             train_conflicts: set = set()
             
@@ -661,6 +682,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
             "train_conflicts": list(train_conflicts),
             "maintenance_blocks": list(state.active_blocks.values()),
             "token_trains": [],
+            "ghat_queue": ghat_queue,
         }
         
         if state.inference_active:
@@ -690,6 +712,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                     "conflicts": [],
                     "train_conflicts": [],
                     "maintenance_blocks": list(state.active_blocks.values()),
+                    "ghat_queue": ghat_queue,
                 })
 
         await asyncio.sleep(state.tick_interval_s)

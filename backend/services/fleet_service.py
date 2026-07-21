@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 import crud
 
 from state import SimulationState
-from config import TRAIN_TYPES, PRIORITY_MAP, DOWN_PATH, UP_PATH
+from config import (
+    TRAIN_TYPES, PRIORITY_MAP, DOWN_PATH, UP_PATH,
+    compute_deadline, DEFAULT_DEADLINE,
+)
 from schema import NewTrainRequest
 
 def _now_iso() -> str:
@@ -38,7 +41,7 @@ def get_fleet_live(state: SimulationState) -> Dict[str, Any]:
                 "max_speed"          : 110,
                 "priority"           : 6,
                 "start_time"         : 0,
-                "deadline"           : 120,
+                "deadline"           : DEFAULT_DEADLINE,
                 "direction"          : live.get("direction", "UP" if "UP" in t_id else "DOWN"),
                 "path"               : live.get("path", []),
                 "added_at"           : _now_iso(),
@@ -59,7 +62,7 @@ def _seed_fleet_registry(state: SimulationState):
                 "max_speed": 110,
                 "priority": 6,
                 "start_time": 0,
-                "deadline": 120,
+                "deadline": DEFAULT_DEADLINE,
                 "direction": direction,
                 "path": live.get("path", UP_PATH if direction == "UP" else DOWN_PATH),
                 "added_at": _now_iso()
@@ -92,7 +95,7 @@ async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn, 
         "max_speed" : req.max_speed,
         "priority"  : priority,
         "start_time": req.start_time,
-        "deadline"  : req.deadline,
+        "deadline"  : compute_deadline(req.start_time, req.max_speed),
         "direction" : dir_str,
         "path"      : default_path,
         "added_at"  : _now_iso(),
@@ -218,7 +221,7 @@ def generate_schedule(state: SimulationState) -> Dict[str, Any]:
         schedule_req[t_id] = {
             "stops": stops,
             "start_time": cfg.get("start_time", 0),
-            "deadline": cfg.get("deadline", 120),
+            "deadline": cfg.get("deadline", DEFAULT_DEADLINE),
         }
 
     if not active_fleet:

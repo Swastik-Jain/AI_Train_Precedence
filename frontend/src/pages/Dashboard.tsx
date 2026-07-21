@@ -4,20 +4,13 @@ import { AICopilotPanel } from '../components/AICopilotPanel/AICopilotPanel';
 import { MareyTimeline } from '../components/MareyTimeline/MareyTimeline';
 import { useMapStore } from '../store/useMapStore';
 import { useCopilotStore } from '../store/useCopilotStore';
-import { apiUrl, wsUrl } from '../lib/api';
+import { apiUrl } from '../lib/api';
 
 const GhatMonitor = () => {
   const trainStates = useMapStore(s => s.trainStates);
-  const topology = useMapStore(s => s.topology);
   const tokenTrains = useMapStore(s => s.tokenTrains);
+  const ghatQueue = useMapStore(s => s.ghatQueue);
   
-  const getKm = (edgeId: string) => {
-    if (!topology) return 0;
-    const sourceNodeId = edgeId.split('-')[1];
-    const node = topology.nodes.find(n => n.id === sourceNodeId);
-    return node ? node.km : 0;
-  };
-
   const isGhat = (t: any) => {
     // Bulletproof check: If the train is visually on the Igatpuri station segments (49, 50, platforms),
     // it is DEFINITELY out of the ghat block.
@@ -33,26 +26,9 @@ const GhatMonitor = () => {
     if (!t.train_id || !tokenTrains) return false;
     return tokenTrains.includes(t.train_id);
   };
-  const isKSR = (id: string) => {
-    const km = getKm(id);
-    // Expand to cover the entire approach from Atgaon (98km) to Kasara (121km)
-    return km >= 98 && km <= 121;
-  };
-  const isIGP = (id: string) => {
-    const km = getKm(id);
-    // Expand to cover the entire approach from Devlali (182km) down to Igatpuri (136km)
-    return km >= 136 && km <= 182;
-  };
 
   const ghatTrains = trainStates.filter(t => isGhat(t));
   const activeInGhat = ghatTrains;
-  const isQueued = (status: string) => {
-    if (!status) return false;
-    const s = status.toLowerCase();
-    return s.includes('halt') || s.includes('block') || s.includes('wait');
-  };
-  const queuedAtKSR = trainStates.filter(t => isQueued(t.status) && (t.direction === 'DOWN' || t.direction === 2) && t.edge_id && isKSR(t.edge_id));
-  const queuedAtIGP = trainStates.filter(t => isQueued(t.status) && (t.direction === 'UP' || t.direction === 1) && t.edge_id && isIGP(t.edge_id));
 
 
   return (
@@ -65,7 +41,7 @@ const GhatMonitor = () => {
         
         <div className="flex justify-between items-center mb-6">
             <div className="text-center">
-                <p className="text-xl font-black text-on-surface">{queuedAtKSR.length}</p>
+                <p className="text-xl font-black text-on-surface">{ghatQueue.ksr.count}</p>
                 <p className="text-[9px] uppercase tracking-wide text-slate-400 font-bold">KSR Queue</p>
             </div>
             
@@ -79,7 +55,7 @@ const GhatMonitor = () => {
             </div>
 
             <div className="text-center">
-                <p className="text-xl font-black text-on-surface">{queuedAtIGP.length}</p>
+                <p className="text-xl font-black text-on-surface">{ghatQueue.igp.count}</p>
                 <p className="text-[9px] uppercase tracking-wide text-slate-400 font-bold">IGP Queue</p>
             </div>
         </div>
@@ -102,15 +78,12 @@ const Dashboard: React.FC = () => {
   const [scheduleReady, setScheduleReady] = useState(false);
   const [scheduleTrainCount, setScheduleTrainCount] = useState(0);
   const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false);
-  const [aiLoad, setAiLoad] = useState(0);
   const [isInferenceActive, setIsInferenceActive] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [isLockdown, setIsLockdown] = useState(false);
-  const [isBackendConnected, setIsBackendConnected] = useState(true);
   const [isLoadingTelemetry, setIsLoadingTelemetry] = useState(true);
   const [simSpeed, setSimSpeed] = useState(0.4);
   
-  const { zoomLevel, setZoomLevel } = useMapStore();
+  const { setZoomLevel } = useMapStore();
   const { fetchBaseSchedule } = useCopilotStore();
 
   useEffect(() => {
@@ -132,13 +105,9 @@ const Dashboard: React.FC = () => {
           setTerminalTrains(data.terminal_trains);
           setScheduleReady(data.schedule_ready ?? false);
           setScheduleTrainCount(data.schedule_train_count ?? 0);
-          setIsBackendConnected(true);
-          setAiLoad(data.ai_load);
-          setIsLockdown(data.lockdown);
         }
       } catch (error) {
         console.error("Failed to fetch telemetry:", error);
-        setIsBackendConnected(false);
       } finally {
         setIsLoadingTelemetry(false);
       }

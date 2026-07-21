@@ -750,7 +750,13 @@ export const KineticMap: React.FC = () => {
     if (fromCap >= toCap) {
       // Convergence (e.g., 4 tracks narrowing to 3)
       for (let i = 0; i < fromCap; i++) {
-        const j = getClosestSource(i, fromCap, toCap);
+        let j = getClosestSource(i, fromCap, toCap);
+        
+        // Custom override: kalyan platform 4 (idx 3) to ambernath platform 1 (idx 0)
+        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) {
+          j = 0;
+        }
+
         elems.push(
           <path key={`conv-${i}`}
             d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
@@ -761,8 +767,15 @@ export const KineticMap: React.FC = () => {
       // Draw merge markers
       const seen = new Set<number>();
       for (let i = 0; i < fromCap; i++) {
-        const j = getClosestSource(i, fromCap, toCap);
-        const mergeCount = Array.from({ length: fromCap }, (_, k) => k).filter(k => getClosestSource(k, fromCap, toCap) === j).length;
+        let j = getClosestSource(i, fromCap, toCap);
+        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) j = 0;
+        
+        const mergeCount = Array.from({ length: fromCap }, (_, k) => k).filter(k => {
+          let jk = getClosestSource(k, fromCap, toCap);
+          if (z.stId === 'KALYAN' && k === 3 && fromCap === 7 && toCap === 2) jk = 0;
+          return jk === j;
+        }).length;
+        
         if (mergeCount > 1 && !seen.has(j)) {
           seen.add(j);
           elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);

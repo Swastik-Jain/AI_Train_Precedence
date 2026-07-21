@@ -563,6 +563,82 @@ class GhatTokenSystem:
         if not self.trains_in_block:
             self.token_direction = None   # block free, direction released
 
+    def compute_queue(self, track_map: dict, occupied_by_node: dict, side: str) -> list[str]:
+        if not self.token_block_ids:
+            return []
+        
+        if side not in ('KSR', 'IGP'):
+            raise ValueError("side must be 'KSR' or 'IGP'")
+            
+        entry_start = None
+        if side == 'KSR':
+            candidates = []
+            for tid in self.token_block_ids:
+                prev_nodes = track_map.get(tid, {}).get('prev', [])
+                if any(p not in self.token_block_ids for p in prev_nodes):
+                    candidates.append(tid)
+            if candidates:
+                gate_node = min(candidates)
+                prev_nodes = track_map.get(gate_node, {}).get('prev', [])
+                valid_prev = [p for p in prev_nodes if p not in self.token_block_ids]
+                if valid_prev:
+                    entry_start = valid_prev[0]
+        else: # 'IGP'
+            candidates = []
+            for tid in self.token_block_ids:
+                next_nodes = track_map.get(tid, {}).get('next', [])
+                if any(n not in self.token_block_ids for n in next_nodes):
+                    candidates.append(tid)
+            if candidates:
+                gate_node = max(candidates)
+                next_nodes = track_map.get(gate_node, {}).get('next', [])
+                valid_next = [n for n in next_nodes if n not in self.token_block_ids]
+                if valid_next:
+                    entry_start = valid_next[0]
+                    
+        if entry_start is None:
+            return []
+            
+        expected_direction = 'DOWN' if side == 'KSR' else 'UP'
+        link_key = 'prev' if side == 'KSR' else 'next'
+        max_hops = 8 if side == 'KSR' else 9
+        
+        current_layer = [entry_start]
+        visited = {entry_start}
+        result = []
+        hops = 0
+        
+        while current_layer and hops < max_hops:
+            next_layer = []
+            layer_has_train = False
+            layer_has_switch = False
+            
+            for node in current_layer:
+                train = occupied_by_node.get(node)
+                is_occupied = (train is not None and train.get('direction') == expected_direction)
+                
+                if is_occupied:
+                    result.append(train.get('train_id'))
+                    layer_has_train = True
+                    
+                node_type = track_map.get(node, {}).get('type')
+                if node_type == 'SWITCH':
+                    layer_has_switch = True
+                    
+                for nxt in track_map.get(node, {}).get(link_key, []):
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        next_layer.append(nxt)
+            
+            # The occupancy chain breaks if this topological layer has NO trains AND NO switches
+            if not layer_has_train and not layer_has_switch:
+                break
+                
+            current_layer = next_layer
+            hops += 1
+            
+        return result
+
     def is_occupied(self) -> bool:
         return len(self.trains_in_block) > 0
 

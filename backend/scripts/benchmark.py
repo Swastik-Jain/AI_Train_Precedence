@@ -406,8 +406,6 @@ def run_dispatcher(
         ep_collision = False
         done         = False
         ghat_wait_ep = 0
-
-        ghat_nodes = _get_ghat_nodes(env)
         node_km = {
             nid: data.get('km', 0)
             for nid, data in env.track_map.items()
@@ -443,14 +441,13 @@ def run_dispatcher(
             if rew <= -70:
                 ep_collision = True
 
-            # Track trains idling near ghat (speed == 0, not dwelling)
-            for t in env.trains:
-                if (not t['finished']
-                        and t['position'] in ghat_nodes
-                        and t['speed'] == 0
-                        and t.get('dwell_rem', 0) == 0
-                        and t.get('banker_wait', 0) == 0):
-                    ghat_wait_ep += 1
+            occupied_by_node = {
+                t['position']: {'train_id': t['id'], 'direction': t.get('direction', 'DOWN')}
+                for t in env.trains if not t['finished']
+            }
+            ksr_q = env.ghat_token.compute_queue(env.track_map, occupied_by_node, 'KSR')
+            igp_q = env.ghat_token.compute_queue(env.track_map, occupied_by_node, 'IGP')
+            ghat_wait_ep += len(ksr_q) + len(igp_q)
 
         # Per-train metrics
         metrics = _collect_episode_metrics(env, ep_len)

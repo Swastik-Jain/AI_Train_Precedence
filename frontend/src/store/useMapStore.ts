@@ -44,6 +44,15 @@ export interface TrainOption {
   status: string;
 }
 
+export interface GhatQueueSide {
+  count: number;
+  train_ids: string[];
+}
+export interface GhatQueueState {
+  ksr: GhatQueueSide;
+  igp: GhatQueueSide;
+}
+
 interface MapState {
   topology: TopologyData | null;
   trainStates: TrainState[];
@@ -51,6 +60,7 @@ interface MapState {
   conflicts: string[];
   trainConflicts: string[];
   tokenTrains: string[];
+  ghatQueue: GhatQueueState;
   /** Edges that just had an AI action committed — shown as green flash */
   committedEdges: Set<string>;
   selectedTrainId: string | null;
@@ -85,6 +95,7 @@ export const useMapStore = create<MapState>((set) => {
     conflicts: [],
     trainConflicts: [],
     tokenTrains: [],
+    ghatQueue: { ksr: { count: 0, train_ids: [] }, igp: { count: 0, train_ids: [] } },
     committedEdges: new Set<string>(),
     selectedTrainId: null,
     selectedEdgeId: null,
@@ -136,6 +147,7 @@ export const useMapStore = create<MapState>((set) => {
             trainConflicts: data.train_conflicts || [],
             allTrains: data.all_trains || [],
             tokenTrains: data.token_trains || state.tokenTrains,
+            ghatQueue: data.ghat_queue ?? state.ghatQueue,
             simTick: data.sim_time !== undefined ? data.sim_time : state.simTick,
             tickIntervalS: data.tick_interval_s !== undefined ? data.tick_interval_s : state.tickIntervalS
           }));
