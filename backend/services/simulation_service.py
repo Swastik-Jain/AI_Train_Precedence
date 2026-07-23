@@ -80,9 +80,9 @@ def start_inference(state: SimulationState) -> Dict[str, Any]:
     ordered_ids = []
 
     for t_id, cfg in state.fleet_registry.items():
+        direction_str = "DOWN" if cfg.get("direction", "DOWN") in (1, "DOWN") else "UP"
         path = cfg.get("path", [])
         if not path:
-            direction_str = "DOWN" if cfg.get("direction", "DOWN") in (1, "DOWN") else "UP"
             path = DOWN_PATH if direction_str == "DOWN" else UP_PATH
             cfg["path"] = path
 
@@ -92,7 +92,7 @@ def start_inference(state: SimulationState) -> Dict[str, Any]:
             "train_id"             : t_id,
             "train_type"           : cfg.get("train_type", "Express"),
             "edge_id"              : path[0],
-            "position_percentage"  : 0.0,
+            "position_percentage"  : 0.0 if direction_str == "DOWN" else 1.0,
             "status"               : "Scheduled",
             "speed_kmh"            : cfg.get("max_speed", 90),
             "path"                 : path,

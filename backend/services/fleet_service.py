@@ -104,7 +104,7 @@ async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn, 
     state.train_states[req.train_id] = {
         "train_id"           : req.train_id,
         "edge_id"            : default_path[0] if default_path else "edge-0-1",
-        "position_percentage": 0.0,
+        "position_percentage": 0.0 if dir_str == "DOWN" else 1.0,
         "status"             : "Scheduled",
         "path"               : default_path,
         "direction"          : dir_str,
