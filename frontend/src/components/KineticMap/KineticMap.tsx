@@ -100,8 +100,6 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
   const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
-  const isUp = train.direction === "UP" || train.direction === 1;
-  const trainX = isUp ? targetX : targetX - bW;
 
   return (
     <motion.g
@@ -109,21 +107,21 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
       onMouseEnter={() => setHoveredTrain(train.train_id)}
       onMouseLeave={() => setHoveredTrain(null)}
       initial={false}
-      animate={{ x: trainX, y: targetY }}
+      animate={{ x: targetX, y: targetY }}
       transition={{ 
         x: { type: "tween", duration: durationS, ease: ease as any },
         y: { type: "tween", duration: durationS, ease: ease as any }
       }}
       style={{ cursor: 'pointer' }}
     >
-      {isConflict && <rect x={-4} y={-bH / 2 - 4} width={bW + 8} height={bH + 8} fill="none" stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" rx={2} className="sch-conflict-anim" />}
-      {isCommit && <rect x={-5} y={-bH / 2 - 5} width={bW + 10} height={bH + 10} fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3} className="sch-commit-anim" />}
-      <rect x={0} y={-bH / 2} width={bW} height={bH} fill={`${fill}22`} stroke={fill} strokeWidth={isSel ? 1.5 : 1} rx={2} />
-      <text x={bW / 2} y={4} textAnchor="middle" fill={fill} className="sch-train-id" opacity={isHover || isSel || isCommit ? 1 : 0.85}>{train.train_id}</text>
+      {isConflict && <rect x={-bW/2 - 4} y={-bH / 2 - 4} width={bW + 8} height={bH + 8} fill="none" stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" rx={2} className="sch-conflict-anim" />}
+      {isCommit && <rect x={-bW/2 - 5} y={-bH / 2 - 5} width={bW + 10} height={bH + 10} fill="none" stroke="#22c55e" strokeWidth={1.5} rx={3} className="sch-commit-anim" />}
+      <rect x={-bW/2} y={-bH / 2} width={bW} height={bH} fill={`${fill}22`} stroke={fill} strokeWidth={isSel ? 1.5 : 1} rx={2} />
+      <text x={0} y={4} textAnchor="middle" fill={fill} className="sch-train-id" opacity={isHover || isSel || isCommit ? 1 : 0.85}>{train.train_id}</text>
       {isCommit && (
         <>
-          <rect x={bW / 2 - 22} y={-bH / 2 - 15} width={44} height={12} fill="#22c55e" rx={2} />
-          <text x={bW / 2} y={-bH / 2 - 5} textAnchor="middle" className="sch-commit-tag">{actionLabel}</text>
+          <rect x={-22} y={-bH / 2 - 15} width={44} height={12} fill="#22c55e" rx={2} />
+          <text x={0} y={-bH / 2 - 5} textAnchor="middle" className="sch-commit-tag">{actionLabel}</text>
         </>
       )}
     </motion.g>
@@ -369,8 +367,27 @@ export const KineticMap: React.FC = () => {
     // here before caused trains to visually sprint through the narrow station
     // box (slow-fast-slow mapping over the short platform edge distance).
     const p = train.position_percentage;
-    const x = src.x + (tgt.x - src.x) * p;
+    let x = src.x + (tgt.x - src.x) * p;
     let currentY = MAIN_Y;
+
+    // ── Platform/Loop centering fix ─────────────────────────────────────────
+    // When an edge runs between a SWITCH and a PLATFORM or LOOP node (both
+    // within the same station), the train is physically inside the station
+    // at all times. Pin x to the platform/loop node's own schematic x
+    // (which nodeSx already sets to the station-zone centre) so waiting
+    // trains don't drift to the approach-switch edge at pct≈0.
+    const isPL = (t: string) =>
+      t === 'PLATFORM' || t === 'LOOP' || t === 'CROSSING_LOOP';
+    if (isPL(tgtNode.type) && srcNode.type === 'SWITCH') {
+      // SWITCH → PLATFORM/LOOP : snap to target node's x (= zone centre)
+      x = tgt.x;
+    } else if (isPL(srcNode.type) && tgtNode.type === 'SWITCH') {
+      // PLATFORM/LOOP → SWITCH : snap to source node's x (= zone centre)
+      x = src.x;
+    } else if (isPL(srcNode.type) && isPL(tgtNode.type)) {
+      // PLATFORM ↔ PLATFORM (rare intra-station hop): average
+      x = (src.x + tgt.x) / 2;
+    }
 
     // Helper to dynamically assign node IDs to visual tracks (top to bottom)
     const getStationNodeY = (node: Node) => {
@@ -615,14 +632,18 @@ export const KineticMap: React.FC = () => {
       if (mode !== 'cosmetic' && isStationaryStatus) {
         mode = 'dwell';
         duration = 0;
-        nextX = currentTrainState.targetX;
-        nextY = currentTrainState.targetY;
+        // Use the freshly-computed acceptedPos so that platform-centering
+        // corrections in getPos actually take effect for waiting trains.
+        nextX = acceptedPos.x;
+        nextY = acceptedPos.y;
       }
 
       if (mode === 'dwell' || (isStationaryStatus && !edgeChanged)) {
          store.updateTrainPresentation(train.train_id, {
            animationMode: 'dwell',
            durationS: 0,
+           targetX: nextX,
+           targetY: nextY,
            candidateEdge: newCandidateEdge,
            candidateCount: newCandidateCount
          });
