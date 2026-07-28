@@ -92,7 +92,7 @@ def start_inference(state: SimulationState) -> Dict[str, Any]:
             "train_id"             : t_id,
             "train_type"           : cfg.get("train_type", "Express"),
             "edge_id"              : path[0],
-            "position_percentage"  : 0.0 if direction_str == "DOWN" else 1.0,
+            "position_percentage"  : 0.0,
             "status"               : "Scheduled",
             "speed_kmh"            : cfg.get("max_speed", 90),
             "path"                 : path,
@@ -377,7 +377,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                     # Fallbacks if RL engine hasn't chosen next node yet
                                     edge_id = live.get('path', ['edge-0-1'])[0]
                                 elif node_id == 999 or node_id == 998:
-                                    edge_id = "edge-83-999"
+                                    edge_id = "edge-195-999"
                                 elif node_id == 0:
                                     edge_id = "edge-0-1"
                                 else:
@@ -429,7 +429,9 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                         print(f"[WARN] position_percentage calc failed for {t_id}: {e}")
                             
                                 # UP trains traverse the edge in reverse (high→low km).
-                                if direction_str == "UP":
+                                if node_id in (0, 998, 999):
+                                    pct = 0.0
+                                elif direction_str == "UP":
                                     pct = 1.0 - pct
                                 
                                 live['position_percentage'] = pct
@@ -535,6 +537,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             if t_state.get('speed', 0) > limit:
                                 t_state['speed'] = limit
                             t_state['status'] = 'Moving'  # still moving, just slower
+                            if state.inference_active:
+                                state.sticky_actions[t_id] = (1, state.sim_tick + 2)
 
                     # ── LOOKAHEAD BLOCK CHECK (next edge in path) ─────────────────
                     # Prevent trains from advancing into a blocked segment
@@ -587,8 +591,22 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                         if not state.inference_active and t_state.get('status') not in ('Scheduled', 'Finished'):
                             t_state['status'] = 'Moving'
                             spd = t_state.get('speed_kmh', 0)
-                            mx = t_state.get('max_speed', 130)
-                            t_state['position_percentage'] = t_state.get('position_percentage', 0) + (spd / mx) * 0.05 * config.SIM_SPEED_FACTOR
+                            dist_to_next = 5.0
+                            if state.env:
+                                try:
+                                    inner_env = state.env.venv.envs[0] if hasattr(state.env, 'venv') else state.env.envs[0]
+                                    edge_id = t_state.get('edge_id', '')
+                                    if edge_id.startswith('edge-'):
+                                        parts = edge_id.split('-')
+                                        if len(parts) == 3:
+                                            km1 = inner_env.get_node_km(int(parts[1])) if hasattr(inner_env, 'get_node_km') else 0.0
+                                            km2 = inner_env.get_node_km(int(parts[2])) if hasattr(inner_env, 'get_node_km') else 5.0
+                                            dist_to_next = max(0.1, abs(km2 - km1))
+                                except Exception:
+                                    pass
+                            
+                            dist_km = (spd / 60.0) * config.SIM_SPEED_FACTOR
+                            t_state['position_percentage'] = t_state.get('position_percentage', 0) + (dist_km / dist_to_next)
                             if t_state['position_percentage'] >= 1.0:
                                 t_state['position_percentage'] = 0.0
                                 try:
@@ -639,7 +657,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
             
             # Active maintenance blocks are also surfaced as conflicts for the map
             for element_id, blk in state.active_blocks.items():
-                if blk.get('severity') == 'TOTAL_BLOCK':
+                if is_block_active(blk) and blk.get('severity') == 'TOTAL_BLOCK':
                     conflicts.add(element_id)
 
             # Node-based train-crowding check using identical logic to physics engine
@@ -680,7 +698,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
             "all_trains": [{"train_id": t["train_id"], "status": t.get("status", "Scheduled")} for t in state.train_states.values() if t.get("status") != "Finished"],
             "conflicts": list(conflicts),
             "train_conflicts": list(train_conflicts),
-            "maintenance_blocks": list(state.active_blocks.values()),
+            "maintenance_blocks": [b for b in state.active_blocks.values() if is_block_active(b)],
             "token_trains": [],
             "ghat_queue": ghat_queue,
         }

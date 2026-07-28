@@ -676,6 +676,7 @@ class TrainDispatchEnv(gym.Env):
                 train['reserved_platform'] = None
 
         valid_loops = self._get_valid_loops(loop_targets, direction)
+        available = []
         for lnode in valid_loops:
             cap = self.track_map.get(lnode, {}).get('capacity', 1)
             occ = self.get_node_occupancy(lnode)
@@ -686,8 +687,16 @@ class TrainDispatchEnv(gym.Env):
                     loop_look_ahead_ok = False
             
             if occ < cap and loop_look_ahead_ok:
-                train['reserved_platform'] = lnode
-                return lnode
+                available.append(lnode)
+                
+        if available:
+            import hashlib
+            # Deterministic, run-independent hashing
+            idx = int(hashlib.md5(str(train['id']).encode()).hexdigest(), 16) % len(available)
+            chosen = available[idx]
+            train['reserved_platform'] = chosen
+            return chosen
+            
         return None
 
     def get_action_mask(self) -> np.ndarray:

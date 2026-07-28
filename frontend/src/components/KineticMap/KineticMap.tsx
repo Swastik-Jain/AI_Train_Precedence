@@ -78,12 +78,14 @@ const STATION_META: Record<string, StMeta> = {
 const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
   const trainState = usePresentationStore(state => state.trains[train.train_id]);
   
-  let targetX, targetY, durationS, ease;
+  let targetX, targetY, durationS, durationX, durationY, ease;
 
   if (trainState) {
     targetX = trainState.targetX;
     targetY = trainState.targetY;
     durationS = trainState.durationS;
+    durationX = trainState.durationX ?? durationS;
+    durationY = trainState.durationY ?? durationS;
     ease = trainState.ease;
   } else {
     // If the store hasn't initialized yet, fallback to raw getPos so it doesn't blink.
@@ -94,6 +96,8 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
     targetX = rawPos.x;
     targetY = rawPos.y;
     durationS = 0; // immediate snap on first render
+    durationX = 0;
+    durationY = 0;
     ease = "linear";
   }
 
@@ -109,8 +113,8 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
       initial={false}
       animate={{ x: targetX, y: targetY }}
       transition={{ 
-        x: { type: "tween", duration: durationS, ease: ease as any },
-        y: { type: "tween", duration: durationS, ease: ease as any }
+        x: { type: "tween", duration: durationX, ease: ease as any },
+        y: { type: "tween", duration: durationY, ease: ease as any }
       }}
       style={{ cursor: 'pointer' }}
     >
@@ -353,7 +357,7 @@ export const KineticMap: React.FC = () => {
 
   const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
 
-  const getPos = (train: TrainState): { x: number; y: number } | null => {
+  const getPos = (train: TrainState): { x: number; y: number; lookaheadNodeId?: string | null } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
     if (!edge) return null;
@@ -369,6 +373,7 @@ export const KineticMap: React.FC = () => {
     const p = train.position_percentage;
     let x = src.x + (tgt.x - src.x) * p;
     let currentY = MAIN_Y;
+    let lookaheadNodeId: string | null = null;
 
     // ── Platform/Loop centering fix ─────────────────────────────────────────
     // When an edge runs between a SWITCH and a PLATFORM or LOOP node (both
@@ -431,11 +436,17 @@ export const KineticMap: React.FC = () => {
                         const nStId = getNodeStId(node);
                         if (leftStZone && leftStZone.stId === nStId && leftY === null) {
                             const y = getStationNodeY(node);
-                            if (y !== null) leftY = y;
+                            if (y !== null) {
+                                leftY = y;
+                                lookaheadNodeId = node.id;
+                            }
                         }
                         if (rightStZone && rightStZone.stId === nStId && rightY === null) {
                             const y = getStationNodeY(node);
-                            if (y !== null) rightY = y;
+                            if (y !== null) {
+                                rightY = y;
+                                lookaheadNodeId = node.id;
+                            }
                         }
                     }
                     // Short-circuit once both sides are resolved
@@ -484,7 +495,7 @@ export const KineticMap: React.FC = () => {
         }
     }
 
-    return { x, y: currentY };
+    return { x, y: currentY, lookaheadNodeId };
   };
 
   // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
@@ -526,9 +537,20 @@ export const KineticMap: React.FC = () => {
   }, [topology]);
 
   useEffect(() => {
-    if (!topology || !trainStates.length) return;
+    if (!topology) return;
     const store = usePresentationStore.getState();
 
+    // 1. Remove trains from store that are no longer in trainStates
+    const currentIds = new Set(trainStates.map(t => t.train_id));
+    Object.keys(store.trains).forEach(tid => {
+      if (!currentIds.has(tid)) {
+        store.removeTrainPresentation(tid);
+      }
+    });
+
+    if (!trainStates.length) return;
+
+    // 2. Process current trains
     trainStates.forEach(train => {
       const pos = getPos(train);
       const targetPos = getPos({ ...train, position_percentage: 1 });
@@ -540,6 +562,7 @@ export const KineticMap: React.FC = () => {
         store.initializeTrainPresentation(train.train_id, {
           lastConfirmedEdge: train.edge_id,
           lastConfirmedNode: train.position_node,
+          lastLookaheadNodeId: pos.lookaheadNodeId || null,
           targetX: pos.x,
           targetY: pos.y,
           animationMode: 'initial',
@@ -599,6 +622,12 @@ export const KineticMap: React.FC = () => {
 
       const edgeChanged = currentTrainState.lastConfirmedEdge !== acceptedEdge;
       const edge = topology.edges.find((e: any) => e.id === acceptedEdge);
+      
+      let newLookaheadNodeId = acceptedPos.lookaheadNodeId || null;
+      let lookaheadChanged = false;
+      if (currentTrainState.lastLookaheadNodeId !== undefined) {
+         lookaheadChanged = currentTrainState.lastLookaheadNodeId !== newLookaheadNodeId;
+      }
 
       // Secondary backstop: status check for stationary states.
       // Primary trigger for animation remains node/edge changes.
@@ -607,6 +636,8 @@ export const KineticMap: React.FC = () => {
 
       let mode: any = 'physics';
       let duration = tickIntervalS;
+      let durationX = tickIntervalS;
+      let durationY = tickIntervalS;
       let ease = 'linear';
       let nextX = acceptedPos.x;
       let nextY = acceptedPos.y;
@@ -615,17 +646,39 @@ export const KineticMap: React.FC = () => {
         if (isIntraStationMove(topology, edge.source, edge.target)) {
           mode = 'cosmetic';
           duration = INTRA_STATION_TWEEN_DURATION_S;
+          durationX = INTRA_STATION_TWEEN_DURATION_S;
+          durationY = INTRA_STATION_TWEEN_DURATION_S;
           ease = 'easeInOut';
           nextX = acceptedTargetPos.x;
           nextY = acceptedTargetPos.y;
         }
+      } else if (!edgeChanged && lookaheadChanged) {
+        mode = 'cosmetic';
+        duration = INTRA_STATION_TWEEN_DURATION_S;
+        durationX = tickIntervalS; // X continues physics interpolation normally
+        durationY = INTRA_STATION_TWEEN_DURATION_S; // Y gets cosmetic tween
+        ease = 'easeInOut';
+        nextX = acceptedPos.x;
+        nextY = acceptedPos.y;
       } else if (!edgeChanged) {
         if (currentTrainState.animationMode === 'cosmetic') {
           mode = 'cosmetic';
           duration = currentTrainState.durationS;
+          let durX = currentTrainState.durationX ?? currentTrainState.durationS;
+          let durY = currentTrainState.durationY ?? currentTrainState.durationS;
+          durationX = durX;
+          durationY = durY;
           ease = currentTrainState.ease;
-          nextX = currentTrainState.targetX;
-          nextY = currentTrainState.targetY;
+          
+          if (durX === tickIntervalS && durY === INTRA_STATION_TWEEN_DURATION_S) {
+            // It's a lookahead tween. Let X and Y continue updating to follow the curve.
+            nextX = acceptedPos.x;
+            nextY = acceptedPos.y;
+          } else {
+            // Standard edge tween. Keep frozen on the original tween targets.
+            nextX = currentTrainState.targetX;
+            nextY = currentTrainState.targetY;
+          }
         }
       }
 
@@ -651,10 +704,13 @@ export const KineticMap: React.FC = () => {
          const shouldUpdate = 
            currentTrainState.lastConfirmedEdge !== acceptedEdge ||
            currentTrainState.lastConfirmedNode !== train.position_node ||
+           currentTrainState.lastLookaheadNodeId !== newLookaheadNodeId ||
            currentTrainState.targetX !== nextX ||
            currentTrainState.targetY !== nextY ||
            currentTrainState.animationMode !== mode ||
            currentTrainState.durationS !== duration ||
+           currentTrainState.durationX !== durationX ||
+           currentTrainState.durationY !== durationY ||
            currentTrainState.candidateEdge !== newCandidateEdge ||
            currentTrainState.candidateCount !== newCandidateCount;
 
@@ -662,10 +718,13 @@ export const KineticMap: React.FC = () => {
            store.updateTrainPresentation(train.train_id, {
              lastConfirmedEdge: acceptedEdge,
              lastConfirmedNode: train.position_node,
+             lastLookaheadNodeId: newLookaheadNodeId,
              targetX: nextX,
              targetY: nextY,
              animationMode: mode,
              durationS: duration,
+             durationX: durationX,
+             durationY: durationY,
              ease: ease,
              candidateEdge: newCandidateEdge,
              candidateCount: newCandidateCount
@@ -763,9 +822,35 @@ export const KineticMap: React.FC = () => {
     const elems: React.ReactNode[] = [];
     const cx = (x1 + x2) / 2;
 
+    const adjacentStZone = dynamicZones.find(dz => dz.type === 'ST' && (dz.x1 === z.x2 || dz.x2 === z.x1)) as StationZone | undefined;
+    const platformDirs = adjacentStZone?.platformDirections || [];
+    const isTerminus = adjacentStZone?.isLeft || adjacentStZone?.isRight;
+
     // Helper: Connects outer tracks gracefully to the nearest incoming track without crossing lines
     const getClosestSource = (destIdx: number, destTotal: number, srcTotal: number) => {
         return Math.min(Math.max(0, destIdx - Math.floor((destTotal - srcTotal) / 2)), srcTotal - 1);
+    };
+
+    const getTargetsForTrack = (
+      stationTrackIdx: number, 
+      segmentCap: number, 
+      naturalSegmentTarget: number,
+      platformDir: 'UP' | 'DOWN' | 'BOTH'
+    ): number[] => {
+      const mid = segmentCap / 2;
+      const upMax = Math.ceil(mid) - 1;
+      const downMin = Math.floor(mid);
+      
+      if (platformDir === 'UP') {
+        return [Math.min(Math.max(0, naturalSegmentTarget), upMax)];
+      } else if (platformDir === 'DOWN') {
+        return [Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)];
+      } else {
+        return [
+          Math.min(Math.max(0, naturalSegmentTarget), upMax),
+          Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)
+        ];
+      }
     };
 
     if (fromCap >= toCap) {
@@ -773,56 +858,90 @@ export const KineticMap: React.FC = () => {
       for (let i = 0; i < fromCap; i++) {
         let j = getClosestSource(i, fromCap, toCap);
         
-        // Custom override: kalyan platform 4 (idx 3) to ambernath platform 1 (idx 0)
-        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) {
-          j = 0;
+        let targets = [j];
+        if (!isTerminus && i < platformDirs.length) {
+          targets = getTargetsForTrack(i, toCap, j, platformDirs[i]);
         }
 
-        elems.push(
-          <path key={`conv-${i}`}
-            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
-            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
-        );
+        targets.forEach(targetJ => {
+          elems.push(
+            <path key={`conv-${i}-${targetJ}`}
+              d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(targetJ, toCap)}, ${x2} ${trackY(targetJ, toCap)}`}
+              fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
+          );
+        });
       }
       
       // Draw merge markers
       const seen = new Set<number>();
       for (let i = 0; i < fromCap; i++) {
-        let j = getClosestSource(i, fromCap, toCap);
-        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) j = 0;
-        
-        const mergeCount = Array.from({ length: fromCap }, (_, k) => k).filter(k => {
-          let jk = getClosestSource(k, fromCap, toCap);
-          if (z.stId === 'KALYAN' && k === 3 && fromCap === 7 && toCap === 2) jk = 0;
-          return jk === j;
-        }).length;
-        
-        if (mergeCount > 1 && !seen.has(j)) {
-          seen.add(j);
-          elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+        let naturalJ = getClosestSource(i, fromCap, toCap);
+        let targets = [naturalJ];
+        if (!isTerminus && i < platformDirs.length) {
+          targets = getTargetsForTrack(i, toCap, naturalJ, platformDirs[i]);
         }
+        
+        targets.forEach(j => {
+          let mergeCount = 0;
+          for (let k = 0; k < fromCap; k++) {
+            let natK = getClosestSource(k, fromCap, toCap);
+            let kTargets = [natK];
+            if (!isTerminus && k < platformDirs.length) {
+              kTargets = getTargetsForTrack(k, toCap, natK, platformDirs[k]);
+            }
+            if (kTargets.includes(j)) mergeCount++;
+          }
+          
+          if (mergeCount > 1 && !seen.has(j)) {
+            seen.add(j);
+            elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+          }
+        });
       }
       
     } else {
       // Divergence (e.g., 2 tracks expanding to 4)
       for (let j = 0; j < toCap; j++) {
-        const i = getClosestSource(j, toCap, fromCap);
-        elems.push(
-          <path key={`div-${j}`}
-            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
-            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
-        );
+        const naturalI = getClosestSource(j, toCap, fromCap);
+        let targets = [naturalI];
+        if (!isTerminus && j < platformDirs.length) {
+          targets = getTargetsForTrack(j, fromCap, naturalI, platformDirs[j]);
+        }
+        
+        targets.forEach(targetI => {
+          elems.push(
+            <path key={`div-${j}-${targetI}`}
+              d={`M ${x1} ${trackY(targetI, fromCap)} C ${cx} ${trackY(targetI, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
+              fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
+          );
+        });
       }
       
       // Draw diverge markers
       const seen = new Set<number>();
       for (let j = 0; j < toCap; j++) {
-        const i = getClosestSource(j, toCap, fromCap);
-        const divCount = Array.from({ length: toCap }, (_, k) => k).filter(k => getClosestSource(k, toCap, fromCap) === i).length;
-        if (divCount > 1 && !seen.has(i)) {
-          seen.add(i);
-          elems.push(<rect key={`swd${i}`} x={x1-4} y={trackY(i, fromCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+        const naturalI = getClosestSource(j, toCap, fromCap);
+        let targets = [naturalI];
+        if (!isTerminus && j < platformDirs.length) {
+          targets = getTargetsForTrack(j, fromCap, naturalI, platformDirs[j]);
         }
+        
+        targets.forEach(i => {
+          let divCount = 0;
+          for (let k = 0; k < toCap; k++) {
+            let natK = getClosestSource(k, toCap, fromCap);
+            let kTargets = [natK];
+            if (!isTerminus && k < platformDirs.length) {
+              kTargets = getTargetsForTrack(k, fromCap, natK, platformDirs[k]);
+            }
+            if (kTargets.includes(i)) divCount++;
+          }
+          
+          if (divCount > 1 && !seen.has(i)) {
+            seen.add(i);
+            elems.push(<rect key={`swd${i}`} x={x1-4} y={trackY(i, fromCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+          }
+        });
       }
     }
 
@@ -977,7 +1096,8 @@ export const KineticMap: React.FC = () => {
     }
 
     // 4) Individual platform markers
-    for (let i = 0; i < cap; i++) {
+    const pfCount = z.platformCount ?? cap;
+    for (let i = 0; i < pfCount; i++) {
       const y = trackY(i, cap);
       // Fetch occupancy logically by platform index!
       const occTrain = trackOccupancy.get(i); 

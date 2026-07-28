@@ -22,6 +22,7 @@ export interface TrainPresentationState {
   train_id: string;
   lastConfirmedEdge: string | null;
   lastConfirmedNode?: number | null;
+  lastLookaheadNodeId?: string | null;
   
   // The logical target positions for framer-motion to animate towards.
   targetX: number;
@@ -30,6 +31,8 @@ export interface TrainPresentationState {
   // Transition configuration for framer-motion
   animationMode: AnimationMode;
   durationS: number;
+  durationX?: number;
+  durationY?: number;
   ease: string;
 
   // Debounce bookkeeping for display-default noise
@@ -41,6 +44,7 @@ interface PresentationStore {
   trains: Record<string, TrainPresentationState>;
   updateTrainPresentation: (train_id: string, updates: Partial<Omit<TrainPresentationState, 'train_id'>>) => void;
   initializeTrainPresentation: (train_id: string, initialState: Omit<TrainPresentationState, 'train_id'>) => void;
+  removeTrainPresentation: (train_id: string) => void;
 }
 
 export const usePresentationStore = create<PresentationStore>((set) => ({
@@ -70,5 +74,12 @@ export const usePresentationStore = create<PresentationStore>((set) => ({
         },
       },
     };
+  }),
+
+  removeTrainPresentation: (train_id) => set((state) => {
+    if (!state.trains[train_id]) return state;
+    const newTrains = { ...state.trains };
+    delete newTrains[train_id];
+    return { trains: newTrains };
   }),
 }));

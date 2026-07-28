@@ -80,6 +80,9 @@ def remove_train(state: SimulationState, train_id: str, db: Session = None) -> D
     return {"status": "removed", "train_id": train_id}
 
 async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn, db: Session = None) -> Dict[str, Any]:
+    from ai.config import MAX_TRAINS_CAPACITY
+    if len(state.fleet_registry) >= MAX_TRAINS_CAPACITY:
+        raise HTTPException(status_code=400, detail=f"Cannot add train: maximum capacity ({MAX_TRAINS_CAPACITY}) reached.")
     if req.train_id in state.fleet_registry or req.train_id in state.train_states:
         raise HTTPException(status_code=409, detail=f"Train '{req.train_id}' already exists.")
     if req.train_type not in TRAIN_TYPES:
@@ -104,7 +107,7 @@ async def add_train(state: SimulationState, req: NewTrainRequest, broadcast_fn, 
     state.train_states[req.train_id] = {
         "train_id"           : req.train_id,
         "edge_id"            : default_path[0] if default_path else "edge-0-1",
-        "position_percentage": 0.0 if dir_str == "DOWN" else 1.0,
+        "position_percentage": 0.0,
         "status"             : "Scheduled",
         "path"               : default_path,
         "direction"          : dir_str,
