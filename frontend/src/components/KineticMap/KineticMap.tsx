@@ -435,31 +435,24 @@ export const KineticMap: React.FC = () => {
             // NOT node IDs. The old code did topology.nodes.find(n => n.id === "edge-10-1000")
             // which always returned undefined, so leftY/rightY were never set from path.
             // Fix: resolve each path edge to find platform/loop node endpoints.
-            if (train.path) {
-                outer: for (const edgeId of train.path) {
-                    const pathEdge = topology.edges.find(e => e.id === edgeId);
-                    if (!pathEdge) continue;
-                    for (const nId of [pathEdge.source, pathEdge.target]) {
-                        const node = topology.nodes.find(n => n.id === nId);
-                        if (!node || !isStNode(node.type)) continue;
-                        const nStId = getNodeStId(node);
-                        if (leftStZone && leftStZone.stId === nStId && leftY === null) {
-                            const y = getStationNodeY(node);
-                            if (y !== null) {
-                                leftY = y;
-                                lookaheadLeftNodeId = node.id;
-                            }
-                        }
-                        if (rightStZone && rightStZone.stId === nStId && rightY === null) {
-                            const y = getStationNodeY(node);
-                            if (y !== null) {
-                                rightY = y;
-                                lookaheadRightNodeId = node.id;
-                            }
+            if (train.reserved_platform !== undefined && train.reserved_platform !== null) {
+                const node = topology.nodes.find(n => n.id === String(train.reserved_platform));
+                if (node && isStNode(node.type)) {
+                    const nStId = getNodeStId(node);
+                    if (leftStZone && leftStZone.stId === nStId) {
+                        const y = getStationNodeY(node);
+                        if (y !== null) {
+                            leftY = y;
+                            lookaheadLeftNodeId = node.id;
                         }
                     }
-                    // Short-circuit once both sides are resolved
-                    if (leftY !== null && rightY !== null) break outer;
+                    if (rightStZone && rightStZone.stId === nStId) {
+                        const y = getStationNodeY(node);
+                        if (y !== null) {
+                            rightY = y;
+                            lookaheadRightNodeId = node.id;
+                        }
+                    }
                 }
             }
             const baseLeftTrack = trainTrackAt(train, swZone.fromCap);

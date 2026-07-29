@@ -267,6 +267,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                             try:
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
+                                    if hasattr(dist, "apply_masking") and action_masks is not None:
+                                        dist.apply_masking(action_masks)
                                     probs_list = []
                                     if hasattr(dist, "distributions") and isinstance(dist.distributions, list):
                                         # MultiDiscrete case (newer SB3 / sb3-contrib)
@@ -396,6 +398,7 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 live['edge_id']    = edge_id
                                 live['position_node'] = node_id
                                 live['speed_kmh']  = speed
+                                live['reserved_platform'] = rl_train.get('reserved_platform')
                             
                                 # Smooth continuous position extraction.
                                 # _movement_acc is physical distance in km. We must divide by edge length

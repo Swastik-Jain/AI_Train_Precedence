@@ -37,6 +37,7 @@ export interface TrainState {
   status: 'Finished' | 'Scheduled' | 'Banker Ops' | 'Boarding' | 'Waiting at Signal' | 'Moving' | 'Halted';
   path: string[];
   direction?: string | number;
+  reserved_platform?: string | number | null;
 }
 
 export interface TrainOption {
