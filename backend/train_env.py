@@ -634,28 +634,58 @@ class TrainDispatchEnv(gym.Env):
 
     def _get_valid_loops(self, loop_targets, direction):
         import math
-        valid_loops = []
+        scored = []
+        dadar_fallback = []
+
         for lnode in loop_targets:
             lnode_data = self.track_map.get(lnode, {})
-            if lnode_data.get('type') == 'PLATFORM':
-                st_name = lnode_data.get('station')
-                p_idx = lnode_data.get('platform_index', 0)
-                if st_name and st_name in self.station_nodes:
-                    if st_name in ['CSMT', 'MANMAD']:
-                        valid_loops.append(lnode)
-                    else:
-                        platforms = self.station_nodes[st_name].get('platforms', [0, 1])
-                        total_p = len(platforms)
-                        mid = total_p / 2.0
-                        if direction == 'UP' and p_idx < math.ceil(mid):
-                            valid_loops.append(lnode)
-                        elif direction == 'DOWN' and p_idx >= math.floor(mid):
-                            valid_loops.append(lnode)
-                else:
-                    valid_loops.append(lnode)
+            node_type = lnode_data.get('type')
+            st_name = lnode_data.get('station')
+
+            if node_type == 'PLATFORM':
+                type_rank = 0
+                idx_key = 'platforms'
+                idx = lnode_data.get('platform_index', 0)
+            elif node_type in ('LOOP', 'CROSSING_LOOP'):
+                type_rank = 1
+                idx_key = 'loops'
+                idx = lnode_data.get('loop_index', 0)
             else:
-                valid_loops.append(lnode)
-        return valid_loops
+                scored.append((0, 0, lnode))
+                continue
+
+            if not st_name or st_name not in self.station_nodes:
+                scored.append((type_rank, 0, lnode))
+                continue
+
+            if st_name in ('CSMT', 'MANMAD'):
+                # Terminus: no directional split — natural centre-out order.
+                scored.append((type_rank, idx, lnode))
+                continue
+
+            group = self.station_nodes[st_name].get(idx_key, [])
+            total = len(group)
+            mid = math.ceil(total / 2)
+
+            if direction == 'UP' and idx < mid:
+                # Closest to centre (idx = mid-1) must sort FIRST -> descending.
+                proximity = mid - idx
+                scored.append((type_rank, proximity, lnode))
+            elif direction == 'DOWN' and idx >= mid:
+                # Closest to centre (idx = mid) must sort FIRST -> ascending.
+                proximity = idx - mid
+                scored.append((type_rank, proximity, lnode))
+            elif (st_name == 'DADAR' and idx_key == 'loops'
+                  and direction == 'DOWN' and total == 1):
+                # Last-resort only: Dadar's single loop belongs to UP under the
+                # normal split. DOWN may borrow it, but must sort after every
+                # station's normal DOWN candidates — handled by returning this
+                # list separately and appending it at the very end.
+                dadar_fallback.append((type_rank, 999, lnode))
+
+        scored.sort(key=lambda t: (t[0], t[1]))
+        dadar_fallback.sort(key=lambda t: (t[0], t[1]))
+        return [n for _, _, n in scored] + [n for _, _, n in dadar_fallback]
 
     def _select_divert_target(self, train: dict, loop_targets: list, direction: str):
         """
@@ -675,28 +705,20 @@ class TrainDispatchEnv(gym.Env):
             else:
                 train['reserved_platform'] = None
 
-        valid_loops = self._get_valid_loops(loop_targets, direction)
-        available = []
-        for lnode in valid_loops:
+        ordered = self._get_valid_loops(loop_targets, direction)
+        for lnode in ordered:
             cap = self.track_map.get(lnode, {}).get('capacity', 1)
             occ = self.get_node_occupancy(lnode)
-            
+
             loop_look_ahead_ok = True
             if self._is_chokepoint_node(lnode):
                 if not self._next_section_has_room(lnode, direction, directional_check=True, train_id=train['id'], actual_target=lnode):
                     loop_look_ahead_ok = False
-            
+
             if occ < cap and loop_look_ahead_ok:
-                available.append(lnode)
-                
-        if available:
-            import hashlib
-            # Deterministic, run-independent hashing
-            idx = int(hashlib.md5(str(train['id']).encode()).hexdigest(), 16) % len(available)
-            chosen = available[idx]
-            train['reserved_platform'] = chosen
-            return chosen
-            
+                train['reserved_platform'] = lnode
+                return lnode
+
         return None
 
     def get_action_mask(self) -> np.ndarray:

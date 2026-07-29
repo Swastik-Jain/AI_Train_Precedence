@@ -357,7 +357,7 @@ export const KineticMap: React.FC = () => {
 
   const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
 
-  const getPos = (train: TrainState): { x: number; y: number; lookaheadNodeId?: string | null } | null => {
+  const getPos = (train: TrainState): { x: number; y: number; lookaheadLeftNodeId?: string | null; lookaheadRightNodeId?: string | null } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
     if (!edge) return null;
@@ -373,7 +373,8 @@ export const KineticMap: React.FC = () => {
     const p = train.position_percentage;
     let x = src.x + (tgt.x - src.x) * p;
     let currentY = MAIN_Y;
-    let lookaheadNodeId: string | null = null;
+    let lookaheadLeftNodeId: string | null = null;
+    let lookaheadRightNodeId: string | null = null;
 
     // ── Platform/Loop centering fix ─────────────────────────────────────────
     // When an edge runs between a SWITCH and a PLATFORM or LOOP node (both
@@ -405,8 +406,16 @@ export const KineticMap: React.FC = () => {
             return trackY(node.platform_index, cap);
         }
         if ((node.type === 'LOOP' || node.type === 'CROSSING_LOOP') && node.loop_index !== undefined) {
-            const topTrackY = trackY(0, cap);
-            return topTrackY - (node.loop_index + 1) * TRACK_GAP;
+            const meta = STATION_META[stId];
+            const totalLoops = meta?.loops ?? 0;
+            const mid = Math.ceil(totalLoops / 2);
+            if (node.loop_index < mid) {
+                const topTrackY = trackY(0, cap);
+                return topTrackY - (node.loop_index + 1) * TRACK_GAP;
+            } else {
+                const botTrackY = trackY(cap - 1, cap);
+                return botTrackY + (node.loop_index - mid + 1) * TRACK_GAP;
+            }
         }
         return MAIN_Y;
     };
@@ -438,14 +447,14 @@ export const KineticMap: React.FC = () => {
                             const y = getStationNodeY(node);
                             if (y !== null) {
                                 leftY = y;
-                                lookaheadNodeId = node.id;
+                                lookaheadLeftNodeId = node.id;
                             }
                         }
                         if (rightStZone && rightStZone.stId === nStId && rightY === null) {
                             const y = getStationNodeY(node);
                             if (y !== null) {
                                 rightY = y;
-                                lookaheadNodeId = node.id;
+                                lookaheadRightNodeId = node.id;
                             }
                         }
                     }
@@ -495,7 +504,7 @@ export const KineticMap: React.FC = () => {
         }
     }
 
-    return { x, y: currentY, lookaheadNodeId };
+    return { x, y: currentY, lookaheadLeftNodeId, lookaheadRightNodeId };
   };
 
   // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
@@ -562,7 +571,8 @@ export const KineticMap: React.FC = () => {
         store.initializeTrainPresentation(train.train_id, {
           lastConfirmedEdge: train.edge_id,
           lastConfirmedNode: train.position_node,
-          lastLookaheadNodeId: pos.lookaheadNodeId || null,
+          lastLookaheadLeftNodeId: pos.lookaheadLeftNodeId || null,
+          lastLookaheadRightNodeId: pos.lookaheadRightNodeId || null,
           targetX: pos.x,
           targetY: pos.y,
           animationMode: 'initial',
@@ -623,10 +633,16 @@ export const KineticMap: React.FC = () => {
       const edgeChanged = currentTrainState.lastConfirmedEdge !== acceptedEdge;
       const edge = topology.edges.find((e: any) => e.id === acceptedEdge);
       
-      let newLookaheadNodeId = acceptedPos.lookaheadNodeId || null;
+      let newLookaheadLeftNodeId = acceptedPos.lookaheadLeftNodeId || null;
+      let newLookaheadRightNodeId = acceptedPos.lookaheadRightNodeId || null;
       let lookaheadChanged = false;
-      if (currentTrainState.lastLookaheadNodeId !== undefined) {
-         lookaheadChanged = currentTrainState.lastLookaheadNodeId !== newLookaheadNodeId;
+      if (currentTrainState.lastLookaheadLeftNodeId !== undefined &&
+          currentTrainState.lastLookaheadLeftNodeId !== newLookaheadLeftNodeId) {
+         lookaheadChanged = true;
+      }
+      if (currentTrainState.lastLookaheadRightNodeId !== undefined &&
+          currentTrainState.lastLookaheadRightNodeId !== newLookaheadRightNodeId) {
+         lookaheadChanged = true;
       }
 
       // Secondary backstop: status check for stationary states.
@@ -704,7 +720,8 @@ export const KineticMap: React.FC = () => {
          const shouldUpdate = 
            currentTrainState.lastConfirmedEdge !== acceptedEdge ||
            currentTrainState.lastConfirmedNode !== train.position_node ||
-           currentTrainState.lastLookaheadNodeId !== newLookaheadNodeId ||
+           currentTrainState.lastLookaheadLeftNodeId !== newLookaheadLeftNodeId ||
+           currentTrainState.lastLookaheadRightNodeId !== newLookaheadRightNodeId ||
            currentTrainState.targetX !== nextX ||
            currentTrainState.targetY !== nextY ||
            currentTrainState.animationMode !== mode ||
@@ -718,7 +735,8 @@ export const KineticMap: React.FC = () => {
            store.updateTrainPresentation(train.train_id, {
              lastConfirmedEdge: acceptedEdge,
              lastConfirmedNode: train.position_node,
-             lastLookaheadNodeId: newLookaheadNodeId,
+             lastLookaheadLeftNodeId: newLookaheadLeftNodeId,
+             lastLookaheadRightNodeId: newLookaheadRightNodeId,
              targetX: nextX,
              targetY: nextY,
              animationMode: mode,
@@ -1013,10 +1031,13 @@ export const KineticMap: React.FC = () => {
 
     const elems: React.ReactNode[] = [];
 
-    // 1) Station box — covers BOTH main platform tracks AND loop sidings above
-    const loopsTop = meta.loops > 0 ? topTrackY - meta.loops * TRACK_GAP - 7 : topTrackY - 7;
+    // 1) Station box — covers BOTH main platform tracks AND loop sidings above/below
+    const mid = Math.ceil(meta.loops / 2);
+    const topLoopCount = mid;
+    const botLoopCount = meta.loops - mid;
+    const loopsTop = meta.loops > 0 ? topTrackY - topLoopCount * TRACK_GAP - 7 : topTrackY - 7;
     const boxTop = loopsTop;
-    const boxBot = botTrackY + 7;
+    const boxBot = (botLoopCount > 0 ? botTrackY + botLoopCount * TRACK_GAP : botTrackY) + 7;
     elems.push(
       <rect key="box"
         x={visualX1} y={boxTop} width={visualX2 - visualX1} height={boxBot - boxTop}
@@ -1036,24 +1057,31 @@ export const KineticMap: React.FC = () => {
       );
     }
 
-    // 3) Loop / siding tracks — smooth bezier S-curves above main tracks.
+    // 3) Loop / siding tracks — smooth bezier S-curves above/below main tracks.
     //    We retain the straight middle section and use bezier entries/exits.
     for (let l = 0; l < meta.loops; l++) {
-      const sidY  = topTrackY - (l + 1) * TRACK_GAP;
+      let sidY, anchorY;
+      if (l < mid) {
+        sidY = topTrackY - (l + 1) * TRACK_GAP;
+        anchorY = topTrackY;
+      } else {
+        sidY = botTrackY + (l - mid + 1) * TRACK_GAP;
+        anchorY = botTrackY;
+      }
       const parts: string[] = [];
 
       // ── LEFT side entry ──────────────────────────────────────
       if (actualLoopLeft === 'segment') {
         // Smooth S-arch entering from the left segment
         parts.push(
-          `M ${x1 - LOOP_OFF} ${topTrackY}`,
-          `C ${x1 - CP_OFF} ${topTrackY}, ${x1 - CP_OFF} ${sidY}, ${x1} ${sidY}`
+          `M ${x1 - LOOP_OFF} ${anchorY}`,
+          `C ${x1 - CP_OFF} ${anchorY}, ${x1 - CP_OFF} ${sidY}, ${x1} ${sidY}`
         );
       } else if (actualLoopLeft === 'inside') {
         // Diverges from main track just inside the station left boundary
         parts.push(
-          `M ${x1} ${topTrackY}`,
-          `C ${x1 + CP_OFF} ${topTrackY}, ${x1 + CP_OFF} ${sidY}, ${x1 + LOOP_OFF} ${sidY}`
+          `M ${x1} ${anchorY}`,
+          `C ${x1 + CP_OFF} ${anchorY}, ${x1 + CP_OFF} ${sidY}, ${x1 + LOOP_OFF} ${sidY}`
         );
       } else {
         // 'bumper': starts at station left edge at siding level
@@ -1065,13 +1093,13 @@ export const KineticMap: React.FC = () => {
         // Extends then arches back to main track in the right segment
         parts.push(
           `L ${x2} ${sidY}`,
-          `C ${x2 + CP_OFF} ${sidY}, ${x2 + CP_OFF} ${topTrackY}, ${x2 + LOOP_OFF} ${topTrackY}`
+          `C ${x2 + CP_OFF} ${sidY}, ${x2 + CP_OFF} ${anchorY}, ${x2 + LOOP_OFF} ${anchorY}`
         );
       } else if (actualLoopRight === 'inside') {
         // Rejoins main track just before the station right boundary
         parts.push(
           `L ${x2 - LOOP_OFF} ${sidY}`,
-          `C ${x2 - CP_OFF} ${sidY}, ${x2 - CP_OFF} ${topTrackY}, ${x2} ${topTrackY}`
+          `C ${x2 - CP_OFF} ${sidY}, ${x2 - CP_OFF} ${anchorY}, ${x2} ${anchorY}`
         );
       } else {
         // 'bumper': ends at station right edge
@@ -1089,10 +1117,18 @@ export const KineticMap: React.FC = () => {
     // Junction dots — where loop branches off or rejoins the main track
     if (meta.loops > 0) {
       const r = 2.5;
-      if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopRight === 'segment') elems.push(<circle key="cr-s" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
+      if (topLoopCount > 0) {
+        if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s-t" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i-t" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'segment') elems.push(<circle key="cr-s-t" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i-t" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
+      }
+      if (botLoopCount > 0) {
+        if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s-b" cx={x1 - LOOP_OFF} cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i-b" cx={x1}            cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'segment') elems.push(<circle key="cr-s-b" cx={x2 + LOOP_OFF} cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i-b" cx={x2}            cy={botTrackY} r={r} fill="#505050" />);
+      }
     }
 
     // 4) Individual platform markers
@@ -1118,7 +1154,7 @@ export const KineticMap: React.FC = () => {
     // 5) Loop siding platform markers
     const lpCx = cx;
     for (let l = 0; l < meta.loops; l++) {
-      const sidY = topTrackY - (l + 1) * TRACK_GAP;
+      const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
       // Fetch occupancy logically by loop index!
       const occTrain = loopOccupancy.get(l);
 
@@ -1186,13 +1222,13 @@ export const KineticMap: React.FC = () => {
     if (meta.loops > 0) {
       if (actualLoopLeft === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
-          const sidY = topTrackY - (l + 1) * TRACK_GAP;
+          const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
           elems.push(<line key={`bll${l}`} x1={visualX1} y1={sidY-4} x2={visualX1} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
       if (actualLoopRight === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
-          const sidY = topTrackY - (l + 1) * TRACK_GAP;
+          const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
           elems.push(<line key={`blr${l}`} x1={visualX2} y1={sidY-4} x2={visualX2} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
