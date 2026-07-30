@@ -1264,12 +1264,22 @@ class TrainDispatchEnv(gym.Env):
                     loop_targets = [n for n in next_opts if n != main_target]
 
                     if act == 2 and loop_targets:
+                        had_reservation = train.get('reserved_platform') is not None
                         target_node = self._select_divert_target(train, loop_targets, direction)
                         if target_node is None:
                             target_node = main_target
                             if not moved_this_step:
                                 reward -= 0.02
                         else:
+                            if not had_reservation:
+                                # Fresh divert decision made this step — defer the actual move
+                                # to the next env.step() so the frontend has one full tick to
+                                # learn the new reserved_platform before the train's position
+                                # changes to reflect it. Without this, the decision and the
+                                # move that confirms it arrive in the same broadcast, and the
+                                # animation has no correct data to smoothly transition from.
+                                current_positions.append(pos)
+                                break
 
                             if train['priority'] < 5:
                                 main_occ = self.get_node_occupancy(main_target)
