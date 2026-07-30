@@ -71,6 +71,45 @@ const STATION_META: Record<string, StMeta> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATH BUILDERS & CACHE
+// ─────────────────────────────────────────────────────────────────────────────
+export const buildSwitchCurvePath = (x1: number, x2: number, y1: number, y2: number): string => {
+  const cx = (x1 + x2) / 2;
+  return `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`;
+};
+
+export const buildLoopArchPath = (stationX: number, anchorY: number, sidY: number, side: 'left' | 'right', style: LoopSide, cmd: 'M' | 'L' = 'M'): string => {
+  if (side === 'left') {
+    if (style === 'segment') {
+      return `${cmd} ${stationX - LOOP_OFF} ${anchorY} C ${stationX - CP_OFF} ${anchorY}, ${stationX - CP_OFF} ${sidY}, ${stationX} ${sidY}`;
+    } else if (style === 'inside') {
+      return `${cmd} ${stationX} ${anchorY} C ${stationX + CP_OFF} ${anchorY}, ${stationX + CP_OFF} ${sidY}, ${stationX + LOOP_OFF} ${sidY}`;
+    } else {
+      return `${cmd} ${stationX} ${sidY}`;
+    }
+  } else {
+    if (style === 'segment') {
+      return `${cmd} ${stationX} ${sidY} C ${stationX + CP_OFF} ${sidY}, ${stationX + CP_OFF} ${anchorY}, ${stationX + LOOP_OFF} ${anchorY}`;
+    } else if (style === 'inside') {
+      return `${cmd} ${stationX - LOOP_OFF} ${sidY} C ${stationX - CP_OFF} ${sidY}, ${stationX - CP_OFF} ${anchorY}, ${stationX} ${anchorY}`;
+    } else {
+      return `${cmd} ${stationX} ${sidY}`;
+    }
+  }
+};
+
+const pathCache = new Map<string, SVGPathElement>();
+const getCachedPath = (key: string, pathData: string): SVGPathElement => {
+  let path = pathCache.get(key);
+  if (!path) {
+    path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathCache.set(key, path);
+  }
+  if (path.getAttribute('d') !== pathData) {
+    path.setAttribute('d', pathData);
+  }
+  return path;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
@@ -487,9 +526,36 @@ export const KineticMap: React.FC = () => {
                     ? MAIN_Y
                     : trackY(rightTrack, swZone.toCap);
             }
-            const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
-            const smoothT = t * t * (3 - 2 * t);
-            currentY = leftY + (rightY - leftY) * smoothT;
+            if (leftY !== null && rightY !== null && leftY !== rightY) {
+                let pathString: string | null = null;
+                const leftNode = topology.nodes.find(n => n.id === lookaheadLeftNodeId);
+                const rightNode = topology.nodes.find(n => n.id === lookaheadRightNodeId);
+                
+                const leftIsLoop = leftNode?.type === 'LOOP' || leftNode?.type === 'CROSSING_LOOP';
+                const rightIsLoop = rightNode?.type === 'LOOP' || rightNode?.type === 'CROSSING_LOOP';
+                
+                if (leftIsLoop && !rightIsLoop && leftStZone && STATION_META[leftStZone.stId]?.loopRight === 'segment') {
+                    pathString = buildLoopArchPath(swZone.x1, rightY, leftY, 'right', 'segment', 'M') + ` L ${swZone.x2} ${rightY}`;
+                } else if (rightIsLoop && !leftIsLoop && rightStZone && STATION_META[rightStZone.stId]?.loopLeft === 'segment') {
+                    pathString = `M ${swZone.x1} ${leftY} ` + buildLoopArchPath(swZone.x2, leftY, rightY, 'left', 'segment', 'L');
+                } else {
+                    pathString = buildSwitchCurvePath(swZone.x1, swZone.x2, leftY, rightY);
+                }
+
+                if (pathString) {
+                    const cacheKey = `${swZone.x1}:${swZone.x2}:${leftY}:${rightY}:${pathString}`;
+                    const path = getCachedPath(cacheKey, pathString);
+                    const totalLen = path.getTotalLength();
+                    const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
+                    const point = path.getPointAtLength(t * totalLen);
+                    x = point.x;
+                    currentY = point.y;
+                }
+            } else {
+                const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
+                const smoothT = t * t * (3 - 2 * t);
+                currentY = leftY! + (rightY! - leftY!) * smoothT;
+            }
         } else {
             const cap = resolveEdgeCap(train.edge_id, x);
             const trackIdx = trainTrackAt(train, cap);
@@ -877,7 +943,7 @@ export const KineticMap: React.FC = () => {
         targets.forEach(targetJ => {
           elems.push(
             <path key={`conv-${i}-${targetJ}`}
-              d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(targetJ, toCap)}, ${x2} ${trackY(targetJ, toCap)}`}
+              d={buildSwitchCurvePath(x1, x2, trackY(i, fromCap), trackY(targetJ, toCap))}
               fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
           );
         });
@@ -922,7 +988,7 @@ export const KineticMap: React.FC = () => {
         targets.forEach(targetI => {
           elems.push(
             <path key={`div-${j}-${targetI}`}
-              d={`M ${x1} ${trackY(targetI, fromCap)} C ${cx} ${trackY(targetI, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
+              d={buildSwitchCurvePath(x1, x2, trackY(targetI, fromCap), trackY(j, toCap))}
               fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
           );
         });
@@ -1064,40 +1130,10 @@ export const KineticMap: React.FC = () => {
       const parts: string[] = [];
 
       // ── LEFT side entry ──────────────────────────────────────
-      if (actualLoopLeft === 'segment') {
-        // Smooth S-arch entering from the left segment
-        parts.push(
-          `M ${x1 - LOOP_OFF} ${anchorY}`,
-          `C ${x1 - CP_OFF} ${anchorY}, ${x1 - CP_OFF} ${sidY}, ${x1} ${sidY}`
-        );
-      } else if (actualLoopLeft === 'inside') {
-        // Diverges from main track just inside the station left boundary
-        parts.push(
-          `M ${x1} ${anchorY}`,
-          `C ${x1 + CP_OFF} ${anchorY}, ${x1 + CP_OFF} ${sidY}, ${x1 + LOOP_OFF} ${sidY}`
-        );
-      } else {
-        // 'bumper': starts at station left edge at siding level
-        parts.push(`M ${x1} ${sidY}`);
-      }
+      parts.push(buildLoopArchPath(x1, anchorY, sidY, 'left', actualLoopLeft, 'M'));
 
       // ── RIGHT side exit ──────────────────────────────────────
-      if (actualLoopRight === 'segment') {
-        // Extends then arches back to main track in the right segment
-        parts.push(
-          `L ${x2} ${sidY}`,
-          `C ${x2 + CP_OFF} ${sidY}, ${x2 + CP_OFF} ${anchorY}, ${x2 + LOOP_OFF} ${anchorY}`
-        );
-      } else if (actualLoopRight === 'inside') {
-        // Rejoins main track just before the station right boundary
-        parts.push(
-          `L ${x2 - LOOP_OFF} ${sidY}`,
-          `C ${x2 - CP_OFF} ${sidY}, ${x2 - CP_OFF} ${anchorY}, ${x2} ${anchorY}`
-        );
-      } else {
-        // 'bumper': ends at station right edge
-        parts.push(`L ${x2} ${sidY}`);
-      }
+      parts.push(buildLoopArchPath(x2, anchorY, sidY, 'right', actualLoopRight, 'L'));
 
       elems.push(
         <path key={`sid${l}`} d={parts.join(' ')} fill="none"
