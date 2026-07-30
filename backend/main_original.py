@@ -807,6 +807,8 @@ async def simulate_trains_bg():
                             try:
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
+                                    if hasattr(dist, "apply_masking") and action_masks is not None:
+                                        dist.apply_masking(action_masks)
                                     action_tensor = torch.tensor(act_list).to(model.device)
                                     log_probs = dist.log_prob(action_tensor)
                                     probs = torch.exp(log_probs).cpu().numpy()

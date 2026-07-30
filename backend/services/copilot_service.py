@@ -619,6 +619,8 @@ async def simulate_trains_bg():
                             try:
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
+                                    if hasattr(dist, "apply_masking") and action_masks is not None:
+                                        dist.apply_masking(action_masks)
                                     
                                     # Ensure action is 2D for batched processing
                                     act_np = np.array(action)

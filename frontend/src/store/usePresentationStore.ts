@@ -22,7 +22,8 @@ export interface TrainPresentationState {
   train_id: string;
   lastConfirmedEdge: string | null;
   lastConfirmedNode?: number | null;
-  lastLookaheadNodeId?: string | null;
+  lastLookaheadLeftNodeId?: string | null;
+  lastLookaheadRightNodeId?: string | null;
   
   // The logical target positions for framer-motion to animate towards.
   targetX: number;
