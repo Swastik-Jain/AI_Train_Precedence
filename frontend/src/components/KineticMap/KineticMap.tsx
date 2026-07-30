@@ -741,20 +741,25 @@ export const KineticMap: React.FC = () => {
       } else if (!edgeChanged) {
         if (currentTrainState.animationMode === 'cosmetic') {
           mode = 'cosmetic';
-          duration = currentTrainState.durationS;
-          let durX = currentTrainState.durationX ?? currentTrainState.durationS;
-          let durY = currentTrainState.durationY ?? currentTrainState.durationS;
-          durationX = durX;
-          durationY = durY;
           followsLive = currentTrainState.followsLive;
           ease = currentTrainState.ease;
-          
+
           if (currentTrainState.followsLive) {
-            // It's a lookahead tween. Let X and Y continue updating to follow the curve.
+            // Already following the curve from a prior tick — the curve itself
+            // isn't changing anymore, only progress along it is. Track it in real
+            // time; do not re-ease, or every tick restarts a tween it can never
+            // finish and the dot permanently lags behind the train's true position.
+            duration = tickIntervalS;
+            durationX = tickIntervalS;
+            durationY = tickIntervalS;
             nextX = acceptedPos.x;
             nextY = acceptedPos.y;
           } else {
-            // Standard edge tween. Keep frozen on the original tween targets.
+            // Standard edge tween in progress — stay frozen on the original
+            // target and duration until it completes naturally.
+            duration = currentTrainState.durationS;
+            durationX = currentTrainState.durationX ?? currentTrainState.durationS;
+            durationY = currentTrainState.durationY ?? currentTrainState.durationS;
             nextX = currentTrainState.targetX;
             nextY = currentTrainState.targetY;
           }
