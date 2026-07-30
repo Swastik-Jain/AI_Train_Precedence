@@ -34,6 +34,7 @@ export interface TrainPresentationState {
   durationS: number;
   durationX?: number;
   durationY?: number;
+  followsLive?: boolean;
   ease: string;
 
   // Debounce bookkeeping for display-default noise

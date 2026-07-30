@@ -710,6 +710,7 @@ export const KineticMap: React.FC = () => {
       const isStationaryStatus = stationaryStatuses.includes(train.status);
 
       let mode: any = 'physics';
+      let followsLive = false;
       let duration = tickIntervalS;
       let durationX = tickIntervalS;
       let durationY = tickIntervalS;
@@ -720,6 +721,7 @@ export const KineticMap: React.FC = () => {
       if (edgeChanged && edge) {
         if (isIntraStationMove(topology, edge.source, edge.target)) {
           mode = 'cosmetic';
+          followsLive = false;
           duration = INTRA_STATION_TWEEN_DURATION_S;
           durationX = INTRA_STATION_TWEEN_DURATION_S;
           durationY = INTRA_STATION_TWEEN_DURATION_S;
@@ -729,9 +731,10 @@ export const KineticMap: React.FC = () => {
         }
       } else if (!edgeChanged && lookaheadChanged) {
         mode = 'cosmetic';
+        followsLive = true;
         duration = INTRA_STATION_TWEEN_DURATION_S;
-        durationX = tickIntervalS; // X continues physics interpolation normally
-        durationY = INTRA_STATION_TWEEN_DURATION_S; // Y gets cosmetic tween
+        durationX = INTRA_STATION_TWEEN_DURATION_S;
+        durationY = INTRA_STATION_TWEEN_DURATION_S;
         ease = 'easeInOut';
         nextX = acceptedPos.x;
         nextY = acceptedPos.y;
@@ -743,9 +746,10 @@ export const KineticMap: React.FC = () => {
           let durY = currentTrainState.durationY ?? currentTrainState.durationS;
           durationX = durX;
           durationY = durY;
+          followsLive = currentTrainState.followsLive;
           ease = currentTrainState.ease;
           
-          if (durX === tickIntervalS && durY === INTRA_STATION_TWEEN_DURATION_S) {
+          if (currentTrainState.followsLive) {
             // It's a lookahead tween. Let X and Y continue updating to follow the curve.
             nextX = acceptedPos.x;
             nextY = acceptedPos.y;
@@ -787,6 +791,7 @@ export const KineticMap: React.FC = () => {
            currentTrainState.durationS !== duration ||
            currentTrainState.durationX !== durationX ||
            currentTrainState.durationY !== durationY ||
+           currentTrainState.followsLive !== followsLive ||
            currentTrainState.candidateEdge !== newCandidateEdge ||
            currentTrainState.candidateCount !== newCandidateCount;
 
@@ -802,6 +807,7 @@ export const KineticMap: React.FC = () => {
              durationS: duration,
              durationX: durationX,
              durationY: durationY,
+             followsLive: followsLive,
              ease: ease,
              candidateEdge: newCandidateEdge,
              candidateCount: newCandidateCount
