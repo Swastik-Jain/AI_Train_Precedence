@@ -666,14 +666,13 @@ class TrainDispatchEnv(gym.Env):
             group = self.station_nodes[st_name].get(idx_key, [])
             total = len(group)
             mid = math.ceil(total / 2)
+            station_mid = (total - 1) / 2.0
 
             if direction == 'UP' and idx < mid:
-                # Closest to centre (idx = mid-1) must sort FIRST -> descending.
-                proximity = mid - idx
+                proximity = abs(idx - station_mid)
                 scored.append((type_rank, proximity, lnode))
             elif direction == 'DOWN' and idx >= mid:
-                # Closest to centre (idx = mid) must sort FIRST -> ascending.
-                proximity = idx - mid
+                proximity = abs(idx - station_mid)
                 scored.append((type_rank, proximity, lnode))
             elif (st_name == 'DADAR' and idx_key == 'loops'
                   and direction == 'DOWN' and total == 1):
@@ -693,30 +692,48 @@ class TrainDispatchEnv(gym.Env):
         Persists the chosen platform in train['reserved_platform'] until invalidated.
         """
         reserved = train.get('reserved_platform')
+        is_mid_transit = (train.get('committed_next_node') == reserved)
+
         if reserved is not None and reserved in loop_targets:
             cap = self.track_map.get(reserved, {}).get('capacity', 1)
-            occ = self.get_node_occupancy(reserved)
+            physical_occ = self.get_node_occupancy(reserved)
+            soft_res_other = sum(1 for tid in getattr(self, '_soft_reservations', {}).get(reserved, []) if tid != train['id'])
+            total_occ = physical_occ + soft_res_other
+
             loop_look_ahead_ok = True
             if self._is_chokepoint_node(reserved):
                 if not self._next_section_has_room(reserved, direction, directional_check=True, train_id=train['id'], actual_target=reserved):
                     loop_look_ahead_ok = False
-            if occ < cap and loop_look_ahead_ok:
+            
+            if is_mid_transit:
+                if loop_look_ahead_ok:
+                    return reserved
+            elif total_occ < cap and loop_look_ahead_ok:
                 return reserved
             else:
                 train['reserved_platform'] = None
+                if train['id'] in getattr(self, '_soft_reservations', {}).get(reserved, []):
+                    self._soft_reservations[reserved].remove(train['id'])
 
         ordered = self._get_valid_loops(loop_targets, direction)
         for lnode in ordered:
             cap = self.track_map.get(lnode, {}).get('capacity', 1)
-            occ = self.get_node_occupancy(lnode)
+            physical_occ = self.get_node_occupancy(lnode)
+            soft_res_other = sum(1 for tid in getattr(self, '_soft_reservations', {}).get(lnode, []) if tid != train['id'])
+            total_occ = physical_occ + soft_res_other
 
             loop_look_ahead_ok = True
             if self._is_chokepoint_node(lnode):
                 if not self._next_section_has_room(lnode, direction, directional_check=True, train_id=train['id'], actual_target=lnode):
                     loop_look_ahead_ok = False
 
-            if occ < cap and loop_look_ahead_ok:
+            if total_occ < cap and loop_look_ahead_ok:
                 train['reserved_platform'] = lnode
+                if not hasattr(self, '_soft_reservations'):
+                    self._soft_reservations = {}
+                if lnode not in self._soft_reservations:
+                    self._soft_reservations[lnode] = []
+                self._soft_reservations[lnode].append(train['id'])
                 return lnode
 
         return None
@@ -1078,6 +1095,15 @@ class TrainDispatchEnv(gym.Env):
                          if not t['finished'] and t['position'] not in (0, 998))
         reward -= 0.005 * num_active
 
+        # Build soft reservations map mapping platform node id -> reserving train id
+        self._soft_reservations = {}
+        for t in self.trains:
+            if not t['finished'] and t.get('reserved_platform') is not None:
+                r_plat = t['reserved_platform']
+                if r_plat not in self._soft_reservations:
+                    self._soft_reservations[r_plat] = []
+                self._soft_reservations[r_plat].append(t['id'])
+
         # Process highest-priority trains first (they claim capacity first)
         sorted_idx = sorted(
             range(len(self.trains)),
@@ -1130,6 +1156,18 @@ class TrainDispatchEnv(gym.Env):
             # Default "next" target for display purposes — the main/through track.
             # Overwritten below with the real committed target for MAIN/DIVERT moves.
             _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+            
+            # EARLY RESERVATION / PEEK
+            if _display_next_opts and len(_display_next_opts) > 1:
+                _main_target = _display_next_opts[0]
+                _loop_targets = [n for n in _display_next_opts if n != _main_target]
+                _st_name = self.track_map.get(_loop_targets[0], {}).get('station') if _loop_targets else None
+                
+                if _st_name and self._is_scheduled_stop(train, _st_name):
+                    if train.get('reserved_platform') is None:
+                        train['_newly_reserved'] = True
+                        self._select_divert_target(train, _loop_targets, direction)
+
             if train.get('reserved_platform') is not None and train.get('reserved_platform') in _display_next_opts:
                 train['committed_next_node'] = train['reserved_platform']
             else:
@@ -1264,7 +1302,7 @@ class TrainDispatchEnv(gym.Env):
                     loop_targets = [n for n in next_opts if n != main_target]
 
                     if act == 2 and loop_targets:
-                        had_reservation = train.get('reserved_platform') is not None
+                        had_reservation = train.get('reserved_platform') is not None and not train.pop('_newly_reserved', False)
                         target_node = self._select_divert_target(train, loop_targets, direction)
                         if target_node is None:
                             target_node = main_target
