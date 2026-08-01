@@ -26,8 +26,8 @@ export interface TrainPresentationState {
   lastLookaheadRightNodeId?: string | null;
   
   // The logical target positions for framer-motion to animate towards.
-  targetX: number;
-  targetY: number;
+  targetX: number | number[];
+  targetY: number | number[];
   
   // Transition configuration for framer-motion
   animationMode: AnimationMode;
@@ -35,7 +35,7 @@ export interface TrainPresentationState {
   durationX?: number;
   durationY?: number;
   followsLive?: boolean;
-  ease: string;
+  ease: string | string[];
 
   // Debounce bookkeeping for display-default noise
   candidateEdge?: string;

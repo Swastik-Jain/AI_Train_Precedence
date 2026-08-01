@@ -38,6 +38,8 @@ export interface TrainState {
   path: string[];
   direction?: string | number;
   reserved_platform?: string | number | null;
+  committed_next_node?: string | number | null;   // NEW — live RL routing decision (which platform/loop this train is headed to)
+  early_reservation?: boolean;
 }
 
 export interface TrainOption {

@@ -7,7 +7,7 @@ import { useMaintenanceStore } from '../../store/useMaintenanceStore';
 import { usePresentationStore, INTRA_STATION_TWEEN_DURATION_S, EDGE_DEBOUNCE_TICKS } from '../../store/usePresentationStore';
 import type { TrainState, Node } from '../../store/useMapStore';
 import { topologyToZones } from '../../utils/topologyToZones';
-import { getNodeStId, isIntraStationMove } from '../../utils/topologyHelpers';
+import { getNodeStId } from '../../utils/topologyHelpers';
 import type { Zone, SegZone, StationZone, SwitchZone } from '../../utils/topologyToZones';
 import './KineticMap.css';
 
@@ -114,7 +114,7 @@ const getCachedPath = (key: string, pathData: string): SVGPathElement => {
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
-const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
+const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, isScheduledDwell, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
   const trainState = usePresentationStore(state => state.trains[train.train_id]);
   
   let targetX, targetY, durationS, durationX, durationY, ease;
@@ -140,7 +140,7 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
     ease = "linear";
   }
 
-  const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
+  const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isScheduledDwell ? '#eab308' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
 
@@ -284,7 +284,19 @@ export const KineticMap: React.FC = () => {
             if (connectsLeft && !connectsRight) return stZone.x1;
             if (connectsRight && !connectsLeft) return stZone.x2;
          }
-         return (stZone.x1 + stZone.x2) / 2;
+         
+         const zIndex = dynamicZones.indexOf(stZone);
+         const prevZone = zIndex > 0 ? dynamicZones[zIndex - 1] : null;
+         const nextZone = zIndex < dynamicZones.length - 1 ? dynamicZones[zIndex + 1] : null;
+         const meta = STATION_META[stZone.stId] || { loops: 0, passing: false, loopLeft: 'inside', loopRight: 'inside' };
+         
+         const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
+         const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
+
+         const visualX1 = actualLoopLeft === 'segment' ? stZone.x1 - LOOP_OFF : stZone.x1;
+         const visualX2 = actualLoopRight === 'segment' ? stZone.x2 + LOOP_OFF : stZone.x2;
+
+         return (visualX1 + visualX2) / 2;
       }
     }
     return getSxForKm(km);
@@ -423,17 +435,7 @@ export const KineticMap: React.FC = () => {
     // trains don't drift to the approach-switch edge at pct≈0.
     const isPL = (t: string) =>
       t === 'PLATFORM' || t === 'LOOP' || t === 'CROSSING_LOOP';
-    if (isPL(tgtNode.type) && srcNode.type === 'SWITCH') {
-      // SWITCH → PLATFORM/LOOP : snap to target node's x (= zone centre)
-      x = tgt.x;
-    } else if (isPL(srcNode.type) && tgtNode.type === 'SWITCH') {
-      // PLATFORM/LOOP → SWITCH : snap to source node's x (= zone centre)
-      x = src.x;
-    } else if (isPL(srcNode.type) && isPL(tgtNode.type)) {
-      // PLATFORM ↔ PLATFORM (rare intra-station hop): average
-      x = (src.x + tgt.x) / 2;
-    }
-
+      
     // Helper to dynamically assign node IDs to visual tracks (top to bottom)
     const getStationNodeY = (node: Node) => {
         const stId = getNodeStId(node);
@@ -459,6 +461,62 @@ export const KineticMap: React.FC = () => {
         return MAIN_Y;
     };
 
+    const smoothStep = (t: number) => t * t * (3 - 2 * t);
+
+    let isMappedIntraStation = false;
+
+    if (isPL(tgtNode.type) && srcNode.type === 'SWITCH') {
+      // ENTERING STATION
+      const stZone = dynamicZones.find(z => z.type === 'ST' && z.stId === getNodeStId(tgtNode));
+      if (stZone) {
+         const boxEntranceX = src.x < tgt.x ? stZone.x1 : stZone.x2;
+         const startX = src.x;
+         const endX = tgt.x; // Platform Center
+         const startY = MAIN_Y;
+         const endY = getStationNodeY(tgtNode) ?? MAIN_Y;
+         
+         const threshold = 0.33; 
+         if (p <= threshold) {
+            const localP = p / threshold;
+            x = startX + (boxEntranceX - startX) * localP;
+            currentY = startY + (endY - startY) * smoothStep(localP);
+         } else {
+            const localP = (p - threshold) / (1 - threshold);
+            x = boxEntranceX + (endX - boxEntranceX) * localP;
+            currentY = endY;
+         }
+         isMappedIntraStation = true;
+      }
+    } else if (isPL(srcNode.type) && tgtNode.type === 'SWITCH') {
+      // EXITING STATION
+      const stZone = dynamicZones.find(z => z.type === 'ST' && z.stId === getNodeStId(srcNode));
+      if (stZone) {
+         const boxExitX = src.x < tgt.x ? stZone.x2 : stZone.x1;
+         const startX = src.x; // Platform Center
+         const endX = tgt.x; // Switch Out
+         const startY = getStationNodeY(srcNode) ?? MAIN_Y;
+         const endY = MAIN_Y;
+
+         const threshold = 0.66;
+         if (p <= threshold) {
+            const localP = p / threshold;
+            x = startX + (boxExitX - startX) * localP;
+            currentY = startY;
+         } else {
+            const localP = (p - threshold) / (1 - threshold);
+            x = boxExitX + (endX - boxExitX) * localP;
+            currentY = startY + (endY - startY) * smoothStep(localP);
+         }
+         isMappedIntraStation = true;
+      }
+    } else if (isPL(srcNode.type) && isPL(tgtNode.type)) {
+      x = src.x + (tgt.x - src.x) * p;
+      currentY = getStationNodeY(srcNode) ?? MAIN_Y;
+      isMappedIntraStation = true;
+    }
+
+
+
     if (isStNode(srcNode.type)) {
         currentY = getStationNodeY(srcNode) ?? MAIN_Y;
     } else if (isStNode(tgtNode.type)) {
@@ -473,8 +531,37 @@ export const KineticMap: React.FC = () => {
             // CRITICAL BUG FIX: train.path is a list of EDGE IDs (e.g. "edge-10-1000"),
             // NOT node IDs. The old code did topology.nodes.find(n => n.id === "edge-10-1000")
             // which always returned undefined, so leftY/rightY were never set from path.
-            // Fix: resolve each path edge to find platform/loop node endpoints.
-            if (train.reserved_platform !== undefined && train.reserved_platform !== null) {
+            // Fix: use the authoritative committed_next_node from the backend's live RL routing
+            // decision rather than the static path or reserved_platform — only those reflect
+            // real DIVERT decisions. Fall back to reserved_platform if committed_next_node is
+            // absent (e.g. Scheduled trains pre-inference).
+            //
+            // Resolve the real committed destination node from the backend's live
+            // routing decision (RL/dispatcher DIVERT included) rather than the
+            // train's static default path, which does not track loop/platform
+            // diversions. Only fall back to reserved_platform/path-scanning if no
+            // live decision exists yet (e.g. a Scheduled train pre-inference).
+            const committedNode = train.committed_next_node != null
+                ? topology.nodes.find(n => n.id === String(train.committed_next_node))
+                : null;
+
+            if (committedNode && isStNode(committedNode.type)) {
+                const nStId = getNodeStId(committedNode);
+                if (leftStZone && leftStZone.stId === nStId) {
+                    const y = getStationNodeY(committedNode);
+                    if (y !== null) {
+                        leftY = y;
+                        lookaheadLeftNodeId = committedNode.id;
+                    }
+                }
+                if (rightStZone && rightStZone.stId === nStId) {
+                    const y = getStationNodeY(committedNode);
+                    if (y !== null) {
+                        rightY = y;
+                        lookaheadRightNodeId = committedNode.id;
+                    }
+                }
+            } else if (train.reserved_platform !== undefined && train.reserved_platform !== null) {
                 const node = topology.nodes.find(n => n.id === String(train.reserved_platform));
                 if (node && isStNode(node.type)) {
                     const nStId = getNodeStId(node);
@@ -556,6 +643,17 @@ export const KineticMap: React.FC = () => {
                 const smoothT = t * t * (3 - 2 * t);
                 currentY = leftY! + (rightY! - leftY!) * smoothT;
             }
+
+            const isWaitingForDecision = committedNode && !isStNode(committedNode.type) && (train.reserved_platform == null || train.reserved_platform === undefined);
+            
+            if (isWaitingForDecision) {
+                const entranceX = (src.x < tgt.x) ? swZone.x1 : swZone.x2;
+                if ((src.x < tgt.x && x > entranceX) || (src.x > tgt.x && x < entranceX)) {
+                    x = entranceX;
+                    currentY = (src.x < tgt.x) ? (leftY ?? MAIN_Y) : (rightY ?? MAIN_Y);
+                }
+            }
+
         } else {
             const cap = resolveEdgeCap(train.edge_id, x);
             const trackIdx = trainTrackAt(train, cap);
@@ -715,21 +813,10 @@ export const KineticMap: React.FC = () => {
       let durationX = tickIntervalS;
       let durationY = tickIntervalS;
       let ease = 'linear';
-      let nextX = acceptedPos.x;
-      let nextY = acceptedPos.y;
+      let nextX: any = acceptedPos.x;
+      let nextY: any = acceptedPos.y;
 
-      if (edgeChanged && edge) {
-        if (isIntraStationMove(topology, edge.source, edge.target)) {
-          mode = 'cosmetic';
-          followsLive = false;
-          duration = INTRA_STATION_TWEEN_DURATION_S;
-          durationX = INTRA_STATION_TWEEN_DURATION_S;
-          durationY = INTRA_STATION_TWEEN_DURATION_S;
-          ease = 'easeInOut';
-          nextX = acceptedTargetPos.x;
-          nextY = acceptedTargetPos.y;
-        }
-      } else if (!edgeChanged && lookaheadChanged) {
+      if (!edgeChanged && lookaheadChanged) {
         mode = 'cosmetic';
         followsLive = true;
         duration = INTRA_STATION_TWEEN_DURATION_S;
@@ -1083,19 +1170,26 @@ export const KineticMap: React.FC = () => {
       const edge = topology!.edges.find(e => e.id === t.edge_id);
       const srcNode = topology!.nodes.find(n => n.id === edge?.source);
       const tgtNode = topology!.nodes.find(n => n.id === edge?.target);
+      const p = t.position_percentage ?? 0;
 
-      // Check if train is specifically on a platform node
-      if (srcNode?.type === 'PLATFORM' && getNodeStId(srcNode) === z.stId) {
-        trackOccupancy.set(srcNode.platform_index!, t);
-      } else if (tgtNode?.type === 'PLATFORM' && getNodeStId(tgtNode) === z.stId) {
-        trackOccupancy.set(tgtNode.platform_index!, t);
+      const isSrcPL = srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP') && getNodeStId(srcNode) === z.stId;
+      const isTgtPL = tgtNode && (tgtNode.type === 'PLATFORM' || tgtNode.type === 'LOOP' || tgtNode.type === 'CROSSING_LOOP') && getNodeStId(tgtNode) === z.stId;
+
+      let occupyingNode = null;
+      if (isSrcPL && isTgtPL) {
+         occupyingNode = p < 0.5 ? srcNode : tgtNode;
+      } else if (isSrcPL) {
+         if (p <= 0.66) occupyingNode = srcNode;
+      } else if (isTgtPL) {
+         if (p >= 0.33) occupyingNode = tgtNode;
       }
-      
-      // Check if train is specifically on a loop node
-      if ((srcNode?.type === 'LOOP' || srcNode?.type === 'CROSSING_LOOP') && getNodeStId(srcNode) === z.stId) {
-        loopOccupancy.set(srcNode.loop_index!, t);
-      } else if ((tgtNode?.type === 'LOOP' || tgtNode?.type === 'CROSSING_LOOP') && getNodeStId(tgtNode) === z.stId) {
-        loopOccupancy.set(tgtNode.loop_index!, t);
+
+      if (occupyingNode) {
+         if (occupyingNode.type === 'PLATFORM') {
+            trackOccupancy.set(occupyingNode.platform_index!, t);
+         } else {
+            loopOccupancy.set(occupyingNode.loop_index!, t);
+         }
       }
     });
 
@@ -1368,6 +1462,7 @@ export const KineticMap: React.FC = () => {
                 isConflict={isConflict}
                 isHalted={isHalted}
                 isAI={isAI}
+                isScheduledDwell={train.is_scheduled_dwell}
                 tickIntervalS={tickIntervalS}
                 actionLabel={actionLabel}
                 setHoveredTrain={setHoveredTrain}

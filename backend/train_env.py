@@ -1157,7 +1157,7 @@ class TrainDispatchEnv(gym.Env):
             # Overwritten below with the real committed target for MAIN/DIVERT moves.
             _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
             
-            # EARLY RESERVATION / PEEK
+            # EARLY RESERVATION / PEEK (direct — train is at switch with fan-out)
             if _display_next_opts and len(_display_next_opts) > 1:
                 _main_target = _display_next_opts[0]
                 _loop_targets = [n for n in _display_next_opts if n != _main_target]
@@ -1167,6 +1167,43 @@ class TrainDispatchEnv(gym.Env):
                     if train.get('reserved_platform') is None:
                         train['_newly_reserved'] = True
                         self._select_divert_target(train, _loop_targets, direction)
+                        # Mark that the physical move toward this reservation
+                        # must be deferred by one tick so the frontend sees
+                        # reserved_platform set BEFORE the train's position changes.
+                        if train.get('reserved_platform') is not None:
+                            train['_divert_move_deferred'] = True
+
+            # TWO-HOP EARLY RESERVATION PEEK — train is one node BEFORE the switch.
+            # When current node has a single next hop that is itself a SWITCH with
+            # multiple fan-out options (platform/loop targets), pre-reserve the platform
+            # now so that the frontend switch-zone rendering tick (edge-{cur}-{switch})
+            # already has a non-null reserved_platform to compute the correct visual row.
+            # Without this, reserved_platform is only set AFTER the train physically
+            # arrives at the switch, one broadcast tick too late — causing the lateral
+            # track-jump bug on the approach edge.
+            elif (len(_display_next_opts) == 1 and train.get('reserved_platform') is None):
+                _single_next = _display_next_opts[0]
+                _single_next_data = self.track_map.get(_single_next, {})
+                if _single_next_data.get('type') == 'SWITCH':
+                    _lookahead_opts = (
+                        _single_next_data.get('prev', []) if direction == 'UP'
+                        else _single_next_data.get('next', [])
+                    )
+                    if len(_lookahead_opts) > 1:
+                        _lh_main = _lookahead_opts[0]
+                        _lh_loops = [n for n in _lookahead_opts if n != _lh_main]
+                        _lh_st_name = self.track_map.get(_lh_loops[0], {}).get('station') if _lh_loops else None
+                        if _lh_st_name and self._is_scheduled_stop(train, _lh_st_name):
+                            train['_newly_reserved'] = True
+                            train['_early_reservation'] = True
+                            self._select_divert_target(train, _lh_loops, direction)
+                            # Same deferred-move flag — the two-hop peek fires one tick
+                            # BEFORE the train reaches the switch, so the reservation
+                            # exists before act==2 ever runs.  Without this flag, the
+                            # execution block would see had_reservation=True and move
+                            # immediately on the very first act==2 tick.
+                            if train.get('reserved_platform') is not None:
+                                train['_divert_move_deferred'] = True
 
             if train.get('reserved_platform') is not None and train.get('reserved_platform') in _display_next_opts:
                 train['committed_next_node'] = train['reserved_platform']
@@ -1228,9 +1265,33 @@ class TrainDispatchEnv(gym.Env):
                     continue
                 main_target = next_opts[0]
                 loop_targets = [n for n in next_opts if n != main_target]
-                
+
+                # Remember what was reserved BEFORE this call.  Early-peek code
+                # (lines above) may have already written reserved_platform 1-2
+                # ticks ago, so we can't use "was it None before" as our gate.
+                # Instead we compare by VALUE: if _select_divert_target picks a
+                # DIFFERENT node than what was already stored, the reservation is
+                # newly committed this tick and we must set the deferred-move flag.
+                _reserved_before = train.get('reserved_platform')
+
                 target_node = self._select_divert_target(train, loop_targets, direction)
+                # Cache for the execution block — avoids a second call that would
+                # re-mutate reserved_platform and double-count soft reservations.
+                _divert_target_node = target_node
+
+                # If a loop target was chosen AND the reservation is genuinely new
+                # (different from what was stored before this call) AND the deferred-
+                # move flag hasn't been set already by an early-peek, set it now.
+                # This covers the case where the train reached the switch without
+                # the peek code having fired (e.g. topology has no one-hop approach
+                # node, or approach node lacked the SWITCH type marker).
+                if (target_node is not None
+                        and target_node != _reserved_before
+                        and not train.get('_divert_move_deferred')):
+                    train['_divert_move_deferred'] = True
+
                 if target_node is None:
+                    train.pop('_divert_move_deferred', None)  # clear stale flag
                     target_node = main_target
                     cap = self.track_map.get(target_node, {}).get('capacity', 1)
                     dir_cap = max(1, cap // 2) if cap > 1 else cap
@@ -1238,7 +1299,7 @@ class TrainDispatchEnv(gym.Env):
                         reward -= 0.05
                         current_positions.append(pos)
                         continue
-                        
+
                 train['target_speed'] = min(track_limit, train['max_speed'])
             else:
                 train['target_speed'] = 0
@@ -1302,20 +1363,20 @@ class TrainDispatchEnv(gym.Env):
                     loop_targets = [n for n in next_opts if n != main_target]
 
                     if act == 2 and loop_targets:
-                        had_reservation = train.get('reserved_platform') is not None and not train.pop('_newly_reserved', False)
-                        target_node = self._select_divert_target(train, loop_targets, direction)
+                        # Reuse the target already resolved in the speed-calc block;
+                        # do NOT call _select_divert_target again (would re-mutate
+                        # reserved_platform and double-count soft reservations).
+                        target_node = _divert_target_node
                         if target_node is None:
                             target_node = main_target
                             if not moved_this_step:
                                 reward -= 0.02
                         else:
-                            if not had_reservation:
-                                # Fresh divert decision made this step — defer the actual move
-                                # to the next env.step() so the frontend has one full tick to
-                                # learn the new reserved_platform before the train's position
-                                # changes to reflect it. Without this, the decision and the
-                                # move that confirms it arrive in the same broadcast, and the
-                                # animation has no correct data to smoothly transition from.
+                            # _divert_move_deferred is set the tick a NEW reservation
+                            # is first committed.  Pop it (consume once) to skip the
+                            # physical move this tick so the frontend has one broadcast
+                            # to learn the new reserved_platform before the train jumps.
+                            if train.pop('_divert_move_deferred', False):
                                 current_positions.append(pos)
                                 break
 
@@ -1420,6 +1481,10 @@ class TrainDispatchEnv(gym.Env):
                     train['committed_next_node'] = _commit_next_opts[0] if _commit_next_opts else pos
                     self._movement_acc[i] -= dist_to_next
                     moved_this_step = True
+                    
+                    if target_node == train.get('reserved_platform'):
+                        train['reserved_platform'] = None
+                        train.pop('_early_reservation', None)
 
                     # Token system update
                     was_in_token = self._is_in_token_block(old_pos)
