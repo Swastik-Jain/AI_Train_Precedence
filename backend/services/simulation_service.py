@@ -399,7 +399,8 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 live['position_node']        = node_id
                                 live['speed_kmh']            = speed
                                 live['reserved_platform']    = rl_train.get('reserved_platform')
-                                live['committed_next_node']  = committed_next   # NEW — expose real routing decision to frontend
+                                live['committed_next_node']  = committed_next
+                                live['awaiting_platform']    = rl_train.get('awaiting_platform', False)
                                 live['is_scheduled_dwell']   = rl_train.get('_divert_move_deferred', False)
                                 live['early_reservation']    = rl_train.get('_early_reservation', False)
                             

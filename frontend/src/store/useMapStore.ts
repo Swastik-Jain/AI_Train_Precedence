@@ -40,7 +40,9 @@ export interface TrainState {
   reserved_platform?: string | number | null;
   committed_next_node?: string | number | null;   // NEW — live RL routing decision (which platform/loop this train is headed to)
   early_reservation?: boolean;
+  awaiting_platform?: boolean;   // NEW — backend signals platform not yet resolved at this switch
 }
+
 
 export interface TrainOption {
   train_id: string;

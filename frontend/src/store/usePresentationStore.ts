@@ -40,7 +40,11 @@ export interface TrainPresentationState {
   // Debounce bookkeeping for display-default noise
   candidateEdge?: string;
   candidateCount?: number;
+  // Gate state: tracks whether the train was awaiting platform last tick so
+  // the animation effect can detect the awaiting_platform true→false transition.
+  wasAwaitingPlatform?: boolean;
 }
+
 
 interface PresentationStore {
   trains: Record<string, TrainPresentationState>;

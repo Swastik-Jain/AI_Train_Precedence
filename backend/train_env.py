@@ -692,7 +692,10 @@ class TrainDispatchEnv(gym.Env):
         Persists the chosen platform in train['reserved_platform'] until invalidated.
         """
         reserved = train.get('reserved_platform')
-        is_mid_transit = (train.get('committed_next_node') == reserved)
+        is_mid_transit = (
+            train.get('committed_next_node') == reserved
+            or train.get('_early_reservation')
+        )
 
         if reserved is not None and reserved in loop_targets:
             cap = self.track_map.get(reserved, {}).get('capacity', 1)
@@ -1205,10 +1208,7 @@ class TrainDispatchEnv(gym.Env):
                             if train.get('reserved_platform') is not None:
                                 train['_divert_move_deferred'] = True
 
-            if train.get('reserved_platform') is not None and train.get('reserved_platform') in _display_next_opts:
-                train['committed_next_node'] = train['reserved_platform']
-            else:
-                train['committed_next_node'] = _display_next_opts[0] if _display_next_opts else pos
+            # committed_next_node is now set AFTER the act block (see below)
 
             # ── Banker attach/detach wait ─────────────────────────────────
             if train.get('banker_wait', 0) > 0:
@@ -1303,6 +1303,31 @@ class TrainDispatchEnv(gym.Env):
                 train['target_speed'] = min(track_limit, train['max_speed'])
             else:
                 train['target_speed'] = 0
+
+            # A1: committed_next_node — computed AFTER the act block so that
+            # reserved_platform reflects the current-tick decision (early-peek
+            # + act==2 _select_divert_target have both finished by this point).
+            if train.get('reserved_platform') is not None and (
+                train['reserved_platform'] in _display_next_opts
+                or train.get('_early_reservation')
+            ):
+                train['committed_next_node'] = train['reserved_platform']
+            else:
+                train['committed_next_node'] = _display_next_opts[0] if _display_next_opts else pos
+
+            # A2: awaiting_platform — True only when the train is at a switch
+            # node that feeds a station it has a scheduled stop at, AND no
+            # platform has been reserved yet this tick.  False for all other
+            # cases (pass-throughs, trains not near a switch, post-reservation).
+            _aw_platform = False
+            if _display_next_opts and len(_display_next_opts) > 1:
+                _aw_main  = _display_next_opts[0]
+                _aw_loops = [n for n in _display_next_opts if n != _aw_main]
+                _aw_st    = self.track_map.get(_aw_loops[0], {}).get('station') if _aw_loops else None
+                if _aw_st and self._is_scheduled_stop(train, _aw_st) and train.get('reserved_platform') is None:
+                    _aw_platform = True
+            train['awaiting_platform'] = _aw_platform
+
 
             # ── Speed inertia ─────────────────────────────────────────────
             if train['target_speed'] > train['speed']:
