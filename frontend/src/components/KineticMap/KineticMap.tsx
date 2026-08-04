@@ -1,6 +1,6 @@
 import { apiUrl, wsUrl } from '../../lib/api';
 import { motion } from 'framer-motion';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
@@ -8,7 +8,7 @@ import { useMaintenanceStore } from '../../store/useMaintenanceStore';
 import { usePresentationStore, INTRA_STATION_TWEEN_DURATION_S, EDGE_DEBOUNCE_TICKS } from '../../store/usePresentationStore';
 import type { TrainState, Node } from '../../store/useMapStore';
 import { topologyToZones } from '../../utils/topologyToZones';
-import { getNodeStId } from '../../utils/topologyHelpers';
+import { getNodeStId, isIntraStationMove } from '../../utils/topologyHelpers';
 import type { Zone, SegZone, StationZone, SwitchZone } from '../../utils/topologyToZones';
 import './KineticMap.css';
 
@@ -346,278 +346,155 @@ export const KineticMap: React.FC = () => {
     return map;
   }, [topology, dynamicZones]);
 
-  // ── Train schematic position ───────────────────────────────────────────────
-  /**
-   * Resolve the track-capacity used for the Y-coordinate of a train.
-   *
-   * Priority:
-   *  1. MAIN_BLOCK / GHAT_BLOCK source nodes carry the exact segment cap.
-   *  2. PLATFORM / LOOP edges: cap = 1 (siding track).
-   *  3. SWITCH–SWITCH edges (intra-station main): use the adjacent SEG zone cap
-   *     so the train sits on the same line as the through-running tracks.
-   *  4. Fallback: nearest SEG zone at position x, or 2.
-   *
-   * We deliberately avoid using SW zone cap (= max of both sides) because that
-   * places the badge above/below the actual drawn track lines.
-   */
-  const resolveEdgeCap = (edgeId: string, posX: number): number => {
-    const edge = topology!.edges.find(e => e.id === edgeId);
-    if (!edge) return 2;
+  // ─────────────────────────────────────────────────────────────────────────
+  // INTRA-STATION TRAIN MOTION
+  // ─────────────────────────────────────────────────────────────────────────
+  // A train's on-screen position is driven entirely by two things reported
+  // by the backend each tick: `edge_id` (which topology edge it is on) and
+  // `position_percentage` (how far along that edge, 0 → 1).
+  //
+  // Every station is wired in the topology as:
+  //
+  //     …mainline… → SWITCH(in) → PLATFORM_i / LOOP_i → SWITCH(out) → …mainline…
+  //                        └──────────→ SWITCH(out) ───────↑   (non-stop pass-through)
+  //
+  // so "entering the station, riding platform N, and rejoining the mainline"
+  // is nothing more than the train stepping through a short, fixed sequence
+  // of real graph edges. The frontend's only job is to render that sequence
+  // faithfully:
+  //
+  //   1. SWITCH(in) → PLATFORM_i / LOOP_i   — the backend has already picked
+  //      platform/loop `i`; the edge_id itself tells us which one.
+  //   2. Sit on the platform edge. If the train is dwelling (a scheduled
+  //      stop, boarding, etc.) it simply stays put — the backend keeps
+  //      reporting the same edge/percentage every tick.
+  //   3. PLATFORM_i / LOOP_i → SWITCH(out)  — once released, the train
+  //      leaves the platform track and heads for the switch-out edge.
+  //   4. SWITCH(out) → …mainline…           — the train resumes on the main
+  //      running line.
+  //
+  // getPos() below implements exactly this: X always advances linearly with
+  // `position_percentage`, and Y is resolved independently at each end of
+  // the current edge from what that endpoint node *is* (a platform track, a
+  // loop track, or a lane on the multi-track mainline bundle), eased
+  // smoothly between the two. No lookahead guessing, no path scanning, no
+  // per-station special cases.
 
-    const srcNode = topology!.nodes.find(n => n.id === edge.source);
-    const tgtNode = topology!.nodes.find(n => n.id === edge.target);
-
-    // MAIN_BLOCK / GHAT_BLOCK — source node holds the correct segment capacity
-    if (srcNode && (srcNode.type === 'MAIN_BLOCK' || srcNode.type === 'GHAT_BLOCK')) {
-      return srcNode.capacity || 2;
-    }
-    if (tgtNode && (tgtNode.type === 'MAIN_BLOCK' || tgtNode.type === 'GHAT_BLOCK')) {
-      return tgtNode.capacity || 2;
-    }
-
-    // ST zones: if the train is physically within a station zone, it MUST use that station's
-    // capacity so it snaps to one of the valid station tracks (instead of falling back to a 
-    // mainline capacity of 1 or 2 and floating between tracks).
-    const stZone = dynamicZones.find(z => z.type === 'ST' && posX >= z.x1 && posX <= z.x2) as StationZone | undefined;
-    if (stZone) return stZone.cap;
-
-    // PLATFORM / LOOP edges — siding, always single-track
-    if (
-      (srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP')) ||
-      (tgtNode && (tgtNode.type === 'PLATFORM' || tgtNode.type === 'LOOP'))
-    ) {
-      return 1;
-    }
-
-    // SWITCH–SWITCH (intra-station) or ORIGIN/DESTINATION edges:
-    // Use the nearest SEG zone's cap so the train rides on the mainline tracks.
-    const nearestSeg = dynamicZones
-      .filter(z => z.type === 'SEG')
-      .reduce<{ zone: SegZone | null; dist: number }>(
-        (best, z) => {
-          const seg = z as SegZone;
-          const cx = (seg.x1 + seg.x2) / 2;
-          const dist = Math.abs(cx - posX);
-          return dist < best.dist ? { zone: seg, dist } : best;
-        },
-        { zone: null, dist: Infinity }
-      );
-    if (nearestSeg.zone) return nearestSeg.zone.cap;
-
-    return 2;
+  /** Ease-in/ease-out curve used to blend Y across an edge (t ∈ [0,1]). */
+  const smoothstep = (t: number): number => {
+    const c = Math.max(0, Math.min(1, t));
+    return c * c * (3 - 2 * c);
   };
 
+  /**
+   * Deterministically assign a train to one lane of an `n`-track bundle.
+   * Uses a stable hash of the train's ID so the same train always renders
+   * on the same lane, with UP trains occupying the top half of the bundle
+   * and DOWN trains the bottom half.
+   */
+  const trainTrackAt = (train: TrainState, cap: number): number => {
+    if (cap <= 1) return 0;
+    const isUp = train.direction === 'UP' || train.direction === 1 || train.direction === -1;
 
-  // Cache the last real platform/loop Y a train was confirmed on.
-  // Used for departures: by the time the train starts leaving, its origin
-  // platform Y is already a settled fact — no new backend signal needed.
-  const lastPlatformYRef = useRef<Map<string, number>>(new Map());
+    let hash = 0;
+    for (let i = 0; i < train.train_id.length; i++) {
+      hash = train.train_id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    hash = Math.abs(hash);
 
-  const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
+    if (isUp) {
+      const available = Math.ceil(cap / 2);
+      return hash % available;
+    }
+    const available = Math.floor(cap / 2);
+    return (cap - available) + (hash % available);
+  };
 
+  /**
+   * Resolve how many parallel tracks a station's platform bundle has, so a
+   * PLATFORM/LOOP node's index can be centred correctly. Prefers the
+   * station zone's computed capacity (which accounts for every platform +
+   * loop at that station); falls back to the node's own capacity field if
+   * the zone isn't available yet (e.g. before topology/zones have loaded).
+   */
+  const stationCapacityFor = (stId: string | undefined, fallbackCap: number): number => {
+    if (!stId) return fallbackCap;
+    const stZone = dynamicZones.find(
+      z => z.type === 'ST' && (z as StationZone).stId === stId
+    ) as StationZone | undefined;
+    return stZone ? stZone.cap : fallbackCap;
+  };
 
-  const getPos = (train: TrainState): { x: number; y: number; lookaheadLeftNodeId?: string | null; lookaheadRightNodeId?: string | null } | null => {
+  /**
+   * Sanitize a node's raw `capacity` field for use as a track-bundle size.
+   * ORIGIN/DESTINATION sentinel nodes carry a placeholder capacity (99)
+   * that has no visual meaning on a schematic, so it's clamped to a sane
+   * single/double-track default.
+   */
+  const nodeCapacity = (node: Node): number => {
+    const cap = node.capacity ?? 2;
+    if (cap < 1 || cap > 8) return 2;
+    return cap;
+  };
+
+  /**
+   * The single source of truth for "what Y does this node live at?".
+   * Every branch of the old switch/platform/mainline logic collapses into
+   * this one lookup — getPos() just calls it once per edge endpoint.
+   */
+  const nodeHomeY = (node: Node, train: TrainState): number => {
+    switch (node.type) {
+      case 'PLATFORM': {
+        const cap = stationCapacityFor(getNodeStId(node), nodeCapacity(node));
+        return trackY(node.platform_index ?? 0, cap);
+      }
+      case 'LOOP':
+      case 'CROSSING_LOOP': {
+        const cap = stationCapacityFor(getNodeStId(node), nodeCapacity(node));
+        const topOfBundle = trackY(0, cap);
+        return topOfBundle - ((node.loop_index ?? 0) + 1) * TRACK_GAP;
+      }
+      default: {
+        // SWITCH, MAIN_BLOCK, GHAT_BLOCK, STATION, ORIGIN, DESTINATION, etc.
+        // all sit on the multi-track mainline bundle — the train rides its
+        // own deterministically-assigned lane through them.
+        const cap = nodeCapacity(node);
+        return trackY(trainTrackAt(train, cap), cap);
+      }
+    }
+  };
+
+  /**
+   * Resolve a train's schematic {x, y} position from its current edge and
+   * progress along it. See the block comment above for the full model.
+   */
+  const getPos = (train: TrainState): { x: number; y: number } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
     if (!edge) return null;
+
     const srcNode = topology.nodes.find(n => n.id === edge.source);
     const tgtNode = topology.nodes.find(n => n.id === edge.target);
     const src = nodePos.get(edge.source);
     const tgt = nodePos.get(edge.target);
     if (!src || !tgt || !srcNode || !tgtNode) return null;
 
-    // Use raw position_percentage linearly — the cubic ease-in-out that was
-    // here before caused trains to visually sprint through the narrow station
-    // box (slow-fast-slow mapping over the short platform edge distance).
-    const p = train.position_percentage;
-    let x = src.x + (tgt.x - src.x) * p;
-    let currentY = MAIN_Y;
-    let lookaheadLeftNodeId: string | null = null;
-    let lookaheadRightNodeId: string | null = null;
+    // X always advances linearly with the backend's reported progress —
+    // true for a long mainline block and a short switch↔platform throat
+    // alike, so the train never appears to teleport or snap.
+    const p = Math.max(0, Math.min(1, train.position_percentage));
+    const x = src.x + (tgt.x - src.x) * p;
 
-    // ── Platform/Loop centering fix ─────────────────────────────────────────
-    // When an edge runs between a SWITCH and a PLATFORM or LOOP node (both
-    // within the same station), the train is physically inside the station
-    // at all times. Pin x to the platform/loop node's own schematic x
-    // (which nodeSx already sets to the station-zone centre) so waiting
-    // trains don't drift to the approach-switch edge at pct≈0.
-    const isPL = (t: string) =>
-      t === 'PLATFORM' || t === 'LOOP' || t === 'CROSSING_LOOP';
-      
-    // Helper to dynamically assign node IDs to visual tracks (top to bottom)
-    const getStationNodeY = (node: Node) => {
-        const stId = getNodeStId(node);
-        if (!stId) return null;
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stId) as StationZone | undefined;
-        if (!stZone) return null;
-        const cap = stZone.cap;
-        if (node.type === 'PLATFORM' && node.platform_index !== undefined) {
-            return trackY(node.platform_index, cap);
-        }
-        if ((node.type === 'LOOP' || node.type === 'CROSSING_LOOP') && node.loop_index !== undefined) {
-            const meta = STATION_META[stId];
-            const totalLoops = meta?.loops ?? 0;
-            const mid = Math.ceil(totalLoops / 2);
-            if (node.loop_index < mid) {
-                const topTrackY = trackY(0, cap);
-                return topTrackY - (node.loop_index + 1) * TRACK_GAP;
-            } else {
-                const botTrackY = trackY(cap - 1, cap);
-                return botTrackY + (node.loop_index - mid + 1) * TRACK_GAP;
-            }
-        }
-        return MAIN_Y;
-    };
+    // Y is resolved independently at each endpoint from what that node is,
+    // then eased between the two. When both ends share the same home Y
+    // (e.g. a plain mainline block-to-block edge) this is a no-op flat
+    // line; when they differ (entering/leaving a platform or loop track,
+    // or crossing a capacity change) it produces a smooth lane change.
+    const yStart = nodeHomeY(srcNode, train);
+    const yEnd = nodeHomeY(tgtNode, train);
+    const y = yStart === yEnd ? yStart : yStart + (yEnd - yStart) * smoothstep(p);
 
-    const smoothStep = (t: number) => t * t * (3 - 2 * t);
-
-    let isMappedIntraStation = false;
-
-    if (isPL(tgtNode.type) && srcNode.type === 'SWITCH') {
-      // ENTERING STATION
-      const stZone = dynamicZones.find(z => z.type === 'ST' && z.stId === getNodeStId(tgtNode));
-      if (stZone) {
-         const boxEntranceX = src.x < tgt.x ? stZone.x1 : stZone.x2;
-         const startX = src.x;
-         const endX = tgt.x; // Platform Center
-         const startY = MAIN_Y;
-         const endY = getStationNodeY(tgtNode) ?? MAIN_Y;
-         
-         const threshold = 0.33; 
-         if (p <= threshold) {
-            const localP = p / threshold;
-            x = startX + (boxEntranceX - startX) * localP;
-            currentY = startY + (endY - startY) * smoothStep(localP);
-         } else {
-            const localP = (p - threshold) / (1 - threshold);
-            x = boxEntranceX + (endX - boxEntranceX) * localP;
-            currentY = endY;
-         }
-         isMappedIntraStation = true;
-      }
-    } else if (isPL(srcNode.type) && tgtNode.type === 'SWITCH') {
-      // EXITING STATION
-      const stZone = dynamicZones.find(z => z.type === 'ST' && z.stId === getNodeStId(srcNode));
-      if (stZone) {
-         const boxExitX = src.x < tgt.x ? stZone.x2 : stZone.x1;
-         const startX = src.x; // Platform Center
-         const endX = tgt.x; // Switch Out
-         const startY = getStationNodeY(srcNode) ?? MAIN_Y;
-         const endY = MAIN_Y;
-
-         const threshold = 0.66;
-         if (p <= threshold) {
-            const localP = p / threshold;
-            x = startX + (boxExitX - startX) * localP;
-            currentY = startY;
-         } else {
-            const localP = (p - threshold) / (1 - threshold);
-            x = boxExitX + (endX - boxExitX) * localP;
-            currentY = startY + (endY - startY) * smoothStep(localP);
-         }
-         isMappedIntraStation = true;
-      }
-    } else if (isPL(srcNode.type) && isPL(tgtNode.type)) {
-      x = src.x + (tgt.x - src.x) * p;
-      currentY = getStationNodeY(srcNode) ?? MAIN_Y;
-      isMappedIntraStation = true;
-    }
-
-
-
-    if (isStNode(srcNode.type)) {
-        currentY = getStationNodeY(srcNode) ?? MAIN_Y;
-        lastPlatformYRef.current.set(train.train_id, currentY);
-    } else if (isStNode(tgtNode.type)) {
-        currentY = getStationNodeY(tgtNode) ?? MAIN_Y;
-        lastPlatformYRef.current.set(train.train_id, currentY);
-    } else {
-        const swZone = dynamicZones.find(z => z.type === 'SW' && x >= z.x1 && x <= z.x2) as SwitchZone | undefined;
-        if (swZone) {
-            const leftStZone  = dynamicZones.find(z => z.type === 'ST' && z.x2 === swZone.x1) as StationZone | undefined;
-            const rightStZone = dynamicZones.find(z => z.type === 'ST' && z.x1 === swZone.x2) as StationZone | undefined;
-            const stSide: 'left' | 'right' | null = leftStZone ? 'left' : rightStZone ? 'right' : null;
-
-            if (!stSide) {
-                // Plain capacity-changing junction — no station involved.
-                // Keep the existing hash-based multi-track spread; unrelated to
-                // platform assignment, out of scope for this fix.
-                const cap = Math.max(swZone.fromCap, swZone.toCap);
-                const trackIdx = trainTrackAt(train, cap);
-                currentY = trackY(trackIdx, cap);
-            } else {
-                // Direction of travel through THIS zone derived from actual edge
-                // endpoints, not train.direction (which is route direction).
-                const movingRight = tgt.x > src.x;
-                const arriving = (stSide === 'left' && !movingRight) || (stSide === 'right' && movingRight);
-                const entryX = movingRight ? swZone.x1 : swZone.x2;
-
-                let stationSideY: number;
-                if (arriving) {
-                    // Gate: platform not yet resolved — freeze the train at the
-                    // switch entry point on MAIN_Y.  No guessing, no drift.
-                    if (train.awaiting_platform) {
-                        return { x: entryX, y: MAIN_Y };
-                    }
-                    // Platform is confirmed — use committed_next_node for target Y.
-                    const committedNode = train.committed_next_node != null
-                        ? topology.nodes.find(n => n.id === String(train.committed_next_node))
-                        : null;
-                    stationSideY = (committedNode && isStNode(committedNode.type))
-                        ? (getStationNodeY(committedNode) ?? MAIN_Y)
-                        : MAIN_Y;
-                    // Update cache so departure from this platform reads the right Y.
-                    if (stationSideY !== MAIN_Y) {
-                        lastPlatformYRef.current.set(train.train_id, stationSideY);
-                    }
-                    // Expose lookahead node ID so cosmetic tween detects the resolution.
-                    if (committedNode && isStNode(committedNode.type)) {
-                        if (stSide === 'left') lookaheadLeftNodeId  = committedNode.id;
-                        else                   lookaheadRightNodeId = committedNode.id;
-                    }
-                } else {
-                    // Departing: the station-side Y is already a settled fact —
-                    // wherever this train was rendered just before it started moving.
-                    // No gate needed; nothing to wait for.
-                    stationSideY = lastPlatformYRef.current.get(train.train_id) ?? MAIN_Y;
-                }
-
-                const yAtX1 = stSide === 'left' ? stationSideY : MAIN_Y;
-                const yAtX2 = stSide === 'right' ? stationSideY : MAIN_Y;
-                const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
-                const smoothT = t * t * (3 - 2 * t);
-                currentY = yAtX1 + (yAtX2 - yAtX1) * smoothT;
-            }
-        } else {
-            const cap = resolveEdgeCap(train.edge_id, x);
-            const trackIdx = trainTrackAt(train, cap);
-            currentY = trackY(trackIdx, cap);
-        }
-    }
-
-    return { x, y: currentY, lookaheadLeftNodeId, lookaheadRightNodeId };
-  };
-
-  // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
-  const trainTrackAt = (train: TrainState, cap: number): number => {
-    if (cap <= 1) return 0;
-    const isUp = train.direction === "UP" || train.direction === 1 || train.direction === -1; 
-    
-    // Create a stable numeric hash from the train_id string
-    let hash = 0;
-    for (let i = 0; i < train.train_id.length; i++) {
-      hash = train.train_id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    // Ensure positive hash
-    hash = Math.abs(hash);
-
-    if (isUp) {
-      const available = Math.ceil(cap / 2);
-      return hash % available;
-    } else {
-      const available = Math.floor(cap / 2);
-      return (cap - available) + (hash % available);
-    }
+    return { x, y };
   };
 
   // ── Block tick marks: actual topology block boundaries ──────────────────────
@@ -636,219 +513,165 @@ export const KineticMap: React.FC = () => {
     return result;
   }, [topology]);
 
+  // ── Animation state machine ─────────────────────────────────────────────
+  // getPos() answers "where should this train be drawn right now?" on every
+  // tick. This effect turns that raw answer into an animation command for
+  // framer-motion (via usePresentationStore) — snapping straight to getPos()
+  // every tick would make the badge teleport instead of glide.
+  //
+  //   'initial'  — first time we see this train: snap, no tween.
+  //   'dwell'    — train is stopped (scheduled wait, boarding, signal, …):
+  //                snap to its resting spot (usually a platform track).
+  //   'cosmetic' — the train just made a discrete intra-station hop
+  //                (switch → platform/loop, or platform/loop → switch-out):
+  //                ease smoothly to the new track over a fixed duration
+  //                instead of following raw per-tick physics.
+  //   'physics'  — normal continuous movement: track the backend's own
+  //                tick rate exactly.
   useEffect(() => {
-    if (!topology) return;
+    if (!topology || !trainStates.length) return;
     const store = usePresentationStore.getState();
 
-    // 1. Remove trains from store that are no longer in trainStates
-    const currentIds = new Set(trainStates.map(t => t.train_id));
-    Object.keys(store.trains).forEach(tid => {
-      if (!currentIds.has(tid)) {
-        store.removeTrainPresentation(tid);
-      }
-    });
-
-    if (!trainStates.length) return;
-
-    // 2. Process current trains
     trainStates.forEach(train => {
-      const pos = getPos(train);
-      const targetPos = getPos({ ...train, position_percentage: 1 });
-      if (!pos || !targetPos) return;
-      
       const currentTrainState = store.trains[train.train_id];
-      
+
+      // First sighting of this train: snap straight to its computed
+      // position — there is nothing to animate from yet.
       if (!currentTrainState) {
+        const pos = getPos(train);
+        if (!pos) return;
         store.initializeTrainPresentation(train.train_id, {
           lastConfirmedEdge: train.edge_id,
           lastConfirmedNode: train.position_node,
-          lastLookaheadLeftNodeId: pos.lookaheadLeftNodeId || null,
-          lastLookaheadRightNodeId: pos.lookaheadRightNodeId || null,
           targetX: pos.x,
           targetY: pos.y,
           animationMode: 'initial',
           durationS: 0,
           ease: 'linear',
-          wasAwaitingPlatform: false,
         });
         return;
       }
 
-      let rawEdgeChanged = currentTrainState.lastConfirmedEdge !== train.edge_id;
-      let isGenuinePhysicalMove = false;
+      // ── Edge-change debounce ────────────────────────────────────────────
+      // The backend occasionally reports a display-default next-hop edge
+      // before the train has actually left its current node. A genuine
+      // physical move always comes with a `position_node` change; anything
+      // else must be observed for EDGE_DEBOUNCE_TICKS consecutive ticks
+      // before we trust it, so the badge doesn't flicker between lanes.
+      const rawEdgeChanged = currentTrainState.lastConfirmedEdge !== train.edge_id;
+      const isGenuinePhysicalMove =
+        rawEdgeChanged &&
+        !!currentTrainState.lastConfirmedEdge &&
+        currentTrainState.lastConfirmedNode !== undefined &&
+        currentTrainState.lastConfirmedNode !== train.position_node;
 
-      // Determine if a raw edge change is a genuine physical move (the current node changed)
-      // or just a display-default next-hop flip (current node unchanged).
-      if (rawEdgeChanged && currentTrainState.lastConfirmedEdge) {
-        if (currentTrainState.lastConfirmedNode !== undefined && 
-            currentTrainState.lastConfirmedNode !== train.position_node) {
-          isGenuinePhysicalMove = true;
-        }
-      }
-
-      // Debounce bookkeeping
       let acceptedEdge = currentTrainState.lastConfirmedEdge || train.edge_id;
-      let newCandidateEdge = currentTrainState.candidateEdge;
-      let newCandidateCount = currentTrainState.candidateCount || 0;
+      let candidateEdge = currentTrainState.candidateEdge;
+      let candidateCount = currentTrainState.candidateCount || 0;
 
       if (rawEdgeChanged) {
         if (isGenuinePhysicalMove) {
-          // Immediately accept physical movement to avoid artificial lag
           acceptedEdge = train.edge_id;
-          newCandidateEdge = undefined;
-          newCandidateCount = 0;
-        } else {
-          // It's a display-default flip, so debounce it
-          if (train.edge_id === currentTrainState.candidateEdge) {
-            newCandidateCount += 1;
-            if (newCandidateCount >= EDGE_DEBOUNCE_TICKS) {
-              acceptedEdge = train.edge_id;
-              newCandidateEdge = undefined;
-              newCandidateCount = 0;
-            }
-          } else {
-            newCandidateEdge = train.edge_id;
-            newCandidateCount = 1;
+          candidateEdge = undefined;
+          candidateCount = 0;
+        } else if (train.edge_id === candidateEdge) {
+          candidateCount += 1;
+          if (candidateCount >= EDGE_DEBOUNCE_TICKS) {
+            acceptedEdge = train.edge_id;
+            candidateEdge = undefined;
+            candidateCount = 0;
           }
+        } else {
+          candidateEdge = train.edge_id;
+          candidateCount = 1;
         }
       } else {
-        newCandidateEdge = undefined;
-        newCandidateCount = 0;
+        candidateEdge = undefined;
+        candidateCount = 0;
       }
 
-      // Evaluate physics against the accepted (debounced) edge to prevent jumping
       const debouncedTrain = { ...train, edge_id: acceptedEdge };
       const acceptedPos = getPos(debouncedTrain);
-      const acceptedTargetPos = getPos({ ...debouncedTrain, position_percentage: 1 });
-      if (!acceptedPos || !acceptedTargetPos) return;
+      if (!acceptedPos) return;
 
       const edgeChanged = currentTrainState.lastConfirmedEdge !== acceptedEdge;
-      const edge = topology.edges.find((e: any) => e.id === acceptedEdge);
-      
-      let newLookaheadLeftNodeId = acceptedPos.lookaheadLeftNodeId || null;
-      let newLookaheadRightNodeId = acceptedPos.lookaheadRightNodeId || null;
-      let lookaheadChanged = false;
-      if (currentTrainState.lastLookaheadLeftNodeId !== undefined &&
-          currentTrainState.lastLookaheadLeftNodeId !== newLookaheadLeftNodeId) {
-         lookaheadChanged = true;
-      }
-      if (currentTrainState.lastLookaheadRightNodeId !== undefined &&
-          currentTrainState.lastLookaheadRightNodeId !== newLookaheadRightNodeId) {
-         lookaheadChanged = true;
-      }
+      const edge = topology.edges.find(e => e.id === acceptedEdge);
 
-      // Secondary backstop: status check for stationary states.
-      // Primary trigger for animation remains node/edge changes.
       const stationaryStatuses = ['Scheduled', 'Banker Ops', 'Boarding', 'Waiting at Signal'];
-      const isStationaryStatus = stationaryStatuses.includes(train.status);
-      // Gate: true while awaiting_platform, so the train is held at the switch entry.
-      const isAwaitingPlatform = !!train.awaiting_platform;
-      // Detect the awaiting_platform true→false transition so we can re-trigger
-      // the cosmetic crossing tween even when edge_id hasn't changed.
-      const awaitingPlatformCleared =
-        (currentTrainState.wasAwaitingPlatform ?? false) && !isAwaitingPlatform;
+      const isStationary = stationaryStatuses.includes(train.status);
 
       let mode: any = 'physics';
-      let followsLive = false;
       let duration = tickIntervalS;
-      let durationX = tickIntervalS;
-      let durationY = tickIntervalS;
       let ease = 'linear';
-      let nextX: any = acceptedPos.x;
-      let nextY: any = acceptedPos.y;
+      let nextX = acceptedPos.x;
+      let nextY = acceptedPos.y;
 
-      if (!edgeChanged && (lookaheadChanged || awaitingPlatformCleared)) {
+      if (edgeChanged && edge && isIntraStationMove(topology, edge.source, edge.target)) {
+        // A discrete switch ↔ platform/loop hop within the same station:
+        // the moment the train commits to (or leaves) its assigned track.
+        // Ease toward the edge's resting position (p=1) over the fixed
+        // intra-station duration, rather than the raw per-tick physics
+        // rate, so the lane change reads as a deliberate move.
+        const restPos = getPos({ ...debouncedTrain, position_percentage: 1 }) ?? acceptedPos;
         mode = 'cosmetic';
-        followsLive = true;
         duration = INTRA_STATION_TWEEN_DURATION_S;
-        durationX = INTRA_STATION_TWEEN_DURATION_S;
-        durationY = INTRA_STATION_TWEEN_DURATION_S;
         ease = 'easeInOut';
-        nextX = acceptedPos.x;
-        nextY = acceptedPos.y;
-      } else if (!edgeChanged) {
-        if (currentTrainState.animationMode === 'cosmetic') {
-          mode = 'cosmetic';
-          followsLive = currentTrainState.followsLive;
-          ease = currentTrainState.ease;
-
-          if (currentTrainState.followsLive) {
-            // Already following the curve from a prior tick — the curve itself
-            // isn't changing anymore, only progress along it is. Track it in real
-            // time; do not re-ease, or every tick restarts a tween it can never
-            // finish and the dot permanently lags behind the train's true position.
-            duration = tickIntervalS;
-            durationX = tickIntervalS;
-            durationY = tickIntervalS;
-            nextX = acceptedPos.x;
-            nextY = acceptedPos.y;
-          } else {
-            // Standard edge tween in progress — stay frozen on the original
-            // target and duration until it completes naturally.
-            duration = currentTrainState.durationS;
-            durationX = currentTrainState.durationX ?? currentTrainState.durationS;
-            durationY = currentTrainState.durationY ?? currentTrainState.durationS;
-            nextX = currentTrainState.targetX;
-            nextY = currentTrainState.targetY;
-          }
-        }
+        nextX = restPos.x;
+        nextY = restPos.y;
+      } else if (!edgeChanged && currentTrainState.animationMode === 'cosmetic') {
+        // Mid-way through a cosmetic tween and the edge hasn't changed yet
+        // — keep heading toward the same target instead of restarting it.
+        mode = 'cosmetic';
+        duration = currentTrainState.durationS;
+        ease = currentTrainState.ease;
+        nextX = currentTrainState.targetX;
+        nextY = currentTrainState.targetY;
       }
 
-      if (mode !== 'cosmetic' && (isStationaryStatus || isAwaitingPlatform)) {
+      if (mode !== 'cosmetic' && isStationary) {
+        // Scheduled stop, boarding, waiting for signal, etc: the train is
+        // parked — usually on a platform track. Snap straight there, no
+        // tween, so it doesn't visibly creep while "waiting".
         mode = 'dwell';
         duration = 0;
-        // Use freshly-computed acceptedPos so platform-centering corrections
-        // in getPos take effect for waiting/gated trains.
         nextX = acceptedPos.x;
         nextY = acceptedPos.y;
       }
 
-      if (mode === 'dwell' || ((isStationaryStatus || isAwaitingPlatform) && !edgeChanged)) {
-         store.updateTrainPresentation(train.train_id, {
-           animationMode: 'dwell',
-           durationS: 0,
-           targetX: nextX,
-           targetY: nextY,
-           candidateEdge: newCandidateEdge,
-           candidateCount: newCandidateCount,
-           wasAwaitingPlatform: isAwaitingPlatform,
-         });
-      } else {
-         const shouldUpdate = 
-           currentTrainState.lastConfirmedEdge !== acceptedEdge ||
-           currentTrainState.lastConfirmedNode !== train.position_node ||
-           currentTrainState.lastLookaheadLeftNodeId !== newLookaheadLeftNodeId ||
-           currentTrainState.lastLookaheadRightNodeId !== newLookaheadRightNodeId ||
-           currentTrainState.targetX !== nextX ||
-           currentTrainState.targetY !== nextY ||
-           currentTrainState.animationMode !== mode ||
-           currentTrainState.durationS !== duration ||
-           currentTrainState.durationX !== durationX ||
-           currentTrainState.durationY !== durationY ||
-           currentTrainState.followsLive !== followsLive ||
-           currentTrainState.candidateEdge !== newCandidateEdge ||
-           currentTrainState.candidateCount !== newCandidateCount ||
-           (currentTrainState.wasAwaitingPlatform ?? false) !== isAwaitingPlatform;
+      if (mode === 'dwell') {
+        store.updateTrainPresentation(train.train_id, {
+          animationMode: 'dwell',
+          durationS: 0,
+          targetX: nextX,
+          targetY: nextY,
+          candidateEdge,
+          candidateCount,
+        });
+        return;
+      }
 
-         if (shouldUpdate) {
-           store.updateTrainPresentation(train.train_id, {
-             lastConfirmedEdge: acceptedEdge,
-             lastConfirmedNode: train.position_node,
-             lastLookaheadLeftNodeId: newLookaheadLeftNodeId,
-             lastLookaheadRightNodeId: newLookaheadRightNodeId,
-             targetX: nextX,
-             targetY: nextY,
-             animationMode: mode,
-             durationS: duration,
-             durationX: durationX,
-             durationY: durationY,
-             followsLive: followsLive,
-             ease: ease,
-             candidateEdge: newCandidateEdge,
-             candidateCount: newCandidateCount,
-             wasAwaitingPlatform: isAwaitingPlatform,
-           });
-         }
+      const shouldUpdate =
+        currentTrainState.lastConfirmedEdge !== acceptedEdge ||
+        currentTrainState.lastConfirmedNode !== train.position_node ||
+        currentTrainState.targetX !== nextX ||
+        currentTrainState.targetY !== nextY ||
+        currentTrainState.animationMode !== mode ||
+        currentTrainState.durationS !== duration ||
+        currentTrainState.candidateEdge !== candidateEdge ||
+        currentTrainState.candidateCount !== candidateCount;
+
+      if (shouldUpdate) {
+        store.updateTrainPresentation(train.train_id, {
+          lastConfirmedEdge: acceptedEdge,
+          lastConfirmedNode: train.position_node,
+          targetX: nextX,
+          targetY: nextY,
+          animationMode: mode,
+          durationS: duration,
+          ease,
+          candidateEdge,
+          candidateCount,
+        });
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

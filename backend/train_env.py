@@ -796,33 +796,46 @@ class TrainDispatchEnv(gym.Env):
             # Determine main target (first in next_opts for both directions now)
             main_target = next_opts[0]
 
-            look_ahead_ok = True
-            if self._is_chokepoint_node(main_target):
-                if not self._next_section_has_room(main_target, direction, directional_check=True, train_id=train['id'], actual_target=main_target):
-                    look_ahead_ok = False
-                    # Use a low-noise print or just one that we can easily grep
-                    if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
-                         _log.debug(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+            # A station's entry switch (SWITCH type with more than one next
+            # option) fans out to [switch_out, platforms…, loops…]. There is
+            # no direct switch-in → switch-out bypass at these nodes: every
+            # train — stopping or not — must ride an explicit platform/loop
+            # track through the station. So PROCEED_MAIN (act==1) is never
+            # offered here; only HOLD and DIVERT are legal, and DIVERT
+            # resolves to the correct platform/loop via the same
+            # occupancy-aware selection used for scheduled stops. Whether the
+            # train actually dwells is decided purely by the schedule
+            # (_is_scheduled_stop), not by which action got it there.
+            is_branching_entry = node_data.get('type') == 'SWITCH' and len(next_opts) > 1
 
-            # Token block check — applies before capacity check
-            if self._is_in_token_block(main_target):
-                if not self.ghat_token.can_enter(train['id'], direction):
-                    # Opposing train holds mid-line — force HOLD or DIVERT
-                    # PROCEED blocked entirely
-                    pass
+            if not is_branching_entry:
+                look_ahead_ok = True
+                if self._is_chokepoint_node(main_target):
+                    if not self._next_section_has_room(main_target, direction, directional_check=True, train_id=train['id'], actual_target=main_target):
+                        look_ahead_ok = False
+                        # Use a low-noise print or just one that we can easily grep
+                        if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
+                             _log.debug(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+
+                # Token block check — applies before capacity check
+                if self._is_in_token_block(main_target):
+                    if not self.ghat_token.can_enter(train['id'], direction):
+                        # Opposing train holds mid-line — force HOLD or DIVERT
+                        # PROCEED blocked entirely
+                        pass
+                    else:
+                        main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
+                        dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                        main_occ = self.get_node_occupancy(main_target, direction)
+                        if main_occ < dir_cap and look_ahead_ok:
+                            mask[i, 1] = True
                 else:
+                    # Normal capacity check for main target
                     main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
                     dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
                     main_occ = self.get_node_occupancy(main_target, direction)
                     if main_occ < dir_cap and look_ahead_ok:
                         mask[i, 1] = True
-            else:
-                # Normal capacity check for main target
-                main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
-                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
-                main_occ = self.get_node_occupancy(main_target, direction)
-                if main_occ < dir_cap and look_ahead_ok:
-                    mask[i, 1] = True
 
             # DIVERT check — loop/platform nodes (next_opts[1:])
             loop_targets = [n for n in next_opts if n != main_target]
@@ -1156,6 +1169,18 @@ class TrainDispatchEnv(gym.Env):
             node_data  = self.track_map.get(pos, {})
             track_limit = node_data.get('speed', train['max_speed'])
 
+            # A station's entry switch (SWITCH type, more than one next
+            # option) has no direct switch-in → switch-out bypass: every
+            # train rides an explicit platform/loop track through the
+            # station, whether or not it dwells there. So act==1
+            # (PROCEED_MAIN) is treated identically to act==2 (DIVERT_LOOP)
+            # at these nodes — both resolve via _select_divert_target — and
+            # only degenerates to a bare next_opts[0] hop at ordinary,
+            # non-branching nodes (plain mainline blocks, switch-out nodes,
+            # mid-section crossing-loop approaches, etc).
+            _entry_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+            is_branching_entry = node_data.get('type') == 'SWITCH' and len(_entry_next_opts) > 1
+
             # Default "next" target for display purposes — the main/through track.
             # Overwritten below with the real committed target for MAIN/DIVERT moves.
             _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
@@ -1240,8 +1265,8 @@ class TrainDispatchEnv(gym.Env):
                 if sig_dist_km <= d_brake:
                     train['target_speed'] = 0
 
-            # ── MAIN (act == 1) ────────────────────────────────────────
-            if act == 1:
+            # ── MAIN (act == 1) — only meaningful at non-branching nodes ──
+            if act == 1 and not is_branching_entry:
                 next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                 if not next_opts:
                     # Nowhere to go (e.g., edge removed by TOTAL_BLOCK)
@@ -1257,7 +1282,9 @@ class TrainDispatchEnv(gym.Env):
                     current_positions.append(pos)
                     continue
                 train['target_speed'] = min(track_limit, train['max_speed'])
-            elif act == 2:
+            elif act == 2 or (act == 1 and is_branching_entry):
+                # DIVERT_LOOP, or PROCEED_MAIN at a branching station-entry
+                # switch (redirected — see is_branching_entry above).
                 next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                 if not next_opts:
                     reward -= 0.05
@@ -1387,7 +1414,7 @@ class TrainDispatchEnv(gym.Env):
                     main_target = next_opts[0]
                     loop_targets = [n for n in next_opts if n != main_target]
 
-                    if act == 2 and loop_targets:
+                    if (act == 2 or is_branching_entry) and loop_targets:
                         # Reuse the target already resolved in the speed-calc block;
                         # do NOT call _select_divert_target again (would re-mutate
                         # reserved_platform and double-count soft reservations).
@@ -1537,7 +1564,7 @@ class TrainDispatchEnv(gym.Env):
                             self.track_map.get(target_node, {}).get('type') == 'PLATFORM' and
                             self._is_scheduled_stop(train, target_station)):
                         train['dwell_rem'] = DWELL_TIME_PLATFORM
-                    elif act == 2 and self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
+                    elif (act == 2 or is_branching_entry) and self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
                         train['dwell_rem'] = DWELL_TIME_LOOP
 
                     if target_node not in train['visited_nodes']:
