@@ -36,6 +36,7 @@ def get_network_topology():
             "capacity": info.get('capacity', 2),
             "platform_index": info.get('platform_index'),
             "loop_index": info.get('loop_index'),
+            "direction": info.get('direction'),
             "token_block": info.get('token_block', False)
         }
         

@@ -634,28 +634,57 @@ class TrainDispatchEnv(gym.Env):
 
     def _get_valid_loops(self, loop_targets, direction):
         import math
-        valid_loops = []
+        scored = []
+        dadar_fallback = []
+
         for lnode in loop_targets:
             lnode_data = self.track_map.get(lnode, {})
-            if lnode_data.get('type') == 'PLATFORM':
-                st_name = lnode_data.get('station')
-                p_idx = lnode_data.get('platform_index', 0)
-                if st_name and st_name in self.station_nodes:
-                    if st_name in ['CSMT', 'MANMAD']:
-                        valid_loops.append(lnode)
-                    else:
-                        platforms = self.station_nodes[st_name].get('platforms', [0, 1])
-                        total_p = len(platforms)
-                        mid = total_p / 2.0
-                        if direction == 'UP' and p_idx < math.ceil(mid):
-                            valid_loops.append(lnode)
-                        elif direction == 'DOWN' and p_idx >= math.floor(mid):
-                            valid_loops.append(lnode)
-                else:
-                    valid_loops.append(lnode)
+            node_type = lnode_data.get('type')
+            st_name = lnode_data.get('station')
+
+            if node_type == 'PLATFORM':
+                type_rank = 0
+                idx_key = 'platforms'
+                idx = lnode_data.get('platform_index', 0)
+            elif node_type in ('LOOP', 'CROSSING_LOOP'):
+                type_rank = 1
+                idx_key = 'loops'
+                idx = lnode_data.get('loop_index', 0)
             else:
-                valid_loops.append(lnode)
-        return valid_loops
+                scored.append((0, 0, lnode))
+                continue
+
+            if not st_name or st_name not in self.station_nodes:
+                scored.append((type_rank, 0, lnode))
+                continue
+
+            if st_name in ('CSMT', 'MANMAD'):
+                # Terminus: no directional split — natural centre-out order.
+                scored.append((type_rank, idx, lnode))
+                continue
+
+            group = self.station_nodes[st_name].get(idx_key, [])
+            total = len(group)
+            mid = math.ceil(total / 2)
+            station_mid = (total - 1) / 2.0
+
+            if direction == 'UP' and idx < mid:
+                proximity = abs(idx - station_mid)
+                scored.append((type_rank, proximity, lnode))
+            elif direction == 'DOWN' and idx >= mid:
+                proximity = abs(idx - station_mid)
+                scored.append((type_rank, proximity, lnode))
+            elif (st_name == 'DADAR' and idx_key == 'loops'
+                  and direction == 'DOWN' and total == 1):
+                # Last-resort only: Dadar's single loop belongs to UP under the
+                # normal split. DOWN may borrow it, but must sort after every
+                # station's normal DOWN candidates — handled by returning this
+                # list separately and appending it at the very end.
+                dadar_fallback.append((type_rank, 999, lnode))
+
+        scored.sort(key=lambda t: (t[0], t[1]))
+        dadar_fallback.sort(key=lambda t: (t[0], t[1]))
+        return [n for _, _, n in scored] + [n for _, _, n in dadar_fallback]
 
     def _select_divert_target(self, train: dict, loop_targets: list, direction: str):
         """
@@ -663,31 +692,53 @@ class TrainDispatchEnv(gym.Env):
         Persists the chosen platform in train['reserved_platform'] until invalidated.
         """
         reserved = train.get('reserved_platform')
+        is_mid_transit = (
+            train.get('committed_next_node') == reserved
+            or train.get('_early_reservation')
+        )
+
         if reserved is not None and reserved in loop_targets:
             cap = self.track_map.get(reserved, {}).get('capacity', 1)
-            occ = self.get_node_occupancy(reserved)
+            physical_occ = self.get_node_occupancy(reserved)
+            soft_res_other = sum(1 for tid in getattr(self, '_soft_reservations', {}).get(reserved, []) if tid != train['id'])
+            total_occ = physical_occ + soft_res_other
+
             loop_look_ahead_ok = True
             if self._is_chokepoint_node(reserved):
                 if not self._next_section_has_room(reserved, direction, directional_check=True, train_id=train['id'], actual_target=reserved):
                     loop_look_ahead_ok = False
-            if occ < cap and loop_look_ahead_ok:
+            
+            if is_mid_transit:
+                if loop_look_ahead_ok:
+                    return reserved
+            elif total_occ < cap and loop_look_ahead_ok:
                 return reserved
             else:
                 train['reserved_platform'] = None
+                if train['id'] in getattr(self, '_soft_reservations', {}).get(reserved, []):
+                    self._soft_reservations[reserved].remove(train['id'])
 
-        valid_loops = self._get_valid_loops(loop_targets, direction)
-        for lnode in valid_loops:
+        ordered = self._get_valid_loops(loop_targets, direction)
+        for lnode in ordered:
             cap = self.track_map.get(lnode, {}).get('capacity', 1)
-            occ = self.get_node_occupancy(lnode)
-            
+            physical_occ = self.get_node_occupancy(lnode)
+            soft_res_other = sum(1 for tid in getattr(self, '_soft_reservations', {}).get(lnode, []) if tid != train['id'])
+            total_occ = physical_occ + soft_res_other
+
             loop_look_ahead_ok = True
             if self._is_chokepoint_node(lnode):
                 if not self._next_section_has_room(lnode, direction, directional_check=True, train_id=train['id'], actual_target=lnode):
                     loop_look_ahead_ok = False
-            
-            if occ < cap and loop_look_ahead_ok:
+
+            if total_occ < cap and loop_look_ahead_ok:
                 train['reserved_platform'] = lnode
+                if not hasattr(self, '_soft_reservations'):
+                    self._soft_reservations = {}
+                if lnode not in self._soft_reservations:
+                    self._soft_reservations[lnode] = []
+                self._soft_reservations[lnode].append(train['id'])
                 return lnode
+
         return None
 
     def get_action_mask(self) -> np.ndarray:
@@ -745,33 +796,46 @@ class TrainDispatchEnv(gym.Env):
             # Determine main target (first in next_opts for both directions now)
             main_target = next_opts[0]
 
-            look_ahead_ok = True
-            if self._is_chokepoint_node(main_target):
-                if not self._next_section_has_room(main_target, direction, directional_check=True, train_id=train['id'], actual_target=main_target):
-                    look_ahead_ok = False
-                    # Use a low-noise print or just one that we can easily grep
-                    if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
-                         _log.debug(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+            # A station's entry switch (SWITCH type with more than one next
+            # option) fans out to [switch_out, platforms…, loops…]. There is
+            # no direct switch-in → switch-out bypass at these nodes: every
+            # train — stopping or not — must ride an explicit platform/loop
+            # track through the station. So PROCEED_MAIN (act==1) is never
+            # offered here; only HOLD and DIVERT are legal, and DIVERT
+            # resolves to the correct platform/loop via the same
+            # occupancy-aware selection used for scheduled stops. Whether the
+            # train actually dwells is decided purely by the schedule
+            # (_is_scheduled_stop), not by which action got it there.
+            is_branching_entry = node_data.get('type') == 'SWITCH' and len(next_opts) > 1
 
-            # Token block check — applies before capacity check
-            if self._is_in_token_block(main_target):
-                if not self.ghat_token.can_enter(train['id'], direction):
-                    # Opposing train holds mid-line — force HOLD or DIVERT
-                    # PROCEED blocked entirely
-                    pass
+            if not is_branching_entry:
+                look_ahead_ok = True
+                if self._is_chokepoint_node(main_target):
+                    if not self._next_section_has_room(main_target, direction, directional_check=True, train_id=train['id'], actual_target=main_target):
+                        look_ahead_ok = False
+                        # Use a low-noise print or just one that we can easily grep
+                        if train.get('speed', 0) > 0 and train.get('position') != 0 and train.get('position') != 998:
+                             _log.debug(f"[LOOK-AHEAD MASK DENIAL] Train {train['id']} ({direction}) mask Proceed set to False because chokepoint Node {main_target} has no room next.")
+
+                # Token block check — applies before capacity check
+                if self._is_in_token_block(main_target):
+                    if not self.ghat_token.can_enter(train['id'], direction):
+                        # Opposing train holds mid-line — force HOLD or DIVERT
+                        # PROCEED blocked entirely
+                        pass
+                    else:
+                        main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
+                        dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
+                        main_occ = self.get_node_occupancy(main_target, direction)
+                        if main_occ < dir_cap and look_ahead_ok:
+                            mask[i, 1] = True
                 else:
+                    # Normal capacity check for main target
                     main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
                     dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
                     main_occ = self.get_node_occupancy(main_target, direction)
                     if main_occ < dir_cap and look_ahead_ok:
                         mask[i, 1] = True
-            else:
-                # Normal capacity check for main target
-                main_cap = self.track_map.get(main_target, {}).get('capacity', 1)
-                dir_cap = max(1, main_cap // 2) if main_cap > 1 else main_cap
-                main_occ = self.get_node_occupancy(main_target, direction)
-                if main_occ < dir_cap and look_ahead_ok:
-                    mask[i, 1] = True
 
             # DIVERT check — loop/platform nodes (next_opts[1:])
             loop_targets = [n for n in next_opts if n != main_target]
@@ -1047,6 +1111,15 @@ class TrainDispatchEnv(gym.Env):
                          if not t['finished'] and t['position'] not in (0, 998))
         reward -= 0.005 * num_active
 
+        # Build soft reservations map mapping platform node id -> reserving train id
+        self._soft_reservations = {}
+        for t in self.trains:
+            if not t['finished'] and t.get('reserved_platform') is not None:
+                r_plat = t['reserved_platform']
+                if r_plat not in self._soft_reservations:
+                    self._soft_reservations[r_plat] = []
+                self._soft_reservations[r_plat].append(t['id'])
+
         # Process highest-priority trains first (they claim capacity first)
         sorted_idx = sorted(
             range(len(self.trains)),
@@ -1096,13 +1169,71 @@ class TrainDispatchEnv(gym.Env):
             node_data  = self.track_map.get(pos, {})
             track_limit = node_data.get('speed', train['max_speed'])
 
+            # A station's entry switch (SWITCH type, more than one next
+            # option) has no direct switch-in → switch-out bypass: every
+            # train rides an explicit platform/loop track through the
+            # station, whether or not it dwells there. So act==1
+            # (PROCEED_MAIN) is treated identically to act==2 (DIVERT_LOOP)
+            # at these nodes — both resolve via _select_divert_target — and
+            # only degenerates to a bare next_opts[0] hop at ordinary,
+            # non-branching nodes (plain mainline blocks, switch-out nodes,
+            # mid-section crossing-loop approaches, etc).
+            _entry_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+            is_branching_entry = node_data.get('type') == 'SWITCH' and len(_entry_next_opts) > 1
+
             # Default "next" target for display purposes — the main/through track.
             # Overwritten below with the real committed target for MAIN/DIVERT moves.
             _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
-            if train.get('reserved_platform') is not None and train.get('reserved_platform') in _display_next_opts:
-                train['committed_next_node'] = train['reserved_platform']
-            else:
-                train['committed_next_node'] = _display_next_opts[0] if _display_next_opts else pos
+            
+            # EARLY RESERVATION / PEEK (direct — train is at switch with fan-out)
+            if _display_next_opts and len(_display_next_opts) > 1:
+                _main_target = _display_next_opts[0]
+                _loop_targets = [n for n in _display_next_opts if n != _main_target]
+                _st_name = self.track_map.get(_loop_targets[0], {}).get('station') if _loop_targets else None
+                
+                if _st_name and self._is_scheduled_stop(train, _st_name):
+                    if train.get('reserved_platform') is None:
+                        train['_newly_reserved'] = True
+                        self._select_divert_target(train, _loop_targets, direction)
+                        # Mark that the physical move toward this reservation
+                        # must be deferred by one tick so the frontend sees
+                        # reserved_platform set BEFORE the train's position changes.
+                        if train.get('reserved_platform') is not None:
+                            train['_divert_move_deferred'] = True
+
+            # TWO-HOP EARLY RESERVATION PEEK — train is one node BEFORE the switch.
+            # When current node has a single next hop that is itself a SWITCH with
+            # multiple fan-out options (platform/loop targets), pre-reserve the platform
+            # now so that the frontend switch-zone rendering tick (edge-{cur}-{switch})
+            # already has a non-null reserved_platform to compute the correct visual row.
+            # Without this, reserved_platform is only set AFTER the train physically
+            # arrives at the switch, one broadcast tick too late — causing the lateral
+            # track-jump bug on the approach edge.
+            elif (len(_display_next_opts) == 1 and train.get('reserved_platform') is None):
+                _single_next = _display_next_opts[0]
+                _single_next_data = self.track_map.get(_single_next, {})
+                if _single_next_data.get('type') == 'SWITCH':
+                    _lookahead_opts = (
+                        _single_next_data.get('prev', []) if direction == 'UP'
+                        else _single_next_data.get('next', [])
+                    )
+                    if len(_lookahead_opts) > 1:
+                        _lh_main = _lookahead_opts[0]
+                        _lh_loops = [n for n in _lookahead_opts if n != _lh_main]
+                        _lh_st_name = self.track_map.get(_lh_loops[0], {}).get('station') if _lh_loops else None
+                        if _lh_st_name and self._is_scheduled_stop(train, _lh_st_name):
+                            train['_newly_reserved'] = True
+                            train['_early_reservation'] = True
+                            self._select_divert_target(train, _lh_loops, direction)
+                            # Same deferred-move flag — the two-hop peek fires one tick
+                            # BEFORE the train reaches the switch, so the reservation
+                            # exists before act==2 ever runs.  Without this flag, the
+                            # execution block would see had_reservation=True and move
+                            # immediately on the very first act==2 tick.
+                            if train.get('reserved_platform') is not None:
+                                train['_divert_move_deferred'] = True
+
+            # committed_next_node is now set AFTER the act block (see below)
 
             # ── Banker attach/detach wait ─────────────────────────────────
             if train.get('banker_wait', 0) > 0:
@@ -1134,8 +1265,8 @@ class TrainDispatchEnv(gym.Env):
                 if sig_dist_km <= d_brake:
                     train['target_speed'] = 0
 
-            # ── MAIN (act == 1) ────────────────────────────────────────
-            if act == 1:
+            # ── MAIN (act == 1) — only meaningful at non-branching nodes ──
+            if act == 1 and not is_branching_entry:
                 next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                 if not next_opts:
                     # Nowhere to go (e.g., edge removed by TOTAL_BLOCK)
@@ -1151,7 +1282,9 @@ class TrainDispatchEnv(gym.Env):
                     current_positions.append(pos)
                     continue
                 train['target_speed'] = min(track_limit, train['max_speed'])
-            elif act == 2:
+            elif act == 2 or (act == 1 and is_branching_entry):
+                # DIVERT_LOOP, or PROCEED_MAIN at a branching station-entry
+                # switch (redirected — see is_branching_entry above).
                 next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                 if not next_opts:
                     reward -= 0.05
@@ -1159,9 +1292,33 @@ class TrainDispatchEnv(gym.Env):
                     continue
                 main_target = next_opts[0]
                 loop_targets = [n for n in next_opts if n != main_target]
-                
+
+                # Remember what was reserved BEFORE this call.  Early-peek code
+                # (lines above) may have already written reserved_platform 1-2
+                # ticks ago, so we can't use "was it None before" as our gate.
+                # Instead we compare by VALUE: if _select_divert_target picks a
+                # DIFFERENT node than what was already stored, the reservation is
+                # newly committed this tick and we must set the deferred-move flag.
+                _reserved_before = train.get('reserved_platform')
+
                 target_node = self._select_divert_target(train, loop_targets, direction)
+                # Cache for the execution block — avoids a second call that would
+                # re-mutate reserved_platform and double-count soft reservations.
+                _divert_target_node = target_node
+
+                # If a loop target was chosen AND the reservation is genuinely new
+                # (different from what was stored before this call) AND the deferred-
+                # move flag hasn't been set already by an early-peek, set it now.
+                # This covers the case where the train reached the switch without
+                # the peek code having fired (e.g. topology has no one-hop approach
+                # node, or approach node lacked the SWITCH type marker).
+                if (target_node is not None
+                        and target_node != _reserved_before
+                        and not train.get('_divert_move_deferred')):
+                    train['_divert_move_deferred'] = True
+
                 if target_node is None:
+                    train.pop('_divert_move_deferred', None)  # clear stale flag
                     target_node = main_target
                     cap = self.track_map.get(target_node, {}).get('capacity', 1)
                     dir_cap = max(1, cap // 2) if cap > 1 else cap
@@ -1169,10 +1326,37 @@ class TrainDispatchEnv(gym.Env):
                         reward -= 0.05
                         current_positions.append(pos)
                         continue
-                        
+
                 train['target_speed'] = min(track_limit, train['max_speed'])
             else:
                 train['target_speed'] = 0
+
+            # A1: committed_next_node — computed AFTER the act block so that
+            # reserved_platform reflects the current-tick decision. It must be a direct
+            # next hop from current node to form a valid topological edge.
+            if train.get('reserved_platform') is not None and train['reserved_platform'] in _display_next_opts:
+                train['committed_next_node'] = train['reserved_platform']
+            else:
+                fallback_node = _display_next_opts[0] if _display_next_opts else pos
+                if _display_next_opts and is_branching_entry:
+                    pf_opts = [n for n in _display_next_opts if self.track_map.get(n, {}).get('type') in ('PLATFORM', 'LOOP')]
+                    if pf_opts:
+                        fallback_node = pf_opts[0]
+                train['committed_next_node'] = fallback_node
+
+            # A2: awaiting_platform — True only when the train is at a switch
+            # node that feeds a station it has a scheduled stop at, AND no
+            # platform has been reserved yet this tick.  False for all other
+            # cases (pass-throughs, trains not near a switch, post-reservation).
+            _aw_platform = False
+            if _display_next_opts and len(_display_next_opts) > 1:
+                _aw_main  = _display_next_opts[0]
+                _aw_loops = [n for n in _display_next_opts if n != _aw_main]
+                _aw_st    = self.track_map.get(_aw_loops[0], {}).get('station') if _aw_loops else None
+                if _aw_st and self._is_scheduled_stop(train, _aw_st) and train.get('reserved_platform') is None:
+                    _aw_platform = True
+            train['awaiting_platform'] = _aw_platform
+
 
             # ── Speed inertia ─────────────────────────────────────────────
             if train['target_speed'] > train['speed']:
@@ -1232,13 +1416,23 @@ class TrainDispatchEnv(gym.Env):
                     main_target = next_opts[0]
                     loop_targets = [n for n in next_opts if n != main_target]
 
-                    if act == 2 and loop_targets:
-                        target_node = self._select_divert_target(train, loop_targets, direction)
+                    if (act == 2 or is_branching_entry) and loop_targets:
+                        # Reuse the target already resolved in the speed-calc block;
+                        # do NOT call _select_divert_target again (would re-mutate
+                        # reserved_platform and double-count soft reservations).
+                        target_node = _divert_target_node
                         if target_node is None:
                             target_node = main_target
                             if not moved_this_step:
                                 reward -= 0.02
                         else:
+                            # _divert_move_deferred is set the tick a NEW reservation
+                            # is first committed.  Pop it (consume once) to skip the
+                            # physical move this tick so the frontend has one broadcast
+                            # to learn the new reserved_platform before the train jumps.
+                            if train.pop('_divert_move_deferred', False):
+                                current_positions.append(pos)
+                                break
 
                             if train['priority'] < 5:
                                 main_occ = self.get_node_occupancy(main_target)
@@ -1336,11 +1530,43 @@ class TrainDispatchEnv(gym.Env):
                     train['position'] = target_node
                     pos = target_node
                     node_data = self.track_map.get(pos, {}) # update node_data for next iteration
-                    
+
+                    # Re-evaluate loop-scoped variables so the action block and A1 display phase
+                    # (which run later in this SAME tick) use the new node's topology, not the old one's.
+                    # Without this, trains arriving at a switch evaluate act=1 against the OLD main_block node,
+                    # failing to trigger _select_divert_target until the NEXT tick, causing visual zig-zags.
+                    _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+                    is_branching_entry = node_data.get('type') == 'SWITCH' and len(_display_next_opts) > 1
+
                     _commit_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
-                    train['committed_next_node'] = _commit_next_opts[0] if _commit_next_opts else pos
+                    _commit_is_branching_entry = node_data.get('type') == 'SWITCH' and len(_commit_next_opts) > 1
+                    if (_commit_is_branching_entry
+                            and train.get('reserved_platform') is not None
+                            and train['reserved_platform'] in _commit_next_opts):
+                        # Just arrived at a station's branching entry switch and the
+                        # platform/loop is already reserved (usually via the early-peek
+                        # reservation, well before physically reaching the switch) — show
+                        # the real target immediately. Defaulting to _commit_next_opts[0]
+                        # here (the switch_out bypass option, which sits at index 0 of
+                        # every branching switch's next list) for even a single tick
+                        # broadcasts the wrong edge to the frontend: the train badge
+                        # visibly overshoots toward the far side of the station box, then
+                        # snaps back to the correct platform the moment this corrects
+                        # itself on the next tick.
+                        train['committed_next_node'] = train['reserved_platform']
+                    else:
+                        fallback_node = _commit_next_opts[0] if _commit_next_opts else pos
+                        if _commit_is_branching_entry:
+                            pf_opts = [n for n in _commit_next_opts if self.track_map.get(n, {}).get('type') in ('PLATFORM', 'LOOP')]
+                            if pf_opts:
+                                fallback_node = pf_opts[0]
+                        train['committed_next_node'] = fallback_node
                     self._movement_acc[i] -= dist_to_next
                     moved_this_step = True
+                    
+                    if target_node == train.get('reserved_platform'):
+                        train['reserved_platform'] = None
+                        train.pop('_early_reservation', None)
 
                     # Token system update
                     was_in_token = self._is_in_token_block(old_pos)
@@ -1368,7 +1594,7 @@ class TrainDispatchEnv(gym.Env):
                             self.track_map.get(target_node, {}).get('type') == 'PLATFORM' and
                             self._is_scheduled_stop(train, target_station)):
                         train['dwell_rem'] = DWELL_TIME_PLATFORM
-                    elif act == 2 and self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
+                    elif (act == 2 or is_branching_entry) and self.track_map.get(target_node, {}).get('type') in ('LOOP', 'CROSSING_LOOP'):
                         train['dwell_rem'] = DWELL_TIME_LOOP
 
                     if target_node not in train['visited_nodes']:

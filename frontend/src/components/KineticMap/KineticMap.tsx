@@ -1,10 +1,11 @@
-import { apiUrl, wsUrl } from '../../lib/api';
+import { apiUrl } from '../../lib/api';
 import { motion } from 'framer-motion';
 import React, { useEffect, useMemo, useState } from 'react';
+
 import { useMapStore } from '../../store/useMapStore';
 import { useCopilotStore } from '../../store/useCopilotStore';
 import { useMaintenanceStore } from '../../store/useMaintenanceStore';
-import { usePresentationStore, INTRA_STATION_TWEEN_DURATION_S, EDGE_DEBOUNCE_TICKS } from '../../store/usePresentationStore';
+import { usePresentationStore, type AnimationMode } from '../../store/usePresentationStore';
 import type { TrainState, Node } from '../../store/useMapStore';
 import { topologyToZones } from '../../utils/topologyToZones';
 import { getNodeStId, isIntraStationMove } from '../../utils/topologyHelpers';
@@ -27,15 +28,6 @@ const PF_H      = 10;   // platform marker height
 /** Y coordinate of track index i in an N-track bundle (centred on MAIN_Y) */
 const trackY = (i: number, n: number): number =>
   MAIN_Y + (i - (n - 1) / 2) * TRACK_GAP;
-
-/**
- * Map a from-track index to the nearest to-track index during a switch.
- *  fromCap → toCap : j = round(i × (toCap-1) / (fromCap-1))
- */
-const mapIdx = (srcCap: number, dstCap: number, srcIdx: number): number => {
-  if (srcCap <= 1 || dstCap <= 1) return 0;
-  return Math.round(srcIdx * (dstCap - 1) / (srcCap - 1));
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ZONE DEFINITIONS  (pre-computed layout along the x-axis)
@@ -71,19 +63,76 @@ const STATION_META: Record<string, StMeta> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATH BUILDERS & CACHE
+// ─────────────────────────────────────────────────────────────────────────────
+export const buildSwitchCurvePath = (x1: number, x2: number, y1: number, y2: number): string => {
+  const cx = (x1 + x2) / 2;
+  return `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`;
+};
+
+export const buildLoopArchPath = (stationX: number, anchorY: number, sidY: number, side: 'left' | 'right', style: LoopSide, cmd: 'M' | 'L' = 'M'): string => {
+  if (side === 'left') {
+    if (style === 'segment') {
+      return `${cmd} ${stationX - LOOP_OFF} ${anchorY} C ${stationX - CP_OFF} ${anchorY}, ${stationX - CP_OFF} ${sidY}, ${stationX} ${sidY}`;
+    } else if (style === 'inside') {
+      return `${cmd} ${stationX} ${anchorY} C ${stationX + CP_OFF} ${anchorY}, ${stationX + CP_OFF} ${sidY}, ${stationX + LOOP_OFF} ${sidY}`;
+    } else {
+      return `${cmd} ${stationX} ${sidY}`;
+    }
+  } else {
+    if (style === 'segment') {
+      return `${cmd} ${stationX} ${sidY} C ${stationX + CP_OFF} ${sidY}, ${stationX + CP_OFF} ${anchorY}, ${stationX + LOOP_OFF} ${anchorY}`;
+    } else if (style === 'inside') {
+      return `${cmd} ${stationX - LOOP_OFF} ${sidY} C ${stationX - CP_OFF} ${sidY}, ${stationX - CP_OFF} ${anchorY}, ${stationX} ${anchorY}`;
+    } else {
+      return `${cmd} ${stationX} ${sidY}`;
+    }
+  }
+};
+
+const pathCache = new Map<string, SVGPathElement>();
+const getCachedPath = (key: string, pathData: string): SVGPathElement => {
+  let path = pathCache.get(key);
+  if (!path) {
+    path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathCache.set(key, path);
+  }
+  if (path.getAttribute('d') !== pathData) {
+    path.setAttribute('d', pathData);
+  }
+  return path;
+};
+
+export const getPathPoint = (pathStr: string, t: number): { x: number; y: number } => {
+  try {
+    if (typeof document !== 'undefined') {
+      const path = getCachedPath(pathStr, pathStr);
+      const totalLen = path.getTotalLength();
+      if (totalLen > 0) {
+        const pt = path.getPointAtLength(Math.max(0, Math.min(1, t)) * totalLen);
+        return { x: pt.x, y: pt.y };
+      }
+    }
+  } catch (e) {
+    // fallback to linear/smoothstep if SVG measurement fails
+  }
+  return { x: 0, y: 0 };
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
-const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
+const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHalted, isAI, isScheduledDwell, actionLabel, setHoveredTrain, setSelectedTrain }: any) => {
   const trainState = usePresentationStore(state => state.trains[train.train_id]);
   
-  let targetX, targetY, durationS, ease;
+  let targetX, targetY, durationS, durationX, durationY, ease;
 
   if (trainState) {
     targetX = trainState.targetX;
     targetY = trainState.targetY;
     durationS = trainState.durationS;
+    durationX = trainState.durationX ?? durationS;
+    durationY = trainState.durationY ?? durationS;
     ease = trainState.ease;
   } else {
     // If the store hasn't initialized yet, fallback to raw getPos so it doesn't blink.
@@ -94,10 +143,12 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
     targetX = rawPos.x;
     targetY = rawPos.y;
     durationS = 0; // immediate snap on first render
+    durationX = 0;
+    durationY = 0;
     ease = "linear";
   }
 
-  const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isAI ? '#38bdf8' : '#22c55e';
+  const fill   = isConflict ? '#ef4444' : isHalted ? '#f59e0b' : isScheduledDwell ? '#eab308' : isAI ? '#38bdf8' : '#22c55e';
   const bW     = 50;
   const bH     = 14;
 
@@ -109,8 +160,8 @@ const TrainBadge = ({ train, getPos, isSel, isCommit, isHover, isConflict, isHal
       initial={false}
       animate={{ x: targetX, y: targetY }}
       transition={{ 
-        x: { type: "tween", duration: durationS, ease: ease as any },
-        y: { type: "tween", duration: durationS, ease: ease as any }
+        x: { type: "tween", duration: durationX, ease: ease as any },
+        y: { type: "tween", duration: durationY, ease: ease as any }
       }}
       style={{ cursor: 'pointer' }}
     >
@@ -225,23 +276,37 @@ export const KineticMap: React.FC = () => {
       if (stZone) {
          if (node.type === 'SWITCH') {
             const connectedEdges = topology.edges.filter(e => e.source === node.id || e.target === node.id);
-            let connectsLeft = false;
-            let connectsRight = false;
             const thisStId = getNodeStId(node);
+            let isLeft = false;
+            let isRight = false;
             
             for (const e of connectedEdges) {
               const otherId = e.source === node.id ? e.target : e.source;
               const otherNode = topology.nodes.find(n => n.id === otherId);
               if (!otherNode) continue;
               if (getNodeStId(otherNode) !== thisStId) {
-                if (e.target === node.id) connectsLeft = true;
-                if (e.source === node.id) connectsRight = true;
+                if ((otherNode.km ?? 0) <= (node.km ?? 0)) isLeft = true;
+                if ((otherNode.km ?? 0) >= (node.km ?? 0)) isRight = true;
               }
             }
-            if (connectsLeft && !connectsRight) return stZone.x1;
-            if (connectsRight && !connectsLeft) return stZone.x2;
+            if (isLeft && !isRight) return stZone.x1;
+            if (isRight && !isLeft) return stZone.x2;
+            if (isLeft) return stZone.x1;
+            if (isRight) return stZone.x2;
          }
-         return (stZone.x1 + stZone.x2) / 2;
+         
+         const zIndex = dynamicZones.indexOf(stZone);
+         const prevZone = zIndex > 0 ? dynamicZones[zIndex - 1] : null;
+         const nextZone = zIndex < dynamicZones.length - 1 ? dynamicZones[zIndex + 1] : null;
+         const meta = STATION_META[stZone.stId] || { loops: 0, passing: false, loopLeft: 'inside', loopRight: 'inside' };
+         
+         const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
+         const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
+
+         const visualX1 = actualLoopLeft === 'segment' ? stZone.x1 - LOOP_OFF : stZone.x1;
+         const visualX2 = actualLoopRight === 'segment' ? stZone.x2 + LOOP_OFF : stZone.x2;
+
+         return (visualX1 + visualX2) / 2;
       }
     }
     return getSxForKm(km);
@@ -290,223 +355,214 @@ export const KineticMap: React.FC = () => {
     return map;
   }, [topology, dynamicZones]);
 
-  // ── Train schematic position ───────────────────────────────────────────────
-  /**
-   * Resolve the track-capacity used for the Y-coordinate of a train.
-   *
-   * Priority:
-   *  1. MAIN_BLOCK / GHAT_BLOCK source nodes carry the exact segment cap.
-   *  2. PLATFORM / LOOP edges: cap = 1 (siding track).
-   *  3. SWITCH–SWITCH edges (intra-station main): use the adjacent SEG zone cap
-   *     so the train sits on the same line as the through-running tracks.
-   *  4. Fallback: nearest SEG zone at position x, or 2.
-   *
-   * We deliberately avoid using SW zone cap (= max of both sides) because that
-   * places the badge above/below the actual drawn track lines.
-   */
-  const resolveEdgeCap = (edgeId: string, posX: number): number => {
-    const edge = topology!.edges.find(e => e.id === edgeId);
-    if (!edge) return 2;
+  // ─────────────────────────────────────────────────────────────────────────
+  // INTRA-STATION TRAIN MOTION
+  // ─────────────────────────────────────────────────────────────────────────
+  // A train's on-screen position is driven entirely by two things reported
+  // by the backend each tick: `edge_id` (which topology edge it is on) and
+  // `position_percentage` (how far along that edge, 0 → 1).
+  //
+  // Every station is wired in the topology as:
+  //
+  //     …mainline… → SWITCH(in) → PLATFORM_i / LOOP_i → SWITCH(out) → …mainline…
+  //                        └──────────→ SWITCH(out) ───────↑   (non-stop pass-through)
+  //
+  // so "entering the station, riding platform N, and rejoining the mainline"
+  // is nothing more than the train stepping through a short, fixed sequence
+  // of real graph edges. The frontend's only job is to render that sequence
+  // faithfully:
+  //
+  //   1. SWITCH(in) → PLATFORM_i / LOOP_i   — the backend has already picked
+  //      platform/loop `i`; the edge_id itself tells us which one.
+  //   2. Sit on the platform edge. If the train is dwelling (a scheduled
+  //      stop, boarding, etc.) it simply stays put — the backend keeps
+  //      reporting the same edge/percentage every tick.
+  //   3. PLATFORM_i / LOOP_i → SWITCH(out)  — once released, the train
+  //      leaves the platform track and heads for the switch-out edge.
+  //   4. SWITCH(out) → …mainline…           — the train resumes on the main
+  //      running line.
+  //
+  // getPos() below implements exactly this: X always advances linearly with
+  // `position_percentage`, and Y is resolved independently at each end of
+  // the current edge from what that endpoint node *is* (a platform track, a
+  // loop track, or a lane on the multi-track mainline bundle), eased
+  // smoothly between the two. No lookahead guessing, no path scanning, no
+  // per-station special cases.
 
-    const srcNode = topology!.nodes.find(n => n.id === edge.source);
-    const tgtNode = topology!.nodes.find(n => n.id === edge.target);
-
-    // MAIN_BLOCK / GHAT_BLOCK — source node holds the correct segment capacity
-    if (srcNode && (srcNode.type === 'MAIN_BLOCK' || srcNode.type === 'GHAT_BLOCK')) {
-      return srcNode.capacity || 2;
-    }
-    if (tgtNode && (tgtNode.type === 'MAIN_BLOCK' || tgtNode.type === 'GHAT_BLOCK')) {
-      return tgtNode.capacity || 2;
-    }
-
-    // ST zones: if the train is physically within a station zone, it MUST use that station's
-    // capacity so it snaps to one of the valid station tracks (instead of falling back to a 
-    // mainline capacity of 1 or 2 and floating between tracks).
-    const stZone = dynamicZones.find(z => z.type === 'ST' && posX >= z.x1 && posX <= z.x2) as StationZone | undefined;
-    if (stZone) return stZone.cap;
-
-    // PLATFORM / LOOP edges — siding, always single-track
-    if (
-      (srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP')) ||
-      (tgtNode && (tgtNode.type === 'PLATFORM' || tgtNode.type === 'LOOP'))
-    ) {
-      return 1;
-    }
-
-    // SWITCH–SWITCH (intra-station) or ORIGIN/DESTINATION edges:
-    // Use the nearest SEG zone's cap so the train rides on the mainline tracks.
-    const nearestSeg = dynamicZones
-      .filter(z => z.type === 'SEG')
-      .reduce<{ zone: SegZone | null; dist: number }>(
-        (best, z) => {
-          const seg = z as SegZone;
-          const cx = (seg.x1 + seg.x2) / 2;
-          const dist = Math.abs(cx - posX);
-          return dist < best.dist ? { zone: seg, dist } : best;
-        },
-        { zone: null, dist: Infinity }
-      );
-    if (nearestSeg.zone) return nearestSeg.zone.cap;
-
-    return 2;
+  /** Ease-in/ease-out curve used to blend Y across an edge (t ∈ [0,1]). */
+  const smoothstep = (t: number): number => {
+    const c = Math.max(0, Math.min(1, t));
+    return c * c * (3 - 2 * c);
   };
 
-  const isStNode = (t: string) => ['PLATFORM', 'LOOP', 'STATION', 'CROSSING_LOOP'].includes(t);
+  /**
+   * Deterministically assign a train to one lane of an `n`-track bundle.
+   * Uses a stable hash of the train's ID so the same train always renders
+   * on the same lane, with UP trains occupying the top half of the bundle
+   * and DOWN trains the bottom half.
+   */
+  const trainTrackAt = (train: TrainState, cap: number): number => {
+    if (cap <= 1) return 0;
+    const isUp = train.direction === 'UP' || train.direction === 1 || train.direction === -1;
 
+    let hash = 0;
+    for (let i = 0; i < train.train_id.length; i++) {
+      hash = train.train_id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    hash = Math.abs(hash);
+
+    if (isUp) {
+      const available = Math.ceil(cap / 2);
+      return hash % available;
+    }
+    const available = Math.floor(cap / 2);
+    return (cap - available) + (hash % available);
+  };
+
+  /**
+   * Resolve how many parallel tracks a station's platform bundle has, so a
+   * PLATFORM/LOOP node's index can be centred correctly. Prefers the
+   * station zone's computed capacity (which accounts for every platform +
+   * loop at that station); falls back to the node's own capacity field if
+   * the zone isn't available yet (e.g. before topology/zones have loaded).
+   */
+  const stationCapacityFor = (stId: string | undefined, fallbackCap: number): number => {
+    if (!stId) return fallbackCap;
+    const stZone = dynamicZones.find(
+      z => z.type === 'ST' && (z as StationZone).stId === stId
+    ) as StationZone | undefined;
+    return stZone ? stZone.cap : fallbackCap;
+  };
+
+  /**
+   * Sanitize a node's raw `capacity` field for use as a track-bundle size.
+   * ORIGIN/DESTINATION sentinel nodes carry a placeholder capacity (99)
+   * that has no visual meaning on a schematic, so it's clamped to a sane
+   * single/double-track default.
+   */
+  const nodeCapacity = (node: Node): number => {
+    const cap = node.capacity ?? 2;
+    if (cap < 1 || cap > 8) return 2;
+    return cap;
+  };
+
+  /**
+   * The single source of truth for "what Y does this node live at?".
+   * Resolves platform tracks, loop sidings, and multi-track mainline lanes.
+   * If a SWITCH node is part of an intra-station platform move, it stays
+   * locked to the assigned platform rail.
+   */
+  const nodeHomeY = (node: Node, train: TrainState, edgeContext?: { srcNode?: Node; tgtNode?: Node }): number => {
+    switch (node.type) {
+      case 'PLATFORM': {
+        const stId = getNodeStId(node);
+        const cap = stationCapacityFor(stId, nodeCapacity(node));
+        return trackY(node.platform_index ?? 0, cap);
+      }
+      case 'LOOP':
+      case 'CROSSING_LOOP': {
+        const stId = getNodeStId(node);
+        const cap = stationCapacityFor(stId, nodeCapacity(node));
+        const meta = stId ? STATION_META[stId] : undefined;
+        const totalLoops = meta?.loops ?? 2;
+        const mid = Math.ceil(totalLoops / 2);
+        const lIdx = node.loop_index ?? 0;
+        const topTrackY = trackY(0, cap);
+        const botTrackY = trackY(cap - 1, cap);
+        if (lIdx < mid) {
+          return topTrackY - (lIdx + 1) * TRACK_GAP;
+        } else {
+          return botTrackY + (lIdx - mid + 1) * TRACK_GAP;
+        }
+      }
+      case 'SWITCH': {
+        const stId = getNodeStId(node);
+        const cap = stationCapacityFor(stId, nodeCapacity(node));
+        if (edgeContext) {
+          const { srcNode, tgtNode } = edgeContext;
+          const otherNode = node.id === srcNode?.id ? tgtNode : srcNode;
+          if (otherNode && (otherNode.type === 'PLATFORM' || otherNode.type === 'LOOP' || otherNode.type === 'CROSSING_LOOP')) {
+            const thisStId = getNodeStId(node);
+            const otherStId = getNodeStId(otherNode);
+            if (thisStId && thisStId === otherStId) {
+              return nodeHomeY(otherNode, train);
+            }
+          }
+        }
+        return trackY(trainTrackAt(train, cap), cap);
+      }
+      default: {
+        const cap = nodeCapacity(node);
+        return trackY(trainTrackAt(train, cap), cap);
+      }
+    }
+  };
+
+  /**
+   * Resolve a train's schematic {x, y} position from its current edge and
+   * progress along it. Pins dwelling trains to their platform center, and
+   * follows exact SVG Bézier curves for switches and loop arches.
+   */
   const getPos = (train: TrainState): { x: number; y: number } | null => {
     if (!topology) return null;
     const edge = topology.edges.find(e => e.id === train.edge_id);
     if (!edge) return null;
+
     const srcNode = topology.nodes.find(n => n.id === edge.source);
     const tgtNode = topology.nodes.find(n => n.id === edge.target);
     const src = nodePos.get(edge.source);
     const tgt = nodePos.get(edge.target);
     if (!src || !tgt || !srcNode || !tgtNode) return null;
 
-    // Use raw position_percentage linearly — the cubic ease-in-out that was
-    // here before caused trains to visually sprint through the narrow station
-    // box (slow-fast-slow mapping over the short platform edge distance).
-    const p = train.position_percentage;
-    let x = src.x + (tgt.x - src.x) * p;
-    let currentY = MAIN_Y;
+    const yStart = nodeHomeY(srcNode, train, { srcNode, tgtNode });
+    const yEnd = nodeHomeY(tgtNode, train, { srcNode, tgtNode });
 
-    // ── Platform/Loop centering fix ─────────────────────────────────────────
-    // When an edge runs between a SWITCH and a PLATFORM or LOOP node (both
-    // within the same station), the train is physically inside the station
-    // at all times. Pin x to the platform/loop node's own schematic x
-    // (which nodeSx already sets to the station-zone centre) so waiting
-    // trains don't drift to the approach-switch edge at pct≈0.
-    const isPL = (t: string) =>
-      t === 'PLATFORM' || t === 'LOOP' || t === 'CROSSING_LOOP';
-    if (isPL(tgtNode.type) && srcNode.type === 'SWITCH') {
-      // SWITCH → PLATFORM/LOOP : snap to target node's x (= zone centre)
-      x = tgt.x;
-    } else if (isPL(srcNode.type) && tgtNode.type === 'SWITCH') {
-      // PLATFORM/LOOP → SWITCH : snap to source node's x (= zone centre)
-      x = src.x;
-    } else if (isPL(srcNode.type) && isPL(tgtNode.type)) {
-      // PLATFORM ↔ PLATFORM (rare intra-station hop): average
-      x = (src.x + tgt.x) / 2;
+    // isDwelling pinning removed because it causes trains to teleport to the end
+    // of an edge if they receive a 'Waiting at Signal' or 'Boarding' status mid-transit.
+    // The regular p-based interpolation naturally handles stationary trains (p stays constant).
+
+    const p = Math.max(0, Math.min(1, train.position_percentage));
+
+    const isIntra = isIntraStationMove(topology, edge.source, edge.target);
+    const stId = getNodeStId(srcNode) || getNodeStId(tgtNode);
+    const stZone = stId ? (dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stId) as StationZone | undefined) : undefined;
+
+    // Check if we are on a loop arch
+    if (stZone && isIntra) {
+      const meta = STATION_META[stZone.stId] || { loops: 0, passing: false, loopLeft: 'inside', loopRight: 'inside' };
+      const zIndex = dynamicZones.indexOf(stZone);
+      const prevZone = zIndex > 0 ? dynamicZones[zIndex - 1] : null;
+      const nextZone = zIndex < dynamicZones.length - 1 ? dynamicZones[zIndex + 1] : null;
+      const actualLoopLeft = prevZone?.type === 'SW' ? 'inside' : meta.loopLeft;
+      const actualLoopRight = nextZone?.type === 'SW' ? 'inside' : meta.loopRight;
+
+      // Loop entrance edge: switch_in -> LOOP
+      if ((tgtNode.type === 'LOOP' || tgtNode.type === 'CROSSING_LOOP') && srcNode.type === 'SWITCH') {
+        const loopPath = buildLoopArchPath(stZone.x1, yStart, yEnd, 'left', actualLoopLeft, 'M') + ` L ${tgt.x} ${yEnd}`;
+        const pt = getPathPoint(loopPath, p);
+        if (pt.x !== 0 || pt.y !== 0) return pt;
+      }
+
+      // Loop exit edge: LOOP -> switch_out
+      if ((srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP') && tgtNode.type === 'SWITCH') {
+        const loopPath = `M ${src.x} ${yStart} L ${stZone.x2} ${yStart} ` + buildLoopArchPath(stZone.x2, yEnd, yStart, 'right', actualLoopRight, 'L');
+        const pt = getPathPoint(loopPath, p);
+        if (pt.x !== 0 || pt.y !== 0) return pt;
+      }
     }
 
-    // Helper to dynamically assign node IDs to visual tracks (top to bottom)
-    const getStationNodeY = (node: Node) => {
-        const stId = getNodeStId(node);
-        if (!stId) return null;
-        const stZone = dynamicZones.find(z => z.type === 'ST' && (z as StationZone).stId === stId) as StationZone | undefined;
-        if (!stZone) return null;
-        const cap = stZone.cap;
-        if (node.type === 'PLATFORM' && node.platform_index !== undefined) {
-            return trackY(node.platform_index, cap);
-        }
-        if ((node.type === 'LOOP' || node.type === 'CROSSING_LOOP') && node.loop_index !== undefined) {
-            const topTrackY = trackY(0, cap);
-            return topTrackY - (node.loop_index + 1) * TRACK_GAP;
-        }
-        return MAIN_Y;
-    };
-
-    if (isStNode(srcNode.type)) {
-        currentY = getStationNodeY(srcNode) ?? MAIN_Y;
-    } else if (isStNode(tgtNode.type)) {
-        currentY = getStationNodeY(tgtNode) ?? MAIN_Y;
-    } else {
-        const swZone = dynamicZones.find(z => z.type === 'SW' && x >= z.x1 && x <= z.x2) as SwitchZone | undefined;
-        if (swZone) {
-            let leftY: number | null = null;
-            let rightY: number | null = null;
-            const leftStZone = dynamicZones.find(z => z.type === 'ST' && z.x2 === swZone.x1) as StationZone | undefined;
-            const rightStZone = dynamicZones.find(z => z.type === 'ST' && z.x1 === swZone.x2) as StationZone | undefined;
-            // CRITICAL BUG FIX: train.path is a list of EDGE IDs (e.g. "edge-10-1000"),
-            // NOT node IDs. The old code did topology.nodes.find(n => n.id === "edge-10-1000")
-            // which always returned undefined, so leftY/rightY were never set from path.
-            // Fix: resolve each path edge to find platform/loop node endpoints.
-            if (train.path) {
-                outer: for (const edgeId of train.path) {
-                    const pathEdge = topology.edges.find(e => e.id === edgeId);
-                    if (!pathEdge) continue;
-                    for (const nId of [pathEdge.source, pathEdge.target]) {
-                        const node = topology.nodes.find(n => n.id === nId);
-                        if (!node || !isStNode(node.type)) continue;
-                        const nStId = getNodeStId(node);
-                        if (leftStZone && leftStZone.stId === nStId && leftY === null) {
-                            const y = getStationNodeY(node);
-                            if (y !== null) leftY = y;
-                        }
-                        if (rightStZone && rightStZone.stId === nStId && rightY === null) {
-                            const y = getStationNodeY(node);
-                            if (y !== null) rightY = y;
-                        }
-                    }
-                    // Short-circuit once both sides are resolved
-                    if (leftY !== null && rightY !== null) break outer;
-                }
-            }
-            const baseLeftTrack = trainTrackAt(train, swZone.fromCap);
-            const baseRightTrack = trainTrackAt(train, swZone.toCap);
-            let leftTrack = baseLeftTrack;
-            if (leftY !== null) {
-                leftTrack = Math.max(0, Math.min(swZone.fromCap - 1, Math.round((leftY - MAIN_Y) / TRACK_GAP + (swZone.fromCap - 1) / 2)));
-            }
-            let rightTrack = baseRightTrack;
-            if (rightY !== null) {
-                rightTrack = Math.max(0, Math.min(swZone.toCap - 1, Math.round((rightY - MAIN_Y) / TRACK_GAP + (swZone.toCap - 1) / 2)));
-            }
-            const getClosestSource = (destIdx: number, destTotal: number, srcTotal: number) => {
-                return Math.min(Math.max(0, destIdx - Math.floor((destTotal - srcTotal) / 2)), srcTotal - 1);
-            };
-            if (leftY === null) {
-                if (swZone.fromCap < swZone.toCap) {
-                    leftTrack = getClosestSource(rightTrack, swZone.toCap, swZone.fromCap);
-                }
-                // For single-track ghat (fromCap=1): train is on the centre rail → MAIN_Y.
-                // For multi-track → multi-track transitions without path info: snap to nearest
-                // inner track (closest to MAIN_Y) to avoid floating between rail lines.
-                leftY = swZone.fromCap <= 1
-                    ? MAIN_Y
-                    : trackY(leftTrack, swZone.fromCap);
-            }
-            if (rightY === null) {
-                if (swZone.fromCap >= swZone.toCap) {
-                    rightTrack = getClosestSource(leftTrack, swZone.fromCap, swZone.toCap);
-                }
-                rightY = swZone.toCap <= 1
-                    ? MAIN_Y
-                    : trackY(rightTrack, swZone.toCap);
-            }
-            const t = Math.max(0, Math.min(1, (x - swZone.x1) / (swZone.x2 - swZone.x1)));
-            const smoothT = t * t * (3 - 2 * t);
-            currentY = leftY + (rightY - leftY) * smoothT;
-        } else {
-            const cap = resolveEdgeCap(train.edge_id, x);
-            const trackIdx = trainTrackAt(train, cap);
-            currentY = trackY(trackIdx, cap);
-        }
+    // Switch curve (e.g. divergence/convergence between different tracks/capacities)
+    if (yStart !== yEnd && Math.abs(src.x - tgt.x) > 5) {
+      const swPath = buildSwitchCurvePath(src.x, tgt.x, yStart, yEnd);
+      const pt = getPathPoint(swPath, p);
+      if (pt.x !== 0 || pt.y !== 0) return pt;
     }
 
-    return { x, y: currentY };
-  };
+    // Default linear X and smoothstep Y
+    const x = src.x + (tgt.x - src.x) * p;
+    const y = yStart === yEnd ? yStart : yStart + (yEnd - yStart) * smoothstep(p);
 
-  // ── Determine which track a train occupies (UP=top, DOWN=bottom) ───────────
-  const trainTrackAt = (train: TrainState, cap: number): number => {
-    if (cap <= 1) return 0;
-    const isUp = train.direction === "UP" || train.direction === 1 || train.direction === -1; 
-    
-    // Create a stable numeric hash from the train_id string
-    let hash = 0;
-    for (let i = 0; i < train.train_id.length; i++) {
-      hash = train.train_id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    // Ensure positive hash
-    hash = Math.abs(hash);
-
-    if (isUp) {
-      const available = Math.ceil(cap / 2);
-      return hash % available;
-    } else {
-      const available = Math.floor(cap / 2);
-      return (cap - available) + (hash % available);
-    }
+    return { x, y };
   };
 
   // ── Block tick marks: actual topology block boundaries ──────────────────────
@@ -525,155 +581,58 @@ export const KineticMap: React.FC = () => {
     return result;
   }, [topology]);
 
+  // ── Animation state machine ─────────────────────────────────────────────
   useEffect(() => {
     if (!topology || !trainStates.length) return;
     const store = usePresentationStore.getState();
 
     trainStates.forEach(train => {
-      const pos = getPos(train);
-      const targetPos = getPos({ ...train, position_percentage: 1 });
-      if (!pos || !targetPos) return;
-      
       const currentTrainState = store.trains[train.train_id];
-      
+      const pos = getPos(train);
+      if (!pos) return;
+
+      const stationaryStatuses = ['Scheduled', 'Banker Ops', 'Boarding', 'Waiting at Signal', 'Halted'];
+      const isStationary = stationaryStatuses.includes(train.status) || !!train.is_scheduled_dwell;
+
       if (!currentTrainState) {
         store.initializeTrainPresentation(train.train_id, {
           lastConfirmedEdge: train.edge_id,
           lastConfirmedNode: train.position_node,
           targetX: pos.x,
           targetY: pos.y,
-          animationMode: 'initial',
+          animationMode: isStationary ? 'dwell' : 'physics',
           durationS: 0,
-          ease: 'linear'
+          ease: 'linear',
         });
         return;
       }
 
-      let rawEdgeChanged = currentTrainState.lastConfirmedEdge !== train.edge_id;
-      let isGenuinePhysicalMove = false;
+      const mode: AnimationMode = isStationary ? 'dwell' : 'physics';
+      // Always use tickIntervalS for duration to ensure smooth sliding between ticks.
+      // Setting duration to 0 caused trains to jump/stutter every tick when braking or diverted.
+      const duration = tickIntervalS;
+      const ease = 'linear';
 
-      // Determine if a raw edge change is a genuine physical move (the current node changed)
-      // or just a display-default next-hop flip (current node unchanged).
-      if (rawEdgeChanged && currentTrainState.lastConfirmedEdge) {
-        if (currentTrainState.lastConfirmedNode !== undefined && 
-            currentTrainState.lastConfirmedNode !== train.position_node) {
-          isGenuinePhysicalMove = true;
-        }
-      }
+      const shouldUpdate =
+        currentTrainState.lastConfirmedEdge !== train.edge_id ||
+        currentTrainState.lastConfirmedNode !== train.position_node ||
+        currentTrainState.targetX !== pos.x ||
+        currentTrainState.targetY !== pos.y ||
+        currentTrainState.animationMode !== mode ||
+        currentTrainState.durationS !== duration;
 
-      // Debounce bookkeeping
-      let acceptedEdge = currentTrainState.lastConfirmedEdge || train.edge_id;
-      let newCandidateEdge = currentTrainState.candidateEdge;
-      let newCandidateCount = currentTrainState.candidateCount || 0;
-
-      if (rawEdgeChanged) {
-        if (isGenuinePhysicalMove) {
-          // Immediately accept physical movement to avoid artificial lag
-          acceptedEdge = train.edge_id;
-          newCandidateEdge = undefined;
-          newCandidateCount = 0;
-        } else {
-          // It's a display-default flip, so debounce it
-          if (train.edge_id === currentTrainState.candidateEdge) {
-            newCandidateCount += 1;
-            if (newCandidateCount >= EDGE_DEBOUNCE_TICKS) {
-              acceptedEdge = train.edge_id;
-              newCandidateEdge = undefined;
-              newCandidateCount = 0;
-            }
-          } else {
-            newCandidateEdge = train.edge_id;
-            newCandidateCount = 1;
-          }
-        }
-      } else {
-        newCandidateEdge = undefined;
-        newCandidateCount = 0;
-      }
-
-      // Evaluate physics against the accepted (debounced) edge to prevent jumping
-      const debouncedTrain = { ...train, edge_id: acceptedEdge };
-      const acceptedPos = getPos(debouncedTrain);
-      const acceptedTargetPos = getPos({ ...debouncedTrain, position_percentage: 1 });
-      if (!acceptedPos || !acceptedTargetPos) return;
-
-      const edgeChanged = currentTrainState.lastConfirmedEdge !== acceptedEdge;
-      const edge = topology.edges.find((e: any) => e.id === acceptedEdge);
-
-      // Secondary backstop: status check for stationary states.
-      // Primary trigger for animation remains node/edge changes.
-      const stationaryStatuses = ['Scheduled', 'Banker Ops', 'Boarding', 'Waiting at Signal'];
-      const isStationaryStatus = stationaryStatuses.includes(train.status);
-
-      let mode: any = 'physics';
-      let duration = tickIntervalS;
-      let ease = 'linear';
-      let nextX = acceptedPos.x;
-      let nextY = acceptedPos.y;
-
-      if (edgeChanged && edge) {
-        if (isIntraStationMove(topology, edge.source, edge.target)) {
-          mode = 'cosmetic';
-          duration = INTRA_STATION_TWEEN_DURATION_S;
-          ease = 'easeInOut';
-          nextX = acceptedTargetPos.x;
-          nextY = acceptedTargetPos.y;
-        }
-      } else if (!edgeChanged) {
-        if (currentTrainState.animationMode === 'cosmetic') {
-          mode = 'cosmetic';
-          duration = currentTrainState.durationS;
-          ease = currentTrainState.ease;
-          nextX = currentTrainState.targetX;
-          nextY = currentTrainState.targetY;
-        }
-      }
-
-      if (mode !== 'cosmetic' && isStationaryStatus) {
-        mode = 'dwell';
-        duration = 0;
-        // Use the freshly-computed acceptedPos so that platform-centering
-        // corrections in getPos actually take effect for waiting trains.
-        nextX = acceptedPos.x;
-        nextY = acceptedPos.y;
-      }
-
-      if (mode === 'dwell' || (isStationaryStatus && !edgeChanged)) {
-         store.updateTrainPresentation(train.train_id, {
-           animationMode: 'dwell',
-           durationS: 0,
-           targetX: nextX,
-           targetY: nextY,
-           candidateEdge: newCandidateEdge,
-           candidateCount: newCandidateCount
-         });
-      } else {
-         const shouldUpdate = 
-           currentTrainState.lastConfirmedEdge !== acceptedEdge ||
-           currentTrainState.lastConfirmedNode !== train.position_node ||
-           currentTrainState.targetX !== nextX ||
-           currentTrainState.targetY !== nextY ||
-           currentTrainState.animationMode !== mode ||
-           currentTrainState.durationS !== duration ||
-           currentTrainState.candidateEdge !== newCandidateEdge ||
-           currentTrainState.candidateCount !== newCandidateCount;
-
-         if (shouldUpdate) {
-           store.updateTrainPresentation(train.train_id, {
-             lastConfirmedEdge: acceptedEdge,
-             lastConfirmedNode: train.position_node,
-             targetX: nextX,
-             targetY: nextY,
-             animationMode: mode,
-             durationS: duration,
-             ease: ease,
-             candidateEdge: newCandidateEdge,
-             candidateCount: newCandidateCount
-           });
-         }
+      if (shouldUpdate) {
+        store.updateTrainPresentation(train.train_id, {
+          lastConfirmedEdge: train.edge_id,
+          lastConfirmedNode: train.position_node,
+          targetX: pos.x,
+          targetY: pos.y,
+          animationMode: mode,
+          durationS: duration,
+          ease,
+        });
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trainStates, topology, tickIntervalS]);
 
   // ── Render: SEG ─────────────────────────────────────────────────────────────
@@ -761,11 +720,36 @@ export const KineticMap: React.FC = () => {
   const renderSwitch = (z: SwitchZone, key: number) => {
     const { fromCap, toCap, x1, x2 } = z;
     const elems: React.ReactNode[] = [];
-    const cx = (x1 + x2) / 2;
+
+    const adjacentStZone = dynamicZones.find(dz => dz.type === 'ST' && (dz.x1 === z.x2 || dz.x2 === z.x1)) as StationZone | undefined;
+    const platformDirs = adjacentStZone?.platformDirections || [];
+    const isTerminus = adjacentStZone?.isLeft || adjacentStZone?.isRight;
 
     // Helper: Connects outer tracks gracefully to the nearest incoming track without crossing lines
     const getClosestSource = (destIdx: number, destTotal: number, srcTotal: number) => {
         return Math.min(Math.max(0, destIdx - Math.floor((destTotal - srcTotal) / 2)), srcTotal - 1);
+    };
+
+    const getTargetsForTrack = (
+      _stationTrackIdx: number, 
+      segmentCap: number, 
+      naturalSegmentTarget: number,
+      platformDir: 'UP' | 'DOWN' | 'BOTH'
+    ): number[] => {
+      const mid = segmentCap / 2;
+      const upMax = Math.ceil(mid) - 1;
+      const downMin = Math.floor(mid);
+      
+      if (platformDir === 'UP') {
+        return [Math.min(Math.max(0, naturalSegmentTarget), upMax)];
+      } else if (platformDir === 'DOWN') {
+        return [Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)];
+      } else {
+        return [
+          Math.min(Math.max(0, naturalSegmentTarget), upMax),
+          Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)
+        ];
+      }
     };
 
     if (fromCap >= toCap) {
@@ -773,56 +757,90 @@ export const KineticMap: React.FC = () => {
       for (let i = 0; i < fromCap; i++) {
         let j = getClosestSource(i, fromCap, toCap);
         
-        // Custom override: kalyan platform 4 (idx 3) to ambernath platform 1 (idx 0)
-        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) {
-          j = 0;
+        let targets = [j];
+        if (!isTerminus && i < platformDirs.length) {
+          targets = getTargetsForTrack(i, toCap, j, platformDirs[i]);
         }
 
-        elems.push(
-          <path key={`conv-${i}`}
-            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
-            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
-        );
+        targets.forEach(targetJ => {
+          elems.push(
+            <path key={`conv-${i}-${targetJ}`}
+              d={buildSwitchCurvePath(x1, x2, trackY(i, fromCap), trackY(targetJ, toCap))}
+              fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
+          );
+        });
       }
       
       // Draw merge markers
       const seen = new Set<number>();
       for (let i = 0; i < fromCap; i++) {
-        let j = getClosestSource(i, fromCap, toCap);
-        if (z.stId === 'KALYAN' && i === 3 && fromCap === 7 && toCap === 2) j = 0;
-        
-        const mergeCount = Array.from({ length: fromCap }, (_, k) => k).filter(k => {
-          let jk = getClosestSource(k, fromCap, toCap);
-          if (z.stId === 'KALYAN' && k === 3 && fromCap === 7 && toCap === 2) jk = 0;
-          return jk === j;
-        }).length;
-        
-        if (mergeCount > 1 && !seen.has(j)) {
-          seen.add(j);
-          elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+        let naturalJ = getClosestSource(i, fromCap, toCap);
+        let targets = [naturalJ];
+        if (!isTerminus && i < platformDirs.length) {
+          targets = getTargetsForTrack(i, toCap, naturalJ, platformDirs[i]);
         }
+        
+        targets.forEach(j => {
+          let mergeCount = 0;
+          for (let k = 0; k < fromCap; k++) {
+            let natK = getClosestSource(k, fromCap, toCap);
+            let kTargets = [natK];
+            if (!isTerminus && k < platformDirs.length) {
+              kTargets = getTargetsForTrack(k, toCap, natK, platformDirs[k]);
+            }
+            if (kTargets.includes(j)) mergeCount++;
+          }
+          
+          if (mergeCount > 1 && !seen.has(j)) {
+            seen.add(j);
+            elems.push(<rect key={`swm${j}`} x={x2-4} y={trackY(j, toCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+          }
+        });
       }
       
     } else {
       // Divergence (e.g., 2 tracks expanding to 4)
       for (let j = 0; j < toCap; j++) {
-        const i = getClosestSource(j, toCap, fromCap);
-        elems.push(
-          <path key={`div-${j}`}
-            d={`M ${x1} ${trackY(i, fromCap)} C ${cx} ${trackY(i, fromCap)}, ${cx} ${trackY(j, toCap)}, ${x2} ${trackY(j, toCap)}`}
-            fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
-        );
+        const naturalI = getClosestSource(j, toCap, fromCap);
+        let targets = [naturalI];
+        if (!isTerminus && j < platformDirs.length) {
+          targets = getTargetsForTrack(j, fromCap, naturalI, platformDirs[j]);
+        }
+        
+        targets.forEach(targetI => {
+          elems.push(
+            <path key={`div-${j}-${targetI}`}
+              d={buildSwitchCurvePath(x1, x2, trackY(targetI, fromCap), trackY(j, toCap))}
+              fill="none" stroke="#484848" strokeWidth={2} strokeLinecap="round" />
+          );
+        });
       }
       
       // Draw diverge markers
       const seen = new Set<number>();
       for (let j = 0; j < toCap; j++) {
-        const i = getClosestSource(j, toCap, fromCap);
-        const divCount = Array.from({ length: toCap }, (_, k) => k).filter(k => getClosestSource(k, toCap, fromCap) === i).length;
-        if (divCount > 1 && !seen.has(i)) {
-          seen.add(i);
-          elems.push(<rect key={`swd${i}`} x={x1-4} y={trackY(i, fromCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+        const naturalI = getClosestSource(j, toCap, fromCap);
+        let targets = [naturalI];
+        if (!isTerminus && j < platformDirs.length) {
+          targets = getTargetsForTrack(j, fromCap, naturalI, platformDirs[j]);
         }
+        
+        targets.forEach(i => {
+          let divCount = 0;
+          for (let k = 0; k < toCap; k++) {
+            let natK = getClosestSource(k, toCap, fromCap);
+            let kTargets = [natK];
+            if (!isTerminus && k < platformDirs.length) {
+              kTargets = getTargetsForTrack(k, fromCap, natK, platformDirs[k]);
+            }
+            if (kTargets.includes(i)) divCount++;
+          }
+          
+          if (divCount > 1 && !seen.has(i)) {
+            seen.add(i);
+            elems.push(<rect key={`swd${i}`} x={x1-4} y={trackY(i, fromCap)-4} width={8} height={8} fill="#5a5a5a" stroke="#777" strokeWidth={1} rx={1} />);
+          }
+        });
       }
     }
 
@@ -876,28 +894,38 @@ export const KineticMap: React.FC = () => {
       const edge = topology!.edges.find(e => e.id === t.edge_id);
       const srcNode = topology!.nodes.find(n => n.id === edge?.source);
       const tgtNode = topology!.nodes.find(n => n.id === edge?.target);
+      const p = t.position_percentage ?? 0;
 
-      // Check if train is specifically on a platform node
-      if (srcNode?.type === 'PLATFORM' && getNodeStId(srcNode) === z.stId) {
-        trackOccupancy.set(srcNode.platform_index!, t);
-      } else if (tgtNode?.type === 'PLATFORM' && getNodeStId(tgtNode) === z.stId) {
-        trackOccupancy.set(tgtNode.platform_index!, t);
+      const isSrcPL = srcNode && (srcNode.type === 'PLATFORM' || srcNode.type === 'LOOP' || srcNode.type === 'CROSSING_LOOP') && getNodeStId(srcNode) === z.stId;
+      const isTgtPL = tgtNode && (tgtNode.type === 'PLATFORM' || tgtNode.type === 'LOOP' || tgtNode.type === 'CROSSING_LOOP') && getNodeStId(tgtNode) === z.stId;
+
+      let occupyingNode = null;
+      if (isSrcPL && isTgtPL) {
+         occupyingNode = p < 0.5 ? srcNode : tgtNode;
+      } else if (isSrcPL) {
+         if (p <= 0.66) occupyingNode = srcNode;
+      } else if (isTgtPL) {
+         if (p >= 0.33) occupyingNode = tgtNode;
       }
-      
-      // Check if train is specifically on a loop node
-      if ((srcNode?.type === 'LOOP' || srcNode?.type === 'CROSSING_LOOP') && getNodeStId(srcNode) === z.stId) {
-        loopOccupancy.set(srcNode.loop_index!, t);
-      } else if ((tgtNode?.type === 'LOOP' || tgtNode?.type === 'CROSSING_LOOP') && getNodeStId(tgtNode) === z.stId) {
-        loopOccupancy.set(tgtNode.loop_index!, t);
+
+      if (occupyingNode) {
+         if (occupyingNode.type === 'PLATFORM') {
+            trackOccupancy.set(occupyingNode.platform_index!, t);
+         } else {
+            loopOccupancy.set(occupyingNode.loop_index!, t);
+         }
       }
     });
 
     const elems: React.ReactNode[] = [];
 
-    // 1) Station box — covers BOTH main platform tracks AND loop sidings above
-    const loopsTop = meta.loops > 0 ? topTrackY - meta.loops * TRACK_GAP - 7 : topTrackY - 7;
+    // 1) Station box — covers BOTH main platform tracks AND loop sidings above/below
+    const mid = Math.ceil(meta.loops / 2);
+    const topLoopCount = mid;
+    const botLoopCount = meta.loops - mid;
+    const loopsTop = meta.loops > 0 ? topTrackY - topLoopCount * TRACK_GAP - 7 : topTrackY - 7;
     const boxTop = loopsTop;
-    const boxBot = botTrackY + 7;
+    const boxBot = (botLoopCount > 0 ? botTrackY + botLoopCount * TRACK_GAP : botTrackY) + 7;
     elems.push(
       <rect key="box"
         x={visualX1} y={boxTop} width={visualX2 - visualX1} height={boxBot - boxTop}
@@ -917,47 +945,24 @@ export const KineticMap: React.FC = () => {
       );
     }
 
-    // 3) Loop / siding tracks — smooth bezier S-curves above main tracks.
+    // 3) Loop / siding tracks — smooth bezier S-curves above/below main tracks.
     //    We retain the straight middle section and use bezier entries/exits.
     for (let l = 0; l < meta.loops; l++) {
-      const sidY  = topTrackY - (l + 1) * TRACK_GAP;
+      let sidY, anchorY;
+      if (l < mid) {
+        sidY = topTrackY - (l + 1) * TRACK_GAP;
+        anchorY = topTrackY;
+      } else {
+        sidY = botTrackY + (l - mid + 1) * TRACK_GAP;
+        anchorY = botTrackY;
+      }
       const parts: string[] = [];
 
       // ── LEFT side entry ──────────────────────────────────────
-      if (actualLoopLeft === 'segment') {
-        // Smooth S-arch entering from the left segment
-        parts.push(
-          `M ${x1 - LOOP_OFF} ${topTrackY}`,
-          `C ${x1 - CP_OFF} ${topTrackY}, ${x1 - CP_OFF} ${sidY}, ${x1} ${sidY}`
-        );
-      } else if (actualLoopLeft === 'inside') {
-        // Diverges from main track just inside the station left boundary
-        parts.push(
-          `M ${x1} ${topTrackY}`,
-          `C ${x1 + CP_OFF} ${topTrackY}, ${x1 + CP_OFF} ${sidY}, ${x1 + LOOP_OFF} ${sidY}`
-        );
-      } else {
-        // 'bumper': starts at station left edge at siding level
-        parts.push(`M ${x1} ${sidY}`);
-      }
+      parts.push(buildLoopArchPath(x1, anchorY, sidY, 'left', actualLoopLeft, 'M'));
 
       // ── RIGHT side exit ──────────────────────────────────────
-      if (actualLoopRight === 'segment') {
-        // Extends then arches back to main track in the right segment
-        parts.push(
-          `L ${x2} ${sidY}`,
-          `C ${x2 + CP_OFF} ${sidY}, ${x2 + CP_OFF} ${topTrackY}, ${x2 + LOOP_OFF} ${topTrackY}`
-        );
-      } else if (actualLoopRight === 'inside') {
-        // Rejoins main track just before the station right boundary
-        parts.push(
-          `L ${x2 - LOOP_OFF} ${sidY}`,
-          `C ${x2 - CP_OFF} ${sidY}, ${x2 - CP_OFF} ${topTrackY}, ${x2} ${topTrackY}`
-        );
-      } else {
-        // 'bumper': ends at station right edge
-        parts.push(`L ${x2} ${sidY}`);
-      }
+      parts.push(buildLoopArchPath(x2, anchorY, sidY, 'right', actualLoopRight, 'L'));
 
       elems.push(
         <path key={`sid${l}`} d={parts.join(' ')} fill="none"
@@ -970,14 +975,23 @@ export const KineticMap: React.FC = () => {
     // Junction dots — where loop branches off or rejoins the main track
     if (meta.loops > 0) {
       const r = 2.5;
-      if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopRight === 'segment') elems.push(<circle key="cr-s" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
-      if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
+      if (topLoopCount > 0) {
+        if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s-t" cx={x1 - LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i-t" cx={x1}            cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'segment') elems.push(<circle key="cr-s-t" cx={x2 + LOOP_OFF} cy={topTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i-t" cx={x2}            cy={topTrackY} r={r} fill="#505050" />);
+      }
+      if (botLoopCount > 0) {
+        if (actualLoopLeft  === 'segment') elems.push(<circle key="cl-s-b" cx={x1 - LOOP_OFF} cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopLeft  === 'inside')  elems.push(<circle key="cl-i-b" cx={x1}            cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'segment') elems.push(<circle key="cr-s-b" cx={x2 + LOOP_OFF} cy={botTrackY} r={r} fill="#505050" />);
+        if (actualLoopRight === 'inside')  elems.push(<circle key="cr-i-b" cx={x2}            cy={botTrackY} r={r} fill="#505050" />);
+      }
     }
 
     // 4) Individual platform markers
-    for (let i = 0; i < cap; i++) {
+    const pfCount = z.platformCount ?? cap;
+    for (let i = 0; i < pfCount; i++) {
       const y = trackY(i, cap);
       // Fetch occupancy logically by platform index!
       const occTrain = trackOccupancy.get(i); 
@@ -998,7 +1012,7 @@ export const KineticMap: React.FC = () => {
     // 5) Loop siding platform markers
     const lpCx = cx;
     for (let l = 0; l < meta.loops; l++) {
-      const sidY = topTrackY - (l + 1) * TRACK_GAP;
+      const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
       // Fetch occupancy logically by loop index!
       const occTrain = loopOccupancy.get(l);
 
@@ -1066,13 +1080,13 @@ export const KineticMap: React.FC = () => {
     if (meta.loops > 0) {
       if (actualLoopLeft === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
-          const sidY = topTrackY - (l + 1) * TRACK_GAP;
+          const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
           elems.push(<line key={`bll${l}`} x1={visualX1} y1={sidY-4} x2={visualX1} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
       if (actualLoopRight === 'bumper') {
         for (let l = 0; l < meta.loops; l++) {
-          const sidY = topTrackY - (l + 1) * TRACK_GAP;
+          const sidY = l < mid ? topTrackY - (l + 1) * TRACK_GAP : botTrackY + (l - mid + 1) * TRACK_GAP;
           elems.push(<line key={`blr${l}`} x1={visualX2} y1={sidY-4} x2={visualX2} y2={sidY+4} stroke="#666" strokeWidth={2.5} strokeLinecap="round" />);
         }
       }
@@ -1172,6 +1186,7 @@ export const KineticMap: React.FC = () => {
                 isConflict={isConflict}
                 isHalted={isHalted}
                 isAI={isAI}
+                isScheduledDwell={train.is_scheduled_dwell}
                 tickIntervalS={tickIntervalS}
                 actionLabel={actionLabel}
                 setHoveredTrain={setHoveredTrain}

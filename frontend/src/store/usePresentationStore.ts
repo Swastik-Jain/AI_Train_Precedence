@@ -22,25 +22,35 @@ export interface TrainPresentationState {
   train_id: string;
   lastConfirmedEdge: string | null;
   lastConfirmedNode?: number | null;
+  lastLookaheadLeftNodeId?: string | null;
+  lastLookaheadRightNodeId?: string | null;
   
   // The logical target positions for framer-motion to animate towards.
-  targetX: number;
-  targetY: number;
+  targetX: number | number[];
+  targetY: number | number[];
   
   // Transition configuration for framer-motion
   animationMode: AnimationMode;
   durationS: number;
-  ease: string;
+  durationX?: number;
+  durationY?: number;
+  followsLive?: boolean;
+  ease: string | string[];
 
   // Debounce bookkeeping for display-default noise
   candidateEdge?: string;
   candidateCount?: number;
+  // Gate state: tracks whether the train was awaiting platform last tick so
+  // the animation effect can detect the awaiting_platform true→false transition.
+  wasAwaitingPlatform?: boolean;
 }
+
 
 interface PresentationStore {
   trains: Record<string, TrainPresentationState>;
   updateTrainPresentation: (train_id: string, updates: Partial<Omit<TrainPresentationState, 'train_id'>>) => void;
   initializeTrainPresentation: (train_id: string, initialState: Omit<TrainPresentationState, 'train_id'>) => void;
+  removeTrainPresentation: (train_id: string) => void;
 }
 
 export const usePresentationStore = create<PresentationStore>((set) => ({
@@ -70,5 +80,12 @@ export const usePresentationStore = create<PresentationStore>((set) => ({
         },
       },
     };
+  }),
+
+  removeTrainPresentation: (train_id) => set((state) => {
+    if (!state.trains[train_id]) return state;
+    const newTrains = { ...state.trains };
+    delete newTrains[train_id];
+    return { trains: newTrains };
   }),
 }));

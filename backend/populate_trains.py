@@ -1,5 +1,10 @@
 import requests
 import random
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import compute_deadline
 
 API_URL = "http://localhost:8000/api/v1/fleet"
 
@@ -25,12 +30,13 @@ def populate():
     print("Populating 25 trains...")
     for i in range(1, 26):
         ttype, prefix, speed = random.choice(TRAIN_TYPES)
+        start_t = random.randint(0, 50)
         payload = {
             "train_id": f"{prefix}-{100 + i}",
             "train_type": ttype,
             "max_speed": speed,
-            "start_time": random.randint(0, 50),
-            "deadline": random.randint(100, 200),
+            "start_time": start_t,
+            "deadline": compute_deadline(start_t, speed),
             "direction": random.choice([1, 2])
         }
         r = requests.post(API_URL, json=payload)

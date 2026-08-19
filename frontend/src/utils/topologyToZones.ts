@@ -1,11 +1,11 @@
 export type SegZone     = { type:'SEG'; x1:number; x2:number; cap:number; isGhat?:boolean; speed?:number; km?:number; startKm?:number; endKm?:number };
 export type SwitchZone  = { type:'SW';  x1:number; x2:number; fromCap:number; toCap:number; stId?:string };
-export type StationZone = { type:'ST';  x1:number; x2:number; cap:number; stId:string; isLeft?:boolean; isRight?:boolean };
+export type StationZone = { type:'ST';  x1:number; x2:number; cap:number; platformCount?:number; platformDirections?:('UP'|'DOWN'|'BOTH')[]; stId:string; isLeft?:boolean; isRight?:boolean };
 export type Zone        = SegZone | SwitchZone | StationZone;
 
 /** Convert backend topology graph to KineticMap zones array */
 export function topologyToZones(topology: {
-  nodes: Array<{id: string; type: string; capacity?: number; km?: number; speed?: number}>;
+  nodes: Array<{id: string; type: string; capacity?: number; km?: number; speed?: number; platform_index?: number; direction?: 'UP'|'DOWN'|'BOTH'}>;
   edges: Array<{id: string; source?: string; target?: string; from?: string; to?: string; length_px?: number; length?: number; capacity?: number; max_speed?: number}>;
 }): Zone[] {
   const zones: Zone[] = [];
@@ -20,7 +20,7 @@ export function topologyToZones(topology: {
   if (rawStations.length === 0) return zones;
 
   // Group multiple platform nodes at the same location into a single macro-station
-  const stations: typeof rawStations = [];
+  const stations: any[] = [];
   for (const n of rawStations) {
     const stId = (n as any).station || (n as any).stId || n.id;
     const existing = stations.find(s => 
@@ -31,8 +31,20 @@ export function topologyToZones(topology: {
       if (n.type !== 'LOOP') {
         existing.capacity = (existing.capacity || 0) + (n.capacity || 1);
       }
+      if (n.type !== 'LOOP' && n.type !== 'CROSSING_LOOP') {
+        const pIdx = n.platform_index ?? (existing.platformCount || 0);
+        existing.platformCount = Math.max(existing.platformCount || 0, pIdx + 1);
+        if (!existing.platformDirections) existing.platformDirections = [];
+        existing.platformDirections[pIdx] = n.direction || 'BOTH';
+      }
     } else {
-      stations.push({ ...n, capacity: n.type !== 'LOOP' ? (n.capacity || 1) : 0 });
+      const isLoop = n.type === 'LOOP' || n.type === 'CROSSING_LOOP';
+      stations.push({ 
+        ...n, 
+        capacity: n.type !== 'LOOP' ? (n.capacity || 1) : 0,
+        platformCount: isLoop ? 0 : 1,
+        platformDirections: isLoop ? [] : [n.direction || 'BOTH']
+      });
     }
   }
 
@@ -57,6 +69,8 @@ export function topologyToZones(topology: {
       x1: currentX,
       x2: currentX + stWidth,
       cap: stCap,
+      platformCount: st.platformCount,
+      platformDirections: st.platformDirections,
       stId: (st as any).station || (st as any).stId || st.id,
       isLeft: i === 0,
       isRight: i === stations.length - 1,

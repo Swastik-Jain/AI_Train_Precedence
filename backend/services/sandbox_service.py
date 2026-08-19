@@ -163,14 +163,15 @@ def _run_forward_simulation(state, n_ticks: int, latencies: dict, forced_actions
             t_time = t.get('finish_step')
             if t_time is None:
                 # Project the finish time based on remaining distance
-                if hasattr(sandbox_inner, '_get_train_km') and hasattr(sandbox_inner, 'SECTION_LENGTH_KM'):
+                from ai.config import SECTION_LENGTH_KM
+                if hasattr(sandbox_inner, '_get_train_km'):
                     my_km = sandbox_inner._get_train_km(t)
                     if t.get('direction', 'DOWN') == 'DOWN':
                         km_done = my_km
                     else:
-                        km_done = sandbox_inner.SECTION_LENGTH_KM - my_km
+                        km_done = SECTION_LENGTH_KM - my_km
                     
-                    dist_remaining_km = sandbox_inner.SECTION_LENGTH_KM - km_done
+                    dist_remaining_km = SECTION_LENGTH_KM - km_done
                     # Assume an average speed of 50 km/h
                     projected_remaining_mins = (dist_remaining_km / 50.0) * 60.0
                 else:

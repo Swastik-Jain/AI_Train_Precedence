@@ -66,7 +66,8 @@ def get_telemetry(state):
             # --- Finished trains: use locked-in finish tick ---
             t_actual = t_state.get("finish_step")
             if t_actual is None:
-                t_actual = t_state.get("finish_time")
+                # Fallback to current episodic time instead of global finish_time
+                t_actual = getattr(state, 'inference_sim_time', 0)
             if t_actual is None:
                 # Truly unknown — assume on-time to avoid penalising prematurely
                 t_actual = deadline
@@ -95,13 +96,13 @@ def get_telemetry(state):
 
                 # Nodes go 0→83 for DOWN, 0→83 means reverse for UP (starts at 83)
                 # Fraction of journey COMPLETED (0.0=just started, 1.0=done)
-                TOTAL_NODES = 84.0
+                TOTAL_NODES = 196.0
                 if direction_str == "DOWN":
                     frac_done = node_progress / TOTAL_NODES
                 else:
-                    # UP trains travel from node 83→0 through the corridor
+                    # UP trains travel from node 195→0 through the corridor
                     # Their position comes in as source node of the edge they
-                    # are currently on.  A freshly-started UP train is near 83.
+                    # are currently on.  A freshly-started UP train is near 195.
                     frac_done = (TOTAL_NODES - node_progress) / TOTAL_NODES
 
                 frac_done = max(0.0, min(frac_done, 1.0))
@@ -119,8 +120,24 @@ def get_telemetry(state):
                     # Time expired - strictly late
                     delay = float(-time_remaining)
                 else:
-                    # Still within budget - considered on time until deadline passes
-                    delay = 0.0
+                    # Still within budget - dynamically project delay based on current pace
+                    
+                    # Wait until the train has completed at least 5% of its journey
+                    # to establish a reliable pace and avoid wildly inaccurate early projections.
+                    if frac_done > 0.05 and elapsed > 0:
+                        # ticks per 100% of the journey
+                        projected_total_duration = elapsed / frac_done
+                        projected_arrival_time = start_time + projected_total_duration
+                        
+                        if projected_arrival_time > deadline:
+                            # The train is moving too slowly and is projected to miss the deadline
+                            delay = projected_arrival_time - deadline
+                        else:
+                            # Moving fast enough to arrive on time
+                            delay = 0.0
+                    else:
+                        # Too early to establish pace, give it the benefit of the doubt
+                        delay = 0.0
             else:
                 # Edge info unavailable — assume on-time
                 delay = 0.0

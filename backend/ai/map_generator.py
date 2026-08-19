@@ -303,8 +303,17 @@ def generate_realistic_section():
         current_node += 1
 
         # ── PLATFORM NODES ─────────────────────────────────────────────────
+        import math
+        mid = n_platforms / 2.0
         platform_ids = []
         for p in range(n_platforms):
+            if p < math.ceil(mid) and p >= math.floor(mid):
+                direction = 'BOTH'
+            elif p < math.ceil(mid):
+                direction = 'UP'
+            else:
+                direction = 'DOWN'
+
             pid = platform_node_base
             platform_node_base += 1
             track_map[pid] = {
@@ -315,6 +324,7 @@ def generate_realistic_section():
                 'km': st_km,
                 'station': station_name,
                 'platform_index': p,
+                'direction': direction,
                 'token_block': False,
                 'gradient': False,
             }

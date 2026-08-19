@@ -296,7 +296,7 @@ def _make_suggestion(state) -> list:
     })
 
     # Staging edges: trains at these edges haven't entered the main corridor yet
-    _STAGING_EDGES = frozenset({"edge-0-1", "edge-83-999"})
+    _STAGING_EDGES = frozenset({"edge-0-1", "edge-195-999"})
 
     suggestions = []
 
@@ -619,6 +619,8 @@ async def simulate_trains_bg():
                             try:
                                 with torch.no_grad():
                                     dist = model.policy.get_distribution(obs_tensor)
+                                    if hasattr(dist, "apply_masking") and action_masks is not None:
+                                        dist.apply_masking(action_masks)
                                     
                                     # Ensure action is 2D for batched processing
                                     act_np = np.array(action)
@@ -719,8 +721,8 @@ async def simulate_trains_bg():
                                         live['edge_id'] = "edge-0-1"
                                         live['position_percentage'] = 0.0
                                     else:
-                                        live['edge_id'] = "edge-83-999"
-                                        live['position_percentage'] = 1.0
+                                        live['edge_id'] = "edge-195-999"
+                                        live['position_percentage'] = 0.0
 
                             # ── Read RL env train positions back into state.train_states ─
                             # The RL env manages its own complete, valid train state.
@@ -740,7 +742,7 @@ async def simulate_trains_bg():
                                 direction_str = live.get('direction', 'DOWN')
                             
                                 if node_id == 999 or node_id == 998:
-                                    edge_id = "edge-83-999"
+                                    edge_id = "edge-195-999"
                                 elif node_id == 0:
                                     edge_id = "edge-0-1"
                                 else:
@@ -772,7 +774,9 @@ async def simulate_trains_bg():
                                         pass
                             
                                 # UP trains traverse the edge in reverse (high→low km).
-                                if direction_str == "UP":
+                                if node_id in (0, 998, 999):
+                                    pct = 0.0
+                                elif direction_str == "UP":
                                     pct = 1.0 - pct
                                 
                                 live['position_percentage'] = pct
@@ -896,8 +900,22 @@ async def simulate_trains_bg():
                         if not state.inference_active and state.get('status') not in ('Scheduled', 'Finished'):
                             state['status'] = 'Moving'
                             spd = state.get('speed_kmh', 0)
-                            mx = state.get('max_speed', 130)
-                            state['position_percentage'] = state.get('position_percentage', 0) + (spd / mx) * 0.05 * SIM_SPEED_FACTOR
+                            dist_to_next = 5.0
+                            if sim_state.env:
+                                try:
+                                    inner_env = sim_state.env.venv.envs[0] if hasattr(sim_state.env, 'venv') else sim_state.env.envs[0]
+                                    edge_id = state.get('edge_id', '')
+                                    if edge_id.startswith('edge-'):
+                                        parts = edge_id.split('-')
+                                        if len(parts) == 3:
+                                            km1 = inner_env.get_node_km(int(parts[1])) if hasattr(inner_env, 'get_node_km') else 0.0
+                                            km2 = inner_env.get_node_km(int(parts[2])) if hasattr(inner_env, 'get_node_km') else 5.0
+                                            dist_to_next = max(0.1, abs(km2 - km1))
+                                except Exception:
+                                    pass
+                            
+                            dist_km = (spd / 60.0) * SIM_SPEED_FACTOR
+                            state['position_percentage'] = state.get('position_percentage', 0) + (dist_km / dist_to_next)
                             if state['position_percentage'] >= 1.0:
                                 state['position_percentage'] = 0.0
                                 try:

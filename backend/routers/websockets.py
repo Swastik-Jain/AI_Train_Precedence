@@ -10,7 +10,7 @@ async def broadcast_topology(payload: dict):
     state = get_state()
     dead_sockets = set()
     message = json.dumps(payload)
-    for ws in state.active_websockets:
+    for ws in list(state.active_websockets):
         try:
             await ws.send_text(message)
         except Exception:
@@ -21,7 +21,7 @@ async def broadcast_copilot(payload: dict):
     state = get_state()
     dead_sockets = set()
     message = json.dumps(payload)
-    for ws in state.copilot_websockets:
+    for ws in list(state.copilot_websockets):
         try:
             await ws.send_text(message)
         except Exception:
