@@ -1191,7 +1191,7 @@ class TrainDispatchEnv(gym.Env):
                 _loop_targets = [n for n in _display_next_opts if n != _main_target]
                 _st_name = self.track_map.get(_loop_targets[0], {}).get('station') if _loop_targets else None
                 
-                if _st_name and self._is_scheduled_stop(train, _st_name):
+                if _st_name:
                     if train.get('reserved_platform') is None:
                         train['_newly_reserved'] = True
                         self._select_divert_target(train, _loop_targets, direction)
@@ -1221,7 +1221,7 @@ class TrainDispatchEnv(gym.Env):
                         _lh_main = _lookahead_opts[0]
                         _lh_loops = [n for n in _lookahead_opts if n != _lh_main]
                         _lh_st_name = self.track_map.get(_lh_loops[0], {}).get('station') if _lh_loops else None
-                        if _lh_st_name and self._is_scheduled_stop(train, _lh_st_name):
+                        if _lh_st_name:
                             train['_newly_reserved'] = True
                             train['_early_reservation'] = True
                             self._select_divert_target(train, _lh_loops, direction)
@@ -1332,15 +1332,13 @@ class TrainDispatchEnv(gym.Env):
                 train['target_speed'] = 0
 
             # A1: committed_next_node — computed AFTER the act block so that
-            # reserved_platform reflects the current-tick decision (early-peek
-            # + act==2 _select_divert_target have both finished by this point).
-            if train.get('reserved_platform') is not None and (
-                train['reserved_platform'] in _display_next_opts
-                or train.get('_early_reservation')
-            ):
+            # reserved_platform reflects the current-tick decision. It must be a direct
+            # next hop from current node to form a valid topological edge.
+            if train.get('reserved_platform') is not None and train['reserved_platform'] in _display_next_opts:
                 train['committed_next_node'] = train['reserved_platform']
             else:
-                train['committed_next_node'] = _display_next_opts[0] if _display_next_opts else pos
+                fallback_node = _display_next_opts[0] if _display_next_opts else pos
+                train['committed_next_node'] = fallback_node
 
             # A2: awaiting_platform — True only when the train is at a switch
             # node that feeds a station it has a scheduled stop at, AND no
@@ -1528,14 +1526,41 @@ class TrainDispatchEnv(gym.Env):
                     train['position'] = target_node
                     pos = target_node
                     node_data = self.track_map.get(pos, {}) # update node_data for next iteration
-                    
+
                     _commit_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
-                    train['committed_next_node'] = _commit_next_opts[0] if _commit_next_opts else pos
+                    _commit_is_branching_entry = node_data.get('type') == 'SWITCH' and len(_commit_next_opts) > 1
+                    if (_commit_is_branching_entry
+                            and train.get('reserved_platform') is not None
+                            and train['reserved_platform'] in _commit_next_opts):
+                        # Just arrived at a station's branching entry switch and the
+                        # platform/loop is already reserved (usually via the early-peek
+                        # reservation, well before physically reaching the switch) — show
+                        # the real target immediately. Defaulting to _commit_next_opts[0]
+                        # here (the switch_out bypass option, which sits at index 0 of
+                        # every branching switch's next list) for even a single tick
+                        # broadcasts the wrong edge to the frontend: the train badge
+                        # visibly overshoots toward the far side of the station box, then
+                        # snaps back to the correct platform the moment this corrects
+                        # itself on the next tick.
+                        train['committed_next_node'] = train['reserved_platform']
+                    else:
+                        fallback_node = _commit_next_opts[0] if _commit_next_opts else pos
+                        train['committed_next_node'] = fallback_node
                     self._movement_acc[i] -= dist_to_next
+                    if _commit_is_branching_entry:
+                        # Prevent carry-over fractional km when entering a station switch zone.
+                        # If p > 0 on the very first frame of a curve, the frontend interpolates
+                        # from the old mainline Y straight to the new curve Y, causing a jarring
+                        # diagonal zigzag. Forcing p=0.0 ensures a smooth glide from the very start.
+                        self._movement_acc[i] = 0.0
                     moved_this_step = True
                     
-                    if target_node == train.get('reserved_platform'):
-                        train['reserved_platform'] = None
+                    # Clear reserved_platform only when we've physically left the station's track bundle
+                    if train.get('reserved_platform'):
+                        res_st = self.track_map.get(train['reserved_platform'], {}).get('station')
+                        curr_st = self.track_map.get(pos, {}).get('station')
+                        if res_st and curr_st != res_st:
+                            train['reserved_platform'] = None
                         train.pop('_early_reservation', None)
 
                     # Token system update
