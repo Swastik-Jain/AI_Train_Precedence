@@ -741,7 +741,7 @@ export const KineticMap: React.FC = () => {
     const getTargetsForTrack = (
       _stationTrackIdx: number, 
       segmentCap: number, 
-      naturalSegmentTarget: number,
+      _naturalSegmentTarget: number,
       platformDir: 'UP' | 'DOWN' | 'BOTH'
     ): number[] => {
       const mid = segmentCap / 2;
@@ -749,14 +749,11 @@ export const KineticMap: React.FC = () => {
       const downMin = Math.floor(mid);
       
       if (platformDir === 'UP') {
-        return [Math.min(Math.max(0, naturalSegmentTarget), upMax)];
+        return Array.from({ length: upMax + 1 }, (_, i) => i);
       } else if (platformDir === 'DOWN') {
-        return [Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)];
+        return Array.from({ length: segmentCap - downMin }, (_, i) => downMin + i);
       } else {
-        return [
-          Math.min(Math.max(0, naturalSegmentTarget), upMax),
-          Math.min(Math.max(downMin, naturalSegmentTarget), segmentCap - 1)
-        ];
+        return Array.from({ length: segmentCap }, (_, i) => i);
       }
     };
 
