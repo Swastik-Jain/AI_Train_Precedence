@@ -16,7 +16,7 @@ def test_resolve_main_target_prefers_lower_km_for_up_trains():
     assert target == 20, "UP train should prefer the lower-km branch, not just next_opts[0]"
 
 def test_resolve_main_target_falls_back_when_node_km_missing():
-    """With no km data (the old broken behavior), confirm it degrades to next_opts[0]
+    """With no km data (the previous fallback behavior), confirm it degrades to next_opts[0]
     predictably rather than crashing — this is the fallback path, not the fix itself."""
     opt = SmartOptimizer()
     target = opt._resolve_main_target(

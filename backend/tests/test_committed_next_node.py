@@ -4,7 +4,7 @@ from train_env import TrainDispatchEnv
 def test_committed_next_node_reflects_divert_not_just_main_track():
     """
     Regression test for the edge-mapping bug: simulation_service.py used to
-    derive the visual edge_id via a broken path-vs-int comparison that always
+    derive the visual edge_id via an incorrect path-vs-int comparison that always
     fell back to next_opts[0] (the main track), regardless of what the RL env
     actually decided. train_env.py now records the real decision on
     train['committed_next_node'] every step. This test forces a train into a

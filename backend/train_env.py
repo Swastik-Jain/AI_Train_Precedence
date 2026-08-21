@@ -863,8 +863,8 @@ class TrainDispatchEnv(gym.Env):
                     break
 
             # SAFETY RULE: If train is actively inside the token block, it MUST
-            # keep attempting to move every tick. Sleeping on the mountain pass
-            # causes the following train to rear-end it. We remove HOLD from the
+            # keep attempting to move every tick. Stopping within the critical gradient section
+            # causes trailing trains to collide. We remove HOLD from the
             # mask regardless of whether PROCEED/DIVERT are available — if both
             # are capacity-blocked, the step() physics will reject the move and
             # keep the train in place anyway, but the RL model must keep sending
@@ -1191,7 +1191,7 @@ class TrainDispatchEnv(gym.Env):
                 _loop_targets = [n for n in _display_next_opts if n != _main_target]
                 _st_name = self.track_map.get(_loop_targets[0], {}).get('station') if _loop_targets else None
                 
-                if _st_name and self._is_scheduled_stop(train, _st_name):
+                if _st_name:
                     if train.get('reserved_platform') is None:
                         train['_newly_reserved'] = True
                         self._select_divert_target(train, _loop_targets, direction)
@@ -1221,7 +1221,7 @@ class TrainDispatchEnv(gym.Env):
                         _lh_main = _lookahead_opts[0]
                         _lh_loops = [n for n in _lookahead_opts if n != _lh_main]
                         _lh_st_name = self.track_map.get(_lh_loops[0], {}).get('station') if _lh_loops else None
-                        if _lh_st_name and self._is_scheduled_stop(train, _lh_st_name):
+                        if _lh_st_name:
                             train['_newly_reserved'] = True
                             train['_early_reservation'] = True
                             self._select_divert_target(train, _lh_loops, direction)
@@ -1488,6 +1488,7 @@ class TrainDispatchEnv(gym.Env):
                             self._train_speeds[i] = 0
                             if not moved_this_step:
                                 reward -= 0.5
+                                train['idle_time'] += 1
                             current_positions.append(pos)
                             break
                     else:
@@ -1498,6 +1499,8 @@ class TrainDispatchEnv(gym.Env):
                                 train['speed'] = 0
                                 train['target_speed'] = 0
                                 self._train_speeds[i] = 0
+                                if not moved_this_step:
+                                    train['idle_time'] += 1
                                 current_positions.append(pos)
                                 break
 
@@ -1519,8 +1522,7 @@ class TrainDispatchEnv(gym.Env):
                         self._train_speeds[i] = 0
                         if not moved_this_step:
                             reward -= 0.1
-                            if not self._is_in_token_block(pos):
-                                train['idle_time'] += 1
+                            train['idle_time'] += 1
                         current_positions.append(pos)
                         break
 
@@ -1562,10 +1564,20 @@ class TrainDispatchEnv(gym.Env):
                                 fallback_node = pf_opts[0]
                         train['committed_next_node'] = fallback_node
                     self._movement_acc[i] -= dist_to_next
+                    if _commit_is_branching_entry:
+                        # Prevent carry-over fractional km when entering a station switch zone.
+                        # If p > 0 on the very first frame of a curve, the frontend interpolates
+                        # from the old mainline Y straight to the new curve Y, causing a jarring
+                        # diagonal zigzag. Forcing p=0.0 ensures a smooth glide from the very start.
+                        self._movement_acc[i] = 0.0
                     moved_this_step = True
                     
-                    if target_node == train.get('reserved_platform'):
-                        train['reserved_platform'] = None
+                    # Clear reserved_platform only when we've physically left the station's track bundle
+                    if train.get('reserved_platform'):
+                        res_st = self.track_map.get(train['reserved_platform'], {}).get('station')
+                        curr_st = self.track_map.get(pos, {}).get('station')
+                        if res_st and curr_st != res_st:
+                            train['reserved_platform'] = None
                         train.pop('_early_reservation', None)
 
                     # Token system update
@@ -1669,15 +1681,23 @@ class TrainDispatchEnv(gym.Env):
                 for nxt in next_opts:
                     if (self.get_node_occupancy(nxt) <
                             self.track_map.get(nxt, {}).get('capacity', 1)):
+                        was_in_token = self._is_in_token_block(pos)
+                        now_in_token = self._is_in_token_block(nxt)
                         self._move_train(t, pos, nxt)
                         t['position'] = nxt
                         rescued = True
+                        if was_in_token and not now_in_token:
+                            print(f"[TOKEN] Train {t['id']} EXITS token block via RESCUE at node {nxt} (from {pos})")
+                            self.ghat_token.train_exited(t['id'])
                         break
                 t['idle_time'] = 0   # reset so it doesn't re-trigger immediately
                 if not rescued:
                     # Truly no escape — mark finished to unblock others
                     t['finished'] = True
                     reward -= 20.0
+                    if self._is_in_token_block(pos):
+                        print(f"[TOKEN] Train {t['id']} EXITS token block via DEATH at node {pos}")
+                        self.ghat_token.train_exited(t['id'])
 
 
         # ── Collision detection ───────────────────────────────────────────

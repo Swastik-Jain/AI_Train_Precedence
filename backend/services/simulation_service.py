@@ -8,14 +8,23 @@ def _get_sim_brain(state: SimulationState):
     if state.sim_model is not None:
         return state.sim_model, state.sim_env
 
-    # ── Level 6 checkpoint (Latest best) ──────────────────
+    # ── Fine-Tuned Precedence Model (Latest best) ──────────────────
     base_dir = os.path.dirname(os.path.dirname(__file__))
     model_path = os.path.join(
-        base_dir, "ai", "models", "Phase3", "L6_25Trains_Best_v5", "best_model.zip"
+        base_dir, "ai", "models", "hybrid_step3_FINAL.zip"
     )
     stats_path = os.path.join(
-        base_dir, "ai", "models", "Phase3", "vec_normalize_L6_25Trains.pkl"
+        base_dir, "ai", "models", "vec_normalize_hybrid.pkl"
     )
+
+    if not os.path.exists(model_path):
+        # Fallback to Phase3 L6 Best model if hybrid_step3_FINAL.zip is absent
+        model_path = os.path.join(
+            base_dir, "ai", "models", "Phase3", "L6_25Trains_Best_v5", "best_model.zip"
+        )
+        stats_path = os.path.join(
+            base_dir, "ai", "models", "Phase3", "vec_normalize_L6_25Trains.pkl"
+        )
 
     if not os.path.exists(model_path):
         print(f"[SIM-BRAIN] ⚠️  Model not found at {model_path} — falling back to OR-Tools only.")
@@ -383,12 +392,11 @@ async def simulate_trains_bg(state, broadcast_topology, broadcast_copilot, _sync
                                 elif node_id == 0:
                                     edge_id = "edge-0-1"
                                 else:
-                                    # Use the RL env's own committed next-node — this is the
-                                    # real MAIN/DIVERT decision train_env.py made for this
-                                    # train this step, not a re-derived guess.
-                                    committed_next = rl_train.get('committed_next_node')
-                                    if committed_next is None:
-                                        committed_next = node_id  # end of line / no data — draw a self-loop-ish fallback rather than crash
+                                    next_opts = inner_env.track_map.get(node_id, {}).get('prev' if direction_str == "UP" else 'next', [])
+                                    if committed_next not in next_opts and next_opts:
+                                        committed_next = next_opts[0]
+                                    elif committed_next is None:
+                                        committed_next = node_id
 
                                     if direction_str == "UP":
                                         edge_id = f"edge-{committed_next}-{node_id}"

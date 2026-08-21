@@ -41,6 +41,9 @@ export interface TrainState {
   committed_next_node?: string | number | null;   // NEW — live RL routing decision (which platform/loop this train is headed to)
   early_reservation?: boolean;
   awaiting_platform?: boolean;   // NEW — backend signals platform not yet resolved at this switch
+  is_scheduled_dwell?: boolean;
+  dwell_rem?: number;
+  speed_kmh?: number;
 }
 
 

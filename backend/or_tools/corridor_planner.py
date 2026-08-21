@@ -401,7 +401,7 @@ class CorridorPlanner:
                 continue
 
             t_sched = schedule[tid]
-            actions = []   # list of (step, action) tuples
+            actions = [0] * horizon   # Dense array of length horizon initialized to 0 (ACTION_STOP)
 
             for idx, station in enumerate(stops):
                 if station not in t_sched:
@@ -415,12 +415,12 @@ class CorridorPlanner:
                     prev_station = stops[idx - 1]
                     if prev_station in t_sched:
                         prev_dep = t_sched[prev_station]['departure']
-                        for step in range(prev_dep, arr):
-                            actions.append((step, 1))   # PROCEED_MAIN
+                        for step in range(prev_dep, min(arr, horizon)):
+                            actions[step] = 1   # PROCEED_MAIN
 
                 # Dwell at station: DIVERT (enter platform)
-                for step in range(arr, dep):
-                    actions.append((step, 2))   # DIVERT to platform
+                for step in range(arr, min(dep, horizon)):
+                    actions[step] = 2   # DIVERT to platform
 
             # After last station: PROCEED to destination
             if stops:
@@ -428,7 +428,7 @@ class CorridorPlanner:
                 if last_station in t_sched:
                     last_dep = t_sched[last_station]['departure']
                     for step in range(last_dep, min(last_dep + 50, horizon)):
-                        actions.append((step, 1))   # PROCEED_MAIN to terminus
+                        actions[step] = 1   # PROCEED_MAIN to terminus
 
             expert_actions[tid] = actions
 

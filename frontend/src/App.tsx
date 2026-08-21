@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ToastContainer } from './components/ToastContainer/ToastContainer';
 import { MaintenanceDrawer } from './components/MaintenanceDrawer/MaintenanceDrawer';

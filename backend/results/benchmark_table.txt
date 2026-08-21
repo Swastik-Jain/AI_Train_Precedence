@@ -1,25 +1,25 @@
 Metric                 | Rule-Based             | FCFS                   | RL Agent               | RL + Shield           
 -----------------------|------------------------|------------------------|------------------------|-----------------------
-Avg Reward             | 238.17                 | 257.45                 | 311.55                 | 344.11                
-Std Reward             | 153.15                 | 209.61                 | 125.09                 | 109.32                
-Min Reward (worst)     | 15.7                   | -42.88                 | 88.55                  | 88.42                 
-P5 Reward (5th pctl)   | 23.83                  | -33.48                 | 114.33                 | 148.36                
-Avg Ep Length          | 346.1                  | 315.9                  | 381.4                  | 392.3                 
-Max Ep Length          | 424.0                  | 399.0                  | 435.0                  | 479.0                 
-Timeout Rate %         | 0.0                    | 0.0                    | 0.0                    | 0.0                   
-Collision Rate %       | 0.0                    | 0.0                    | 0.0                    | 0.0                   
-On Time %              | 68.0                   | 67.2                   | 82.4                   | 87.5                  
-Avg Delay (steps)      | 2.9                    | 1.5                    | 2.1                    | 1.7                   
-Ghat Wait (steps)      | 217.5                  | 187.3                  | 162.2                  | 122.8                 
-High-Prio Delay        | 3.7                    | 2.4                    | 3.4                    | 2.7                   
-Efficiency (T/step)    | 0.0467                 | 0.0479                 | 0.0547                 | 0.0563                
+Avg Reward             | -6059.01               | -6382.41               | -1899.03               | -1200.34              
+Std Reward             | 2148.93                | 2490.44                | 1299.29                | 292.31                
+Min Reward (worst)     | -13411.04              | -17230.28              | -7991.93               | -1943.62              
+P5 Reward (5th pctl)   | -9847.92               | -10948.46              | -5319.52               | -1697.5               
+Avg Ep Length          | 1404.7                 | 1484.3                 | 801.3                  | 651.7                 
+Max Ep Length          | 1822.0                 | 1819.0                 | 1811.0                 | 697.0                 
+Timeout Rate %         | 56.5                   | 62.0                   | 8.5                    | 0.0                   
+Collision Rate %       | 97.5                   | 96.0                   | 8.0                    | 0.0                   
+On Time %              | 0.0                    | 0.0                    | 0.0                    | 0.0                   
+Avg Delay (steps)      | 887.6                  | 863.4                  | 325.8                  | 191.1                 
+Ghat Wait (steps)      | 7239.5                 | 10000.1                | 1513.7                 | 774.6                 
+High-Prio Delay        | 849.5                  | 853.9                  | 322.0                  | 172.1                 
+Efficiency (T/step)    | 0.0086                 | 0.0098                 | 0.0332                 | 0.0384                
 
 ────────────────────────────────────────────────────────────
 IMPROVEMENT SUMMARY (RL Agent vs Rule-Based):
 ────────────────────────────────────────────────────────────
-  Reward:      +73.38 (+30.8%)
-  On-Time:     +14.4 pp
-  Consistency: -28.06 std (better)
-  Worst-Case:  +72.85 min reward (better)
-  HP Delay:    -0.3 steps (better)
-  T-Test (p):  1.7637e-01 (not significant)
+  Reward:      +4159.98 (+68.7%)
+  On-Time:     +0.0 pp
+  Consistency: -849.64 std (better)
+  Worst-Case:  +5419.11 min reward (better)
+  HP Delay:    -527.5 steps (better)
+  T-Test (p):  9.6083e-72 (significant)

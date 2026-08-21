@@ -2,9 +2,11 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+import os
+
 # 1. Database Configuration
 # We use a hardcoded SQLite path to avoid "None" port errors.
-DATABASE_URL = "sqlite:///./train_simulation.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./train_simulation.db")
 
 # 2. Create the Engine
 # check_same_thread=False is strictly required for SQLite + FastAPI

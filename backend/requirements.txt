@@ -6,6 +6,7 @@ websockets
 # AI & Constraint Programming
 ortools
 stable-baselines3[extra]  # Includes PyTorch
+sb3-contrib
 gymnasium
 
 # Data Handling
@@ -15,14 +16,12 @@ matplotlib
 scipy
 
 # Database Connector
-psycopg2-binary
 
 # Environment Variables
 python-dotenv
 
 # Database
 sqlalchemy
-psycopg2-binary
 # Testing
 pytest
 pytest-asyncio
