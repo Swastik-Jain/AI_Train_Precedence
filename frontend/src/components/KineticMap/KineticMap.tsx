@@ -480,15 +480,7 @@ export const KineticMap: React.FC = () => {
         const cap = stationCapacityFor(stId, nodeCapacity(node));
         if (edgeContext) {
           const { srcNode, tgtNode } = edgeContext;
-          let otherNode = node.id === srcNode?.id ? tgtNode : srcNode;
-          
-          if (train.reserved_platform && otherNode && otherNode.type !== 'PLATFORM' && otherNode.type !== 'LOOP' && otherNode.type !== 'CROSSING_LOOP') {
-              const resNode = topology?.nodes.find(n => n.id === train.reserved_platform || n.id === String(train.reserved_platform));
-              if (resNode) {
-                  otherNode = resNode as Node;
-              }
-          }
-
+          const otherNode = node.id === srcNode?.id ? tgtNode : srcNode;
           if (otherNode && (otherNode.type === 'PLATFORM' || otherNode.type === 'LOOP' || otherNode.type === 'CROSSING_LOOP')) {
             const thisStId = getNodeStId(node);
             const otherStId = getNodeStId(otherNode);

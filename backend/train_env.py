@@ -1338,6 +1338,10 @@ class TrainDispatchEnv(gym.Env):
                 train['committed_next_node'] = train['reserved_platform']
             else:
                 fallback_node = _display_next_opts[0] if _display_next_opts else pos
+                if _display_next_opts and is_branching_entry:
+                    pf_opts = [n for n in _display_next_opts if self.track_map.get(n, {}).get('type') in ('PLATFORM', 'LOOP')]
+                    if pf_opts:
+                        fallback_node = pf_opts[0]
                 train['committed_next_node'] = fallback_node
 
             # A2: awaiting_platform — True only when the train is at a switch
@@ -1529,6 +1533,13 @@ class TrainDispatchEnv(gym.Env):
                     pos = target_node
                     node_data = self.track_map.get(pos, {}) # update node_data for next iteration
 
+                    # Re-evaluate loop-scoped variables so the action block and A1 display phase
+                    # (which run later in this SAME tick) use the new node's topology, not the old one's.
+                    # Without this, trains arriving at a switch evaluate act=1 against the OLD main_block node,
+                    # failing to trigger _select_divert_target until the NEXT tick, causing visual zig-zags.
+                    _display_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
+                    is_branching_entry = node_data.get('type') == 'SWITCH' and len(_display_next_opts) > 1
+
                     _commit_next_opts = node_data.get('prev', []) if direction == 'UP' else node_data.get('next', [])
                     _commit_is_branching_entry = node_data.get('type') == 'SWITCH' and len(_commit_next_opts) > 1
                     if (_commit_is_branching_entry
@@ -1547,6 +1558,10 @@ class TrainDispatchEnv(gym.Env):
                         train['committed_next_node'] = train['reserved_platform']
                     else:
                         fallback_node = _commit_next_opts[0] if _commit_next_opts else pos
+                        if _commit_is_branching_entry:
+                            pf_opts = [n for n in _commit_next_opts if self.track_map.get(n, {}).get('type') in ('PLATFORM', 'LOOP')]
+                            if pf_opts:
+                                fallback_node = pf_opts[0]
                         train['committed_next_node'] = fallback_node
                     self._movement_acc[i] -= dist_to_next
                     if _commit_is_branching_entry:
