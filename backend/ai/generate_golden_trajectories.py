@@ -485,6 +485,78 @@ def run_solver_with_start_times(solver_map: dict, fleet: list, out_path: str, go
     return result
 
 
+def generate_golden_with_corridor_planner(num_trains: int = 25, out_path: str = "expert_actions.json", golden_path: str = "golden_schedule.json"):
+    from map_generator import generate_realistic_section, STATIONS
+    from config import generate_daily_schedule
+    from or_tools.corridor_planner import CorridorPlanner
+
+    raw_map, loop_sections, end_node, station_nodes, token_blocks = generate_realistic_section()
+    
+    # Build solver_map
+    track_map = {}
+    for nid, ndata in raw_map.items():
+        track_map[nid] = {
+            "type": ndata.get("type", "BLOCK"),
+            "capacity": ndata.get("capacity", 1),
+            "next": ndata.get("next", [])
+        }
+
+    all_expert_actions = {}
+    combined_schedule = {}
+
+    seeds = [42, 101, 202, 303, 404]
+    logger.info(f"🚂 Generating multi-scenario golden trajectories across {len(seeds)} random schedule seeds...")
+
+    planner = CorridorPlanner(track_map, STATIONS, token_blocks)
+
+    for s_idx, s_val in enumerate(seeds):
+        fleet_def, schedule_req = generate_daily_schedule(num_trains=num_trains, seed=s_val)
+
+        active_fleet = []
+        planner_schedule_req = {}
+
+        for t in fleet_def:
+            t_id = t["id"]
+            direction = t.get("direction", "DOWN")
+            active_fleet.append({
+                "id": t_id,
+                "direction": direction,
+                "priority": t.get("priority", 5),
+                "max_speed": t.get("max_speed", 100),
+                "banker_required": t.get("banker_required", False),
+                "finished": False,
+                "position": 0 if direction == "DOWN" else 998,
+            })
+            planner_schedule_req[t_id] = schedule_req.get(t_id, {})
+
+        res = planner.solve(active_fleet, planner_schedule_req, sim_time=0)
+        if res and res.get("status") in ("OPTIMAL", "FEASIBLE"):
+            seed_acts = res.get("expert_actions", {})
+            for t_id, act_list in seed_acts.items():
+                if t_id not in all_expert_actions:
+                    all_expert_actions[t_id] = []
+                all_expert_actions[t_id].extend(act_list)
+            combined_schedule[f"seed_{s_val}"] = res.get("schedule", {})
+            logger.info(f"  ✅ Seed {s_val} solved successfully ({len(seed_acts)} trains).")
+
+    output_data = {
+        "schedule": combined_schedule,
+        "expert_actions": all_expert_actions,
+    }
+
+    with open(out_path, "w") as f:
+        json.dump(output_data, f, indent=4)
+
+    with open(golden_path, "w") as f:
+        json.dump(output_data, f, indent=4)
+
+    total_steps = sum(len(v) for v in all_expert_actions.values())
+    logger.info(f"💾 Multi-scenario expert actions ({len(all_expert_actions)} trains, {total_steps} total action steps across {len(seeds)} seeds) → {out_path}")
+    logger.info(f"💾 Golden schedule → {golden_path}")
+
+    return output_data
+
+
 # ─────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────
@@ -495,8 +567,8 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument(
-        "--trains", type=int, default=7,
-        help="Number of trains from the fleet template (max 7, default 7)"
+        "--trains", type=int, default=25,
+        help="Number of trains from daily schedule generator (default 25)"
     )
     parser.add_argument(
         "--out", default="expert_actions.json",
@@ -508,30 +580,18 @@ def main():
     )
     args = parser.parse_args()
 
-    num_trains = min(args.trains, len(FLEET_TEMPLATES))
-    logger.info(f"🚂 Generating golden trajectories for {num_trains} trains...")
+    logger.info(f"🚂 Generating golden trajectories for {args.trains} trains...")
 
-    # 1. Build map
-    solver_map, end_node = build_track_map_for_solver()
-
-    # 2. Build fleet (start node is always "1" — first block after YARD)
-    fleet = build_active_fleet(solver_map, start_node="1", end_node=end_node)
-    fleet = fleet[:num_trains]
-
-    # 3. Solve
-    result = run_solver_with_start_times(
-        solver_map, fleet,
+    result = generate_golden_with_corridor_planner(
+        num_trains=args.trains,
         out_path=args.out,
         golden_path=args.golden
     )
 
     if result:
-        total_steps = sum(len(v) for v in result["expert_actions"].values())
-        logger.info(
-            f"🏁 Done. {num_trains} trains | {total_steps} total action steps generated."
-        )
-        logger.info("   Ready for Behaviour Cloning — run:")
-        logger.info(f"   python run_bc_warmup.py --expert {args.out}")
+        logger.info("🏁 Done! Expert actions generated successfully.")
+        logger.info(f"   Ready for Behaviour Cloning — run:")
+        logger.info(f"   python hybrid_connector.py --step 1 --expert {args.out} --trains {args.trains}")
     else:
         logger.error("Generation failed. Check logs above.")
         sys.exit(1)
@@ -539,3 +599,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

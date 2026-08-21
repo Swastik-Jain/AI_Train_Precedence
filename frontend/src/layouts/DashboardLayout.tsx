@@ -4,10 +4,7 @@ import { motion } from 'framer-motion';
 import {
   LayoutDashboard,
   Gauge,
-  GitBranch,
   Wrench,
-  TrendingUp,
-  HelpCircle,
   LogOut,
   ChevronRight,
   Menu,
@@ -50,7 +47,7 @@ const DashboardLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { 
     isLockdown, isSafetyShield,
-    networkFluidity, haltedPct, activeTrains, isBackendReachable,
+    networkFluidity, haltedPct, isBackendReachable,
     fetchStatus, setLockdown, setSafetyShield 
   } = useSystemStore();
   const mapConnected = useMapStore(state => state.isConnected);

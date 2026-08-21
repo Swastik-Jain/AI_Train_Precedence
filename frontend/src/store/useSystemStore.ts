@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiUrl, wsUrl } from '../lib/api';
+import { apiUrl } from '../lib/api';
 
 interface SystemState {
   isLockdown: boolean;

@@ -1,4 +1,4 @@
-import { apiUrl, wsUrl } from '../lib/api';
+import { apiUrl } from '../lib/api';
 import { create } from 'zustand';
 import { useCopilotStore } from './useCopilotStore';
 

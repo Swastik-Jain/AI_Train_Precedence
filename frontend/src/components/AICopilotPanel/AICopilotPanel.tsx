@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Info, CheckCircle2, Pencil, X, Zap, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
-import { useCopilot } from '../../hooks/useCopilot';
+import { useCopilot, type ActionResult } from '../../hooks/useCopilot';
 import type { AISuggestion } from '../../store/useCopilotStore';
 import './AICopilotPanel.css';
 
@@ -19,8 +19,8 @@ const PRIORITY_META: Record<number, { label: string; color: string; bg: string }
 // ---------------------------------------------------------------------------
 // TTL Hook
 // ---------------------------------------------------------------------------
-const useCardAge = (suggestion: AISuggestion) => {
-  const [ageSecs, setAgeSecs] = useState(0);
+const useAge = (suggestion: AISuggestion) => {
+  const [ageSecs, setAgeSecs] = useState<number>(0);
   React.useEffect(() => {
     const start = new Date(suggestion.timestamp).getTime();
     const updateAge = () => setAgeSecs(Math.floor((Date.now() - start) / 1000));
@@ -107,38 +107,35 @@ const WhyTooltip: React.FC<{ reasoning: string }> = ({ reasoning }) => {
 // ---------------------------------------------------------------------------
 const DecisionCard: React.FC<{
   suggestion: AISuggestion;
-  onOverride: (id: string, modAct?: number, modEdge?: string) => Promise<void>;
+  onOverride: (id: string, modAct?: number, modEdge?: string) => Promise<ActionResult>;
   onDismiss: (id: string) => void;
   onHoverStart: (s: AISuggestion) => void;
   onHoverEnd: () => void;
 }> = ({ suggestion, onOverride, onDismiss, onHoverStart, onHoverEnd }) => {
-  const [approveState, setApproveState] = useState<'idle' | 'verifying' | 'success' | 'conflict'>('idle');
+  const [approveState, setApproveState] = useState<'idle' | 'verifying' | 'conflict' | 'success'>('idle');
   const [isModifying, setIsModifying] = useState(false);
-  const [modAct, setModAct] = useState<number>((suggestion as any).rl_action ?? 1);
-  const [modEdge, setModEdge] = useState<string>(suggestion.affected_edges?.[0] || '');
+  const [modAct, setModAct] = useState<number>((suggestion as any).suggested_action ?? (suggestion as any).rl_action ?? 1);
+  const [modEdge, setModEdge] = useState<string>((suggestion as any).parameters?.target_edge || suggestion.affected_edges?.[0] || '');
 
-  const age = useCardAge(suggestion);
-  const TTL = 20; // Increased to 20s to match new tick interval
+  const age = useAge(suggestion);
+  const TTL = (suggestion as any).ttl_seconds || 20;
   const isExpired = age >= TTL || suggestion.status === 'expired';
 
   const pm = PRIORITY_META[suggestion.priority_level] ?? PRIORITY_META[3];
-
 
   const handleOverride = useCallback(async () => {
     if (approveState !== 'idle' || isExpired) return;
     setApproveState('verifying');
     const result = await onOverride(suggestion.recommendation_id, isModifying ? modAct : undefined, isModifying ? modEdge : undefined);
-    // @ts-ignore — result type from parent
-    if (result?.ok === false && result?.safetyConflict) {
+    if (!result.ok && result.safetyConflict) {
       setApproveState('conflict');
       setTimeout(() => setApproveState('idle'), 3000);
-    } else if (result?.ok === false) {
+    } else if (!result.ok) {
       setApproveState('idle');
     } else {
       setApproveState('success');
       setTimeout(() => setApproveState('idle'), 2000);
     }
-    // Note: card is no longer removed from the list, it's marked as 'overridden'
   }, [approveState, isExpired, onOverride, suggestion.recommendation_id, isModifying, modAct, modEdge]);
 
   return (

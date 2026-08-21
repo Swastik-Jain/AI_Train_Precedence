@@ -863,8 +863,8 @@ class TrainDispatchEnv(gym.Env):
                     break
 
             # SAFETY RULE: If train is actively inside the token block, it MUST
-            # keep attempting to move every tick. Sleeping on the mountain pass
-            # causes the following train to rear-end it. We remove HOLD from the
+            # keep attempting to move every tick. Stopping within the critical gradient section
+            # causes trailing trains to collide. We remove HOLD from the
             # mask regardless of whether PROCEED/DIVERT are available — if both
             # are capacity-blocked, the step() physics will reject the move and
             # keep the train in place anyway, but the RL model must keep sending
@@ -1484,6 +1484,7 @@ class TrainDispatchEnv(gym.Env):
                             self._train_speeds[i] = 0
                             if not moved_this_step:
                                 reward -= 0.5
+                                train['idle_time'] += 1
                             current_positions.append(pos)
                             break
                     else:
@@ -1494,6 +1495,8 @@ class TrainDispatchEnv(gym.Env):
                                 train['speed'] = 0
                                 train['target_speed'] = 0
                                 self._train_speeds[i] = 0
+                                if not moved_this_step:
+                                    train['idle_time'] += 1
                                 current_positions.append(pos)
                                 break
 
@@ -1515,8 +1518,7 @@ class TrainDispatchEnv(gym.Env):
                         self._train_speeds[i] = 0
                         if not moved_this_step:
                             reward -= 0.1
-                            if not self._is_in_token_block(pos):
-                                train['idle_time'] += 1
+                            train['idle_time'] += 1
                         current_positions.append(pos)
                         break
 
@@ -1664,15 +1666,23 @@ class TrainDispatchEnv(gym.Env):
                 for nxt in next_opts:
                     if (self.get_node_occupancy(nxt) <
                             self.track_map.get(nxt, {}).get('capacity', 1)):
+                        was_in_token = self._is_in_token_block(pos)
+                        now_in_token = self._is_in_token_block(nxt)
                         self._move_train(t, pos, nxt)
                         t['position'] = nxt
                         rescued = True
+                        if was_in_token and not now_in_token:
+                            print(f"[TOKEN] Train {t['id']} EXITS token block via RESCUE at node {nxt} (from {pos})")
+                            self.ghat_token.train_exited(t['id'])
                         break
                 t['idle_time'] = 0   # reset so it doesn't re-trigger immediately
                 if not rescued:
                     # Truly no escape — mark finished to unblock others
                     t['finished'] = True
                     reward -= 20.0
+                    if self._is_in_token_block(pos):
+                        print(f"[TOKEN] Train {t['id']} EXITS token block via DEATH at node {pos}")
+                        self.ghat_token.train_exited(t['id'])
 
 
         # ── Collision detection ───────────────────────────────────────────

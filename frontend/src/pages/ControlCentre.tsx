@@ -29,16 +29,11 @@ const fadeUp = {
   }),
 };
 
-const stagger = {
-  hidden:  {},
-  visible: { transition: { staggerChildren: 0.07 } },
-};
-
 const ControlCentre: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'simulate' | 'maintenance' | 'audit'>('simulate');
   
   // Stores
-  const { activeBlocks, fetchActiveBlocks, removeBlockRemote, openDrawer, impactReport, applyBlockRemote } = useMaintenanceStore();
+  const { activeBlocks, fetchActiveBlocks, removeBlockRemote, applyBlockRemote } = useMaintenanceStore();
   const { trainStates, allTrains, topology } = useMapStore();
   const blockList = Array.from(activeBlocks.values());
 
@@ -47,7 +42,6 @@ const ControlCentre: React.FC = () => {
   const [latencies, setLatencies] = useState<Record<string, number>>({});
   const [selectedDuration, setSelectedDuration] = useState(0);
   const [isRecalculating, setIsRecalculating] = useState(false);
-  const [recalculatedForTrain, setRecalculatedForTrain] = useState<string | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
   const [scenarioLabel, setScenarioLabel] = useState('Scenario A');
   const [forcedActions, setForcedActions] = useState<Record<string, number>>({});
@@ -179,7 +173,6 @@ const ControlCentre: React.FC = () => {
             setScenarioLabel(`Scenario ${String.fromCharCode(65 + updated.length)}`);
             return updated;
         });
-        setRecalculatedForTrain(delayTrainId);
     } catch (err) {
         console.error('[Sandbox] Analysis failed:', err);
     } finally {
@@ -719,7 +712,7 @@ const ControlCentre: React.FC = () => {
 
                             {/* Blocks */}
                             <div className="relative z-10 flex flex-col gap-4 mt-2">
-                                {Array.from(new Set(blockList.map(b => b.element_id))).slice(0,5).map((edgeId, idx) => (
+                                {Array.from(new Set(blockList.map(b => b.element_id))).slice(0,5).map((edgeId) => (
                                     <div key={edgeId} className="flex items-center h-6">
                                         <div className="w-[120px] text-[11px] font-bold text-on-surface-variant truncate pr-4 text-right">
                                             {edgeId}

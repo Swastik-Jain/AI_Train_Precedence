@@ -409,12 +409,12 @@ def assert_temporal_alignment(env, expert_data: dict):
         logger.info("✅ Temporal alignment OK — OR horizon fits within RL episode.")
 
     obs_shape    = env.observation_space.shape
-    expected_obs = (MAX_TRAINS_CAPACITY, 10)
+    expected_obs = (MAX_TRAINS_CAPACITY, 25)
     if obs_shape != expected_obs:
         raise ValueError(
             f"Observation space mismatch: env has {obs_shape}, "
             f"hybrid_connector expects {expected_obs}. "
-            "Ensure train_env.py uses shape=(MAX_TRAINS_CAPACITY, 10)."
+            "Ensure train_env.py uses shape=(MAX_TRAINS_CAPACITY, 25)."
         )
     else:
         logger.info(f"✅ Observation vector aligned: {obs_shape}.")
@@ -476,7 +476,13 @@ def _build_env_and_model(args, MODELS_DIR, LOGS_DIR):
         if os.path.exists(stats_path):
             logger.info(f"👓 Loading normalisation stats from: {stats_path}")
             norm_env = VecNormalize.load(stats_path, vec_env)
-        model = MaskablePPO.load(load_path, env=norm_env, tensorboard_log=LOGS_DIR)
+        
+        custom_objects = {
+            "ent_coef": 0.08,
+            "learning_rate": 3e-4,
+        }
+        model = MaskablePPO.load(load_path, env=norm_env, tensorboard_log=LOGS_DIR, custom_objects=custom_objects)
+        model.ent_coef = 0.08
     else:
         logger.info("✨ Creating fresh MaskablePPO model...")
         model = MaskablePPO(

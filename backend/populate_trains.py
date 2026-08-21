@@ -1,4 +1,5 @@
-import requests
+import urllib.request
+import json
 import random
 import sys
 import os
@@ -21,11 +22,15 @@ TRAIN_TYPES = [
 
 def populate():
     # First, fetch current trains and delete them to start fresh
-    res = requests.get(API_URL)
-    if res.ok:
-        data = res.json()
-        for t in data.get('fleet', []):
-            requests.delete(f"{API_URL}/{t['train_id']}")
+    try:
+        req = urllib.request.Request(API_URL)
+        with urllib.request.urlopen(req) as res:
+            data = json.loads(res.read().decode())
+            for t in data.get('fleet', []):
+                req_del = urllib.request.Request(f"{API_URL}/{t['train_id']}", method='DELETE')
+                urllib.request.urlopen(req_del)
+    except Exception as e:
+        print(f"Note: Could not fetch/delete existing trains (they might already be empty): {e}")
     
     print("Populating 25 trains...")
     for i in range(1, 26):
@@ -39,11 +44,14 @@ def populate():
             "deadline": compute_deadline(start_t, speed),
             "direction": random.choice([1, 2])
         }
-        r = requests.post(API_URL, json=payload)
-        if r.ok:
-            print(f"Added {payload['train_id']}")
-        else:
-            print(f"Failed to add {payload['train_id']}: {r.text}")
+        
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req_post = urllib.request.Request(API_URL, data=data, headers={'Content-Type': 'application/json'}, method='POST')
+            with urllib.request.urlopen(req_post) as res:
+                print(f"Added {payload['train_id']}")
+        except Exception as e:
+            print(f"Failed to add {payload['train_id']}: {e}")
 
 if __name__ == "__main__":
     populate()
